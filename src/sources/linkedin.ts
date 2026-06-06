@@ -12,7 +12,10 @@
 
 import { linkedinSearch, getJobDetail, resolveSearchParam } from "@/unipile/client";
 import { config } from "@/config";
+import type { AppSettingsData } from "@/lib/settings";
 import type { RawJob } from "./types";
+
+type SearchCfg = AppSettingsData["search"];
 
 interface LinkedinJobItem {
   id: string;
@@ -26,10 +29,10 @@ interface LinkedinJobItem {
 
 let cachedRegionId: string | null | undefined;
 
-async function regionId(): Promise<string | null> {
+async function regionId(locationText: string): Promise<string | null> {
   if (cachedRegionId !== undefined) return cachedRegionId;
   try {
-    const items = await resolveSearchParam(config.owner.linkedinAccountId, "LOCATION", "India");
+    const items = await resolveSearchParam(config.owner.linkedinAccountId, "LOCATION", locationText || "India");
     cachedRegionId = items[0]?.id ?? null;
   } catch {
     cachedRegionId = null;
@@ -39,21 +42,22 @@ async function regionId(): Promise<string | null> {
 
 const MAX_DETAILS_PER_KEYWORD = 8; // cap detail fetches (each is an API call)
 
-export async function fetchLinkedinJobs(keyword: string): Promise<RawJob[]> {
+export async function fetchLinkedinJobs(keyword: string, search: SearchCfg): Promise<RawJob[]> {
   const accountId = config.owner.linkedinAccountId;
   if (!accountId) return [];
 
-  const region = await regionId();
+  const region = await regionId(search.location);
 
   const params: Record<string, unknown> = {
     api: "classic",
     category: "jobs",
     keywords: keyword,
-    seniority: [...config.search.linkedinSeniority],
-    job_type: [...config.search.linkedinJobType],
-    date_posted: config.search.recencyDays,   // only recent postings
-    sort_by: "date",                            // newest first
+    seniority: [...search.linkedinSeniority],
+    job_type: [...search.linkedinJobType],
+    date_posted: search.recencyDays,   // only recent postings
+    sort_by: "date",                    // newest first
   };
+  if (search.linkedinPresence?.length) params.presence = [...search.linkedinPresence];
   if (region) params.region = region;
 
   let items: LinkedinJobItem[] = [];

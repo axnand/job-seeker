@@ -1,50 +1,56 @@
 /**
  * Runtime settings — DB row merged over config.ts defaults.
- * config.ts is the source of types and fallback values.
- * The DB row stores only the keys the owner has overridden.
+ * config.ts is the source of types and fallback values; the DB row stores
+ * overrides. EVERYTHING tunable lives here so nothing needs a code edit.
  *
- * Usage:
  *   const s = await getSettings();
- *   s.sources.jsearch   // true/false from DB (or config default)
+ *   s.search.recencyDays   // from DB (or config default)
  */
 
 import { prisma } from "./prisma";
 import { config } from "@/config";
 
 export interface AppSettingsData {
-  // Sources
   sources: {
-    linkedin:     boolean;
-    adzuna:       boolean;
-    atsWatchlist: boolean;
-    remotive:     boolean;
-    remoteok:     boolean;
-    jsearch:      boolean;
+    linkedin: boolean; adzuna: boolean; atsWatchlist: boolean;
+    remotive: boolean; remoteok: boolean; jsearch: boolean;
   };
-  // Search
   search: {
     keywords:             string[];
     location:             string;
+    recencyDays:          number;
     relevanceThreshold:   number;
     minSalaryAmount:      number;
     minSalaryCurrency:    string;
+    baseCurrency:         string;
     strictSalary:         boolean;
     blacklistedCompanies: string[];
+    // LinkedIn native job filters
+    linkedinSeniority:    string[]; // entry | associate | mid_senior | director | executive | intern
+    linkedinPresence:     string[]; // remote | hybrid | on_site
+    linkedinJobType:      string[]; // full_time | part_time | contract | internship
   };
-  // Outreach
+  // Candidate profile — drives the AI scoring rubric
+  profile: {
+    summary:             string;
+    targetRoles:         string[];
+    preferredIndustries: string[];
+    seniorityLevel:      string;
+    currentBaseLPA:      number;
+    acceptableSeniority: string[];
+    rejectSeniority:     string[];
+  };
   outreach: {
-    globalPause:             boolean;
-    maxReferralTargetsPerJob:number;
-    followupAfterDays:       number;
-    maxFollowups:            number;
-    recontactCooldownDays:   number;
-    dailyInviteCap:          number;
-    weeklyInviteCap:         number;
-    dailyDmCap:              number;
-    sendWindowStart:         number;
-    sendWindowEnd:           number;
+    globalPause: boolean; maxReferralTargetsPerJob: number;
+    followupAfterDays: number; maxFollowups: number; recontactCooldownDays: number;
+    dailyInviteCap: number; weeklyInviteCap: number; dailyDmCap: number;
+    sendWindowStart: number; sendWindowEnd: number;
   };
-  // AI
+  staleness: {
+    archiveAfterDays:       number;
+    noNewOutreachAfterDays: number;
+  };
+  targetCompanies: Array<{ name: string; ats: "greenhouse" | "lever" | "ashby"; boardToken: string }>;
   ai: {
     enableResumeTailoring: boolean;
     defaultModel:          string;
@@ -52,84 +58,92 @@ export interface AppSettingsData {
 }
 
 function defaults(): AppSettingsData {
+  const c = config;
   return {
-    sources: { ...config.sources },
+    sources: { ...c.sources },
     search: {
-      keywords:             [...config.search.keywords],
-      location:             config.search.location,
-      relevanceThreshold:   config.search.relevanceThreshold,
-      minSalaryAmount:      config.search.minSalary.amount,
-      minSalaryCurrency:    config.search.minSalary.currency,
-      strictSalary:         config.search.strictSalary,
-      blacklistedCompanies: [...config.search.blacklistedCompanies],
+      keywords:             [...c.search.keywords],
+      location:             c.search.location,
+      recencyDays:          c.search.recencyDays,
+      relevanceThreshold:   c.search.relevanceThreshold,
+      minSalaryAmount:      c.search.minSalary.amount,
+      minSalaryCurrency:    c.search.minSalary.currency,
+      baseCurrency:         c.search.baseCurrency,
+      strictSalary:         c.search.strictSalary,
+      blacklistedCompanies: [...c.search.blacklistedCompanies],
+      linkedinSeniority:    [...c.search.linkedinSeniority],
+      linkedinPresence:     [...c.search.linkedinPresence],
+      linkedinJobType:      [...c.search.linkedinJobType],
+    },
+    profile: {
+      summary:             c.resume.summary,
+      targetRoles:         [...c.resume.targetRoles],
+      preferredIndustries: [...c.resume.preferredIndustries],
+      seniorityLevel:      c.resume.seniorityLevel,
+      currentBaseLPA:      c.resume.constraints.currentBaseLPA,
+      acceptableSeniority: [...c.resume.constraints.acceptableSeniority],
+      rejectSeniority:     [...c.resume.constraints.rejectSeniority],
     },
     outreach: {
-      globalPause:              config.outreach.globalPause,
-      maxReferralTargetsPerJob: config.outreach.maxReferralTargetsPerJob,
-      followupAfterDays:        config.outreach.followupAfterDays,
-      maxFollowups:             config.outreach.maxFollowups,
-      recontactCooldownDays:    config.outreach.recontactCooldownDays,
-      dailyInviteCap:           config.outreach.dailyInviteCap,
-      weeklyInviteCap:          config.outreach.weeklyInviteCap,
-      dailyDmCap:               config.outreach.dailyDmCap,
-      sendWindowStart:          config.outreach.sendWindowStart,
-      sendWindowEnd:            config.outreach.sendWindowEnd,
+      globalPause:              c.outreach.globalPause,
+      maxReferralTargetsPerJob: c.outreach.maxReferralTargetsPerJob,
+      followupAfterDays:        c.outreach.followupAfterDays,
+      maxFollowups:             c.outreach.maxFollowups,
+      recontactCooldownDays:    c.outreach.recontactCooldownDays,
+      dailyInviteCap:           c.outreach.dailyInviteCap,
+      weeklyInviteCap:          c.outreach.weeklyInviteCap,
+      dailyDmCap:               c.outreach.dailyDmCap,
+      sendWindowStart:          c.outreach.sendWindowStart,
+      sendWindowEnd:            c.outreach.sendWindowEnd,
     },
+    staleness: {
+      archiveAfterDays:       c.staleness.archiveAfterDays,
+      noNewOutreachAfterDays: c.staleness.noNewOutreachAfterDays,
+    },
+    targetCompanies: [...c.targetCompanies],
     ai: {
-      enableResumeTailoring: config.ai.enableResumeTailoring,
-      defaultModel:          config.ai.defaultModel,
+      enableResumeTailoring: c.ai.enableResumeTailoring,
+      defaultModel:          c.ai.defaultModel,
     },
+  };
+}
+
+/** Merge DB overrides over defaults, section by section (per-key for objects). */
+function merge(base: AppSettingsData, db: Partial<AppSettingsData>): AppSettingsData {
+  return {
+    sources:         { ...base.sources,   ...(db.sources   ?? {}) },
+    search:          { ...base.search,    ...(db.search    ?? {}) },
+    profile:         { ...base.profile,   ...(db.profile   ?? {}) },
+    outreach:        { ...base.outreach,  ...(db.outreach  ?? {}) },
+    staleness:       { ...base.staleness, ...(db.staleness ?? {}) },
+    targetCompanies: db.targetCompanies ?? base.targetCompanies,
+    ai:              { ...base.ai,        ...(db.ai        ?? {}) },
   };
 }
 
 let _cache: AppSettingsData | null = null;
 let _cachedAt = 0;
-const CACHE_TTL = 60_000; // 1 min — cron reads this frequently
+const CACHE_TTL = 60_000;
 
 export async function getSettings(): Promise<AppSettingsData> {
-  const now = Date.now();
-  if (_cache && now - _cachedAt < CACHE_TTL) return _cache;
-
+  if (_cache && Date.now() - _cachedAt < CACHE_TTL) return _cache;
   try {
     const row = await prisma.appSettings.findUnique({ where: { id: "default" } });
-    const d = defaults();
-    if (row?.data) {
-      // Deep-merge DB data over defaults so missing keys always have a fallback
-      const db = row.data as Partial<AppSettingsData>;
-      _cache = {
-        sources:  { ...d.sources,  ...(db.sources  ?? {}) },
-        search:   { ...d.search,   ...(db.search   ?? {}) },
-        outreach: { ...d.outreach, ...(db.outreach ?? {}) },
-        ai:       { ...d.ai,       ...(db.ai       ?? {}) },
-      };
-    } else {
-      _cache = d;
-    }
+    _cache = row?.data ? merge(defaults(), row.data as Partial<AppSettingsData>) : defaults();
   } catch {
     _cache = defaults();
   }
-
   _cachedAt = Date.now();
   return _cache;
 }
 
-export async function updateSettings(
-  patch: Partial<AppSettingsData>
-): Promise<AppSettingsData> {
-  const current = await getSettings();
-  const merged: AppSettingsData = {
-    sources:  { ...current.sources,  ...(patch.sources  ?? {}) },
-    search:   { ...current.search,   ...(patch.search   ?? {}) },
-    outreach: { ...current.outreach, ...(patch.outreach ?? {}) },
-    ai:       { ...current.ai,       ...(patch.ai       ?? {}) },
-  };
-
+export async function updateSettings(patch: Partial<AppSettingsData>): Promise<AppSettingsData> {
+  const merged = merge(await getSettings(), patch);
   await prisma.appSettings.upsert({
     where:  { id: "default" },
     create: { id: "default", data: merged as object },
     update: { data: merged as object },
   });
-
   _cache = merged;
   _cachedAt = Date.now();
   return merged;

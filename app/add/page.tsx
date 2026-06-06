@@ -32,10 +32,11 @@ async function addJob(formData: FormData) {
     minSalaryAmount:    settings.search.minSalaryAmount,
     minSalaryCurrency:  settings.search.minSalaryCurrency,
     strictSalary:       settings.search.strictSalary,
+    profile:            settings.profile,
   }).catch(() => null);
   if (!result) redirect("/");
 
-  const normalized = await normalizeSalary(result.salary).catch(() => null);
+  const normalized = await normalizeSalary(result.salary, settings.search.baseCurrency).catch(() => null);
 
   const job = await prisma.job.create({
     data: {

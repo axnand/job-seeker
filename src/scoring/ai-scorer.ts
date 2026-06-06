@@ -18,6 +18,16 @@ export interface ScoringInput {
   minSalaryAmount?: number;
   minSalaryCurrency?: string;
   strictSalary?: boolean;
+  /** Candidate profile from settings (falls back to config.resume). */
+  profile?: {
+    summary: string;
+    targetRoles: string[];
+    preferredIndustries: string[];
+    seniorityLevel: string;
+    currentBaseLPA: number;
+    acceptableSeniority: string[];
+    rejectSeniority: string[];
+  };
 }
 
 export interface ScoringOutput {
@@ -39,7 +49,15 @@ You are deliberately strict: a bad match wastes the candidate's time and outreac
 You MUST respond with a single JSON object — no prose, no markdown fences.`;
 
 function buildPrompt(input: ScoringInput): string {
-  const { summary, targetRoles, preferredIndustries, constraints } = config.resume;
+  const p = input.profile;
+  const summary             = p?.summary             ?? config.resume.summary;
+  const targetRoles         = p?.targetRoles         ?? config.resume.targetRoles;
+  const preferredIndustries = p?.preferredIndustries ?? config.resume.preferredIndustries;
+  const constraints = {
+    acceptableSeniority: p?.acceptableSeniority ?? config.resume.constraints.acceptableSeniority,
+    rejectSeniority:     p?.rejectSeniority     ?? config.resume.constraints.rejectSeniority,
+    currentBaseLPA:      p?.currentBaseLPA      ?? config.resume.constraints.currentBaseLPA,
+  };
   const minSal = {
     amount:   input.minSalaryAmount   ?? config.search.minSalary.amount,
     currency: input.minSalaryCurrency ?? config.search.minSalary.currency,

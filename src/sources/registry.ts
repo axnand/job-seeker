@@ -17,23 +17,24 @@ export async function discoverJobs(): Promise<RawJob[]> {
   const settings = await getSettings();
   const keywords = settings.search.keywords;
   const sources  = settings.sources;
+  const search   = settings.search;
 
   const fetches: Promise<RawJob[]>[] = [];
 
   if (sources.linkedin) {
     fetches.push(
-      ...keywords.map(kw => fetchLinkedinJobs(kw).catch(() => [] as RawJob[]))
+      ...keywords.map(kw => fetchLinkedinJobs(kw, search).catch(() => [] as RawJob[]))
     );
   }
 
   if (sources.adzuna) {
     fetches.push(
-      ...keywords.map(kw => fetchAdzunaJobs(kw).catch(() => [] as RawJob[]))
+      ...keywords.map(kw => fetchAdzunaJobs(kw, search).catch(() => [] as RawJob[]))
     );
   }
 
   if (sources.atsWatchlist) {
-    fetches.push(fetchAtsWatchlist().catch(() => [] as RawJob[]));
+    fetches.push(fetchAtsWatchlist(settings.targetCompanies).catch(() => [] as RawJob[]));
   }
 
   if (sources.remotive) {
@@ -49,7 +50,7 @@ export async function discoverJobs(): Promise<RawJob[]> {
 
   if (sources.jsearch) {
     fetches.push(
-      ...keywords.map(kw => fetchJSearchJobs(kw).catch(() => [] as RawJob[]))
+      ...keywords.map(kw => fetchJSearchJobs(kw, search).catch(() => [] as RawJob[]))
     );
   }
 

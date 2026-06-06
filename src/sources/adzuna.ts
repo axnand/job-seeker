@@ -4,7 +4,10 @@
  */
 
 import { config } from "@/config";
+import type { AppSettingsData } from "@/lib/settings";
 import type { RawJob } from "./types";
+
+type SearchCfg = AppSettingsData["search"];
 
 interface AdzunaJob {
   id: string;
@@ -22,7 +25,7 @@ interface AdzunaResponse {
   results: AdzunaJob[];
 }
 
-export async function fetchAdzunaJobs(keyword: string): Promise<RawJob[]> {
+export async function fetchAdzunaJobs(keyword: string, search: SearchCfg): Promise<RawJob[]> {
   const { appId, appKey } = config.adzuna;
   if (!appId || !appKey) return [];
 
@@ -33,13 +36,13 @@ export async function fetchAdzunaJobs(keyword: string): Promise<RawJob[]> {
     url.searchParams.set("app_id", appId);
     url.searchParams.set("app_key", appKey);
     url.searchParams.set("what", keyword);
-    url.searchParams.set("where", config.search.location);
+    url.searchParams.set("where", search.location);
     url.searchParams.set("results_per_page", "50");
-    url.searchParams.set("max_days_old", String(config.search.recencyDays)); // only recent postings
+    url.searchParams.set("max_days_old", String(search.recencyDays)); // only recent postings
     url.searchParams.set("sort_by", "date");
     url.searchParams.set("content-type", "application/json");
-    if (config.search.minSalary.currency === "INR") {
-      url.searchParams.set("salary_min", String(config.search.minSalary.amount / 12)); // monthly
+    if (search.minSalaryCurrency === "INR") {
+      url.searchParams.set("salary_min", String(Math.round(search.minSalaryAmount / 12))); // monthly
     }
 
     let res: Response;

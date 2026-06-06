@@ -95,9 +95,13 @@ async function fetchAshby(company: string, boardToken: string): Promise<RawJob[]
 
 // ─── Dispatcher ───────────────────────────────────────────────────────────────
 
-export async function fetchAtsWatchlist(): Promise<RawJob[]> {
+type TargetCompany = { name: string; ats: "greenhouse" | "lever" | "ashby"; boardToken: string };
+
+export async function fetchAtsWatchlist(
+  companies: TargetCompany[] = config.targetCompanies
+): Promise<RawJob[]> {
   const results = await Promise.allSettled(
-    config.targetCompanies.map(({ name, ats, boardToken }) => {
+    companies.map(({ name, ats, boardToken }) => {
       if (ats === "greenhouse") return fetchGreenhouse(name, boardToken);
       if (ats === "lever") return fetchLever(name, boardToken);
       if (ats === "ashby") return fetchAshby(name, boardToken);

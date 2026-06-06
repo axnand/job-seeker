@@ -18,7 +18,6 @@ import { normalizeSalary } from "@/salary/normalize";
 import { dedupeKey } from "@/sources/normalize";
 import { sendDailyDigest } from "@/email/digest";
 import { getSettings } from "@/lib/settings";
-import { config } from "@/config";
 import type { AppStage, SalaryBasis, SalaryConfidence, SalaryPeriod } from "@prisma/client";
 
 const SCORE_CONCURRENCY = 6; // parallel LLM calls — fast without hammering rate limits
@@ -35,7 +34,7 @@ export async function POST() {
 
     const now = new Date();
     // Freshness window — only score jobs posted within recencyDays.
-    const maxPostedAge = config.search.recencyDays * 24 * 60 * 60 * 1000;
+    const maxPostedAge = settings.search.recencyDays * 24 * 60 * 60 * 1000;
 
     // Drop old postings + obvious non-engineering roles before scoring
     const eligible = rawJobs.filter(job => {
@@ -60,6 +59,7 @@ export async function POST() {
           minSalaryAmount:    settings.search.minSalaryAmount,
           minSalaryCurrency:  settings.search.minSalaryCurrency,
           strictSalary:       settings.search.strictSalary,
+          profile:            settings.profile,
         }).then(result => ({ raw, result })))
       );
       for (const r of results) {
@@ -72,7 +72,7 @@ export async function POST() {
     const toEmail = [];
     for (const { raw, result } of scored) {
       const appStage: AppStage = result.skipReason ? "SKIPPED" : "NEW";
-      const normalized = await normalizeSalary(result.salary).catch(() => null);
+      const normalized = await normalizeSalary(result.salary, settings.search.baseCurrency).catch(() => null);
 
       const job = await prisma.job.create({
         data: {

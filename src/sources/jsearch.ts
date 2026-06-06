@@ -5,7 +5,10 @@
  */
 
 import { config } from "@/config";
+import type { AppSettingsData } from "@/lib/settings";
 import type { RawJob } from "./types";
+
+type SearchCfg = AppSettingsData["search"];
 
 interface ApplyOption {
   publisher: string;
@@ -62,15 +65,16 @@ function mapPeriod(raw?: string): "year" | "month" | "hour" {
   return "year";
 }
 
-export async function fetchJSearchJobs(keyword: string): Promise<RawJob[]> {
+export async function fetchJSearchJobs(keyword: string, search: SearchCfg): Promise<RawJob[]> {
   const { rapidApiKey } = config.jsearch;
   if (!rapidApiKey) return [];
 
+  const loc = search.location || "India";
   const url = new URL("https://jsearch.p.rapidapi.com/search");
-  url.searchParams.set("query",           `${keyword} in India`);
+  url.searchParams.set("query",           `${keyword} in ${loc}`);
   url.searchParams.set("page",            "1");
   url.searchParams.set("num_pages",       "1");          // 1 page keeps it under timeout
-  url.searchParams.set("date_posted",     config.search.recencyDays <= 1 ? "today" : "3days");
+  url.searchParams.set("date_posted",     search.recencyDays <= 1 ? "today" : "3days");
   url.searchParams.set("employment_types","FULLTIME");
   url.searchParams.set("job_requirements","under_3_years_experience,no_experience"); // entry-level
 
