@@ -1,6 +1,12 @@
 /**
  * Single LLM call: produces relevance score + tailored pitch + salary extraction.
- * Salary and scoring share one prompt to avoid extra API cost.
+ *
+ * Prompt caching strategy:
+ *   - SYSTEM message = static candidate profile (resume, constraints, rubric).
+ *     This never changes between jobs in the same run.
+ *     OpenAI caches automatically when the prefix is identical across calls.
+ *   - USER message = only the dynamic part (company, role, JD, salary hint).
+ *     Each job gets a different user message; the shared system prefix hits cache.
  */
 
 import { chatCompletion, parseJsonResponse } from "@/ai/ai-adapter";
@@ -11,14 +17,11 @@ export interface ScoringInput {
   jdText: string;
   company: string;
   role: string;
-  /** Structured salary from the source, if available (higher-trust hint). */
   sourceSalary?: RawSalary;
-  /** Override config defaults with DB settings values. */
   relevanceThreshold?: number;
   minSalaryAmount?: number;
   minSalaryCurrency?: string;
   strictSalary?: boolean;
-  /** Candidate profile from settings (falls back to config.resume). */
   profile?: {
     summary: string;
     targetRoles: string[];
@@ -37,18 +40,14 @@ export interface ScoringOutput {
   skipReason: string | null;
   salary: RawSalary;
   salaryFlagReason?: string;
-  /** Normalized annual base in config.search.baseCurrency — null if unknown */
   salaryAnnualBase?: number;
-  /** Resume tailoring gate */
   needsTailoring: boolean;
   tailoringSuggestions: string | null;
 }
 
-const SYSTEM_PROMPT = `You are a sharp job-fit analyst screening roles for a specific early-career candidate.
-You are deliberately strict: a bad match wastes the candidate's time and outreach quota.
-You MUST respond with a single JSON object — no prose, no markdown fences.`;
+// ─── System prompt (static — benefits from OpenAI/Anthropic prefix caching) ──
 
-function buildPrompt(input: ScoringInput): string {
+function buildSystemPrompt(input: ScoringInput): string {
   const p = input.profile;
   const summary             = p?.summary             ?? config.resume.summary;
   const targetRoles         = p?.targetRoles         ?? config.resume.targetRoles;
@@ -58,18 +57,14 @@ function buildPrompt(input: ScoringInput): string {
     rejectSeniority:     p?.rejectSeniority     ?? config.resume.constraints.rejectSeniority,
     currentBaseLPA:      p?.currentBaseLPA      ?? config.resume.constraints.currentBaseLPA,
   };
-  const minSal = {
-    amount:   input.minSalaryAmount   ?? config.search.minSalary.amount,
-    currency: input.minSalaryCurrency ?? config.search.minSalary.currency,
-  };
+  const minLPA = ((input.minSalaryAmount ?? config.search.minSalary.amount) / 100000).toFixed(1);
   const threshold = input.relevanceThreshold ?? config.search.relevanceThreshold;
-  const minLPA = (minSal.amount / 100000).toFixed(1);
 
-  const salaryHint = input.sourceSalary?.min
-    ? `\nSource-provided salary (high trust — prefer this over your own estimate): ${JSON.stringify(input.sourceSalary)}`
-    : "";
+  return `You are a sharp job-fit analyst screening roles for a specific early-career candidate.
+You are deliberately strict: a bad match wastes the candidate's time and outreach quota.
+You MUST respond with a single JSON object — no prose, no markdown fences.
 
-  return `## Candidate
+## Candidate background
 ${summary}
 
 Target roles: ${targetRoles.join(", ")}
@@ -78,37 +73,28 @@ Acceptable seniority: ${constraints.acceptableSeniority.join(", ")}
 HARD REJECT seniority: ${constraints.rejectSeniority.join(", ")}
 Current base: ${constraints.currentBaseLPA} LPA. Minimum acceptable base: ${minLPA} LPA (anything at/below is a pay cut).
 
-## Job
-Company: ${input.company}
-Role: ${input.role}
-${salaryHint}
-
-## Job Description
-${input.jdText.slice(0, 6000)}
-
 ## Scoring rubric (be strict — most jobs should NOT pass)
-Start at a baseline and adjust:
-- SENIORITY MISMATCH (most important): If this is a senior / staff / principal / lead / EM / architect role, or requires 4+ years of experience → score 0-25. The candidate is a 2026 new grad with ~1 year; they cannot get these. Hard fail.
-- If it's an internship, unpaid, or contract/temp → score 0-20.
-- PAY: If the salary (stated or your best estimate) is at or below ${minLPA} LPA base → score 0-35 (it's a lateral move or pay cut). Reward roles clearly above ${minLPA} LPA.
-- STACK FIT: Reward overlap with Java/Spring Boot/Kafka/Node/TypeScript/backend/distributed systems/full-stack. Non-engineering roles (sales, design, marketing, copywriter, recruiter) → score 0-15.
-- LEVEL FIT: Reward explicit "new grad", "graduate", "entry-level", "SDE-1", "associate", "Software Engineer I", "0-2 years", "1-3 years" roles. This is the sweet spot.
-- LOCATION (hard rule): Candidate lives in India and cannot relocate. ACCEPT only: (a) jobs located in India, or (b) fully-remote jobs open to India / global-remote / APAC. HARD REJECT (score 0-15) any role that is on-site or hybrid in another country (US/UK/EU/etc.) with no India or remote-for-India option — there is no point surfacing these. A US "remote" role that is actually US-only also fails.
-- COMPANY QUALITY: Slight bonus for strong product companies / well-funded startups that reliably pay above ${minLPA} LPA for new grads (e.g. Salesforce, Atlassian, Google, Microsoft, Uber, Razorpay, etc.).
+- SENIORITY MISMATCH (most important): Senior / staff / principal / lead / EM / architect, or 4+ years required → score 0-25. Hard fail.
+- Internship / unpaid / contract / temp → score 0-20.
+- PAY: Salary at or below ${minLPA} LPA → score 0-35. Reward roles clearly above ${minLPA} LPA.
+- STACK FIT: Reward Java/Spring Boot/Kafka/Node/TypeScript/backend/distributed/full-stack. Non-engineering → score 0-15.
+- LEVEL FIT: Reward "new grad", "entry-level", "SDE-1", "associate", "Software Engineer I", "0-2 years", "1-3 years".
+- LOCATION (hard rule): India only. ACCEPT: (a) jobs in India, (b) global-remote/APAC-remote. HARD REJECT on-site/hybrid outside India → score 0-15.
+- COMPANY QUALITY: Slight bonus for strong product companies / well-funded startups reliably paying above ${minLPA} LPA.
 
 ## Tasks
-1. Score 0-100 per the rubric above.
-2. reason: 2 sentences — explicitly mention seniority fit, pay vs ${minLPA} LPA, and stack fit.
-3. tailoredPitch: 3 lines the candidate can paste into a LinkedIn DM (specific to this role + their backend/distributed-systems background).
-4. salary: extract if stated, else estimate from role + level + company + India market. For India roles use INR. CRITICAL: min/max must be the FULL absolute amount in the base currency unit — e.g. 18 LPA = 1800000 (rupees/year), NOT 18 and NOT in lakhs. period MUST be exactly one of "year" | "month" | "hour" (never "LPA"/"annum").
-5. RESUME TAILORING: The candidate's base resume (above) is strong and general. Decide if it should be tailored BEFORE applying/outreach. Default to needsTailoring=false — only set true when the JD emphasizes specific skills/keywords/domains that are present in the candidate's experience but NOT prominent in the base resume, and surfacing them would materially help (e.g. a specific framework, domain like payments/fintech, or a keyword an ATS would screen on). If true, tailoringSuggestions = 2-4 SPECIFIC, concrete edits (what to add/emphasize and where), each truthful to the candidate's actual background — never invent skills they lack. If false, set tailoringSuggestions to null.
-6. If score < ${threshold}, set skipReason (one short phrase, e.g. "senior role - 5+ yrs required", "below 14.5 LPA", "non-engineering").
+1. Score 0-100 per the rubric.
+2. reason: 2 sentences — seniority fit, pay vs ${minLPA} LPA, stack fit.
+3. tailoredPitch: 3 lines the candidate can paste into a LinkedIn DM. Use ONLY real facts from their background. NO bracket placeholders like [Name], [Company], [Role] — the pitch must be complete and ready to send as-is.
+4. salary: extract if stated, else estimate for India market. INR annual. min/max = FULL rupee amount (18 LPA = 1800000). period = "year"|"month"|"hour" only.
+5. RESUME TAILORING: needsTailoring=false by default. Set true only when the JD emphasizes skills in the candidate's background but not prominent in the base resume, AND surfacing them would materially help. If true, tailoringSuggestions = 2-4 concrete edits (truthful only — never invent skills). If false, tailoringSuggestions = null.
+6. If score < ${threshold}, set skipReason (short phrase, e.g. "senior role 5+ yrs", "below ${minLPA} LPA", "non-engineering", "US-only on-site").
 
-Respond with ONLY this JSON (no markdown):
+Respond ONLY with this JSON (no markdown):
 {
   "score": <0-100>,
   "reason": "<2 sentences>",
-  "tailoredPitch": "<3 lines>",
+  "tailoredPitch": "<3 lines — no bracket placeholders>",
   "skipReason": null,
   "salary": { "min": <number>, "max": <number>, "currency": "<ISO 4217>", "period": "year|month|hour", "basis": "stated|estimated", "confidence": "high|medium|low" },
   "needsTailoring": <true|false>,
@@ -116,36 +102,42 @@ Respond with ONLY this JSON (no markdown):
 }`;
 }
 
-/**
- * Defends against LLM salary quirks:
- *  - period given as "LPA"/"annum"/"per year" → "year"
- *  - Indian lakh convention (e.g. min:15 meaning 15 LPA) → multiply to absolute rupees
- */
-function sanitizeSalary(s: RawSalary): RawSalary {
-  if (!s) return s;
-  const rawPeriod = (s.period as string | undefined)?.toLowerCase() ?? "year";
-  // ONLY "lpa"/"lakh" signal the lakh convention — NOT "year".
-  const saidLakh = /lpa|lakh/.test(rawPeriod);
+// ─── User prompt (dynamic — one per job) ─────────────────────────────────────
 
-  let period: "year" | "month" | "hour" = "year";
-  if (rawPeriod.includes("month")) period = "month";
-  else if (rawPeriod.includes("hour")) period = "hour";
+function buildUserPrompt(input: ScoringInput): string {
+  const salaryHint = input.sourceSalary?.min
+    ? `\nSource-provided salary (high trust): ${JSON.stringify(input.sourceSalary)}`
+    : "";
 
-  let min = s.min ?? undefined;
-  let max = s.max ?? undefined;
-  const currency = (s.currency ?? "INR").toUpperCase();
+  return `## Job
+Company: ${input.company}
+Role: ${input.role}
+${salaryHint}
 
-  // Lakh convention: INR annual where the LLM said "LPA" OR gave a number too
-  // small to be an absolute annual salary (e.g. 15 meaning ₹15 lakh).
-  const ref = max ?? min ?? 0;
-  const looksLikeLakhs = currency === "INR" && period === "year" && (saidLakh || (ref > 0 && ref < 1000));
-  if (looksLikeLakhs) {
-    if (typeof min === "number") min *= 100000;
-    if (typeof max === "number") max *= 100000;
-  }
-
-  return { ...s, min, max, currency, period };
+## Job Description
+${input.jdText.slice(0, 6000)}`;
 }
+
+// ─── Sanitize LLM bracket placeholders ───────────────────────────────────────
+
+/**
+ * Strips unfilled LLM bracket placeholders like [Name], [Company], [Role],
+ * [Hiring Manager's Name], etc. from the pitch before it's embedded in DMs.
+ * These go out literally if not removed and read as broken templates.
+ */
+function sanitizePitch(pitch: string): string {
+  return pitch
+    .replace(/\[([^\]]{1,50})\]/g, (_, inner) => {
+      // Keep things like "[BPIT]" that are actual acronyms/names in the candidate's
+      // background — only strip phrases that look like template placeholders.
+      const looksLikePlaceholder = /name|manager|company|role|position|department|title|recruiter|team/i.test(inner);
+      return looksLikePlaceholder ? "" : `[${inner}]`;
+    })
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function coerceSuggestions(v: string | string[] | null | undefined): string | null {
   if (!v) return null;
@@ -153,14 +145,38 @@ function coerceSuggestions(v: string | string[] | null | undefined): string | nu
   return String(v).trim() || null;
 }
 
+function sanitizeSalary(s: RawSalary): RawSalary {
+  if (!s) return s;
+  const rawPeriod = (s.period as string | undefined)?.toLowerCase() ?? "year";
+  const saidLakh = /lpa|lakh/.test(rawPeriod);
+  let period: "year" | "month" | "hour" = "year";
+  if (rawPeriod.includes("month")) period = "month";
+  else if (rawPeriod.includes("hour")) period = "hour";
+  let min = s.min ?? undefined;
+  let max = s.max ?? undefined;
+  const currency = (s.currency ?? "INR").toUpperCase();
+  const ref = max ?? min ?? 0;
+  const looksLikeLakhs = currency === "INR" && period === "year" && (saidLakh || (ref > 0 && ref < 1000));
+  if (looksLikeLakhs) {
+    if (typeof min === "number") min *= 100000;
+    if (typeof max === "number") max *= 100000;
+  }
+  return { ...s, min, max, currency, period };
+}
+
+// ─── Main export ──────────────────────────────────────────────────────────────
+
 export async function scoreJob(
   input: ScoringInput,
   providerId?: string
 ): Promise<ScoringOutput> {
   const result = await chatCompletion(
     [
-      { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: buildPrompt(input) },
+      // System = static candidate profile + rubric → cached by OpenAI automatically
+      // when the prefix is identical across calls in the same run.
+      { role: "system", content: buildSystemPrompt(input) },
+      // User = only the dynamic part (company + role + JD).
+      { role: "user", content: buildUserPrompt(input) },
     ],
     { temperature: 0.2, response_format: { type: "json_object" } },
     providerId
@@ -176,34 +192,28 @@ export async function scoreJob(
     tailoringSuggestions?: string | string[] | null;
   }>(result.text);
 
-  // Merge source salary as override if it was stated (higher trust than LLM estimate)
   const rawSalary: RawSalary = sanitizeSalary(
     input.sourceSalary?.basis === "stated"
       ? { ...parsed.salary, ...input.sourceSalary }
       : parsed.salary
   );
 
-  const minAnnual  = input.minSalaryAmount    ?? config.search.minSalary.amount;
+  const minAnnual  = input.minSalaryAmount ?? config.search.minSalary.amount;
   const normalized = await normalizeSalary(rawSalary, input.minSalaryCurrency ?? config.search.minSalary.currency);
-  const gate = salaryGate(normalized, minAnnual, input.strictSalary ?? config.search.strictSalary);
+  const gate       = salaryGate(normalized, minAnnual, input.strictSalary ?? config.search.strictSalary);
 
-  // Auto-skip if below salary and gate says fail
   let skipReason = parsed.skipReason;
-  if (!skipReason && !gate.pass) {
-    skipReason = gate.reason ?? "salary_below_threshold";
-  }
+  if (!skipReason && !gate.pass) skipReason = gate.reason ?? "salary_below_threshold";
 
   return {
-    score: Math.max(0, Math.min(100, Math.round(parsed.score))),
-    reason: parsed.reason,
-    tailoredPitch: parsed.tailoredPitch,
+    score:          Math.max(0, Math.min(100, Math.round(parsed.score))),
+    reason:         parsed.reason,
+    tailoredPitch:  sanitizePitch(parsed.tailoredPitch ?? ""),
     skipReason,
-    salary: rawSalary,
-    salaryFlagReason: gate.reason && gate.pass && gate.reason !== "salary_unknown_kept"
-      ? gate.reason
-      : undefined,
+    salary:         rawSalary,
+    salaryFlagReason: gate.reason && gate.pass && gate.reason !== "salary_unknown_kept" ? gate.reason : undefined,
     salaryAnnualBase: normalized?.annualBase,
-    needsTailoring: parsed.needsTailoring === true,
+    needsTailoring:   parsed.needsTailoring === true,
     tailoringSuggestions: parsed.needsTailoring === true ? coerceSuggestions(parsed.tailoringSuggestions) : null,
   };
 }

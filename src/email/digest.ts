@@ -4,7 +4,6 @@
  */
 
 import type { Job } from "@prisma/client";
-import { createActionToken } from "@/lib/tokens";
 import { sendMail } from "./mailer";
 import { config } from "@/config";
 
@@ -52,14 +51,13 @@ function sourceBadge(job: Job): string {
 }
 
 function jobCard(job: Job): string {
-  const approveUrl = `${config.app.baseUrl}/api/webhooks/approval?token=${createActionToken(job.id, "approve")}`;
-  const skipUrl = `${config.app.baseUrl}/api/webhooks/approval?token=${createActionToken(job.id, "skip")}`;
+  // Flow is fully automatic — outreach queues immediately after scoring.
+  // No Approve/Skip needed; just a View link + outreach status.
   const dashboardUrl = `${config.app.baseUrl}/jobs/${job.id}`;
   const salaryFlagNote = job.salaryFlagReason
     ? `<p style="color:#b45309;font-size:12px;margin:8px 0 0">⚠️ ${job.salaryFlagReason.replace(/_/g, " ")}</p>`
     : "";
 
-  // Key facts the owner scans first — salary, location, recency.
   const fact = (icon: string, text: string, color = "#374151") =>
     `<td style="padding:0 16px 0 0;font-size:13px;color:${color};white-space:nowrap;vertical-align:top">${icon}&nbsp;${text}</td>`;
   const facts = [
@@ -67,6 +65,11 @@ function jobCard(job: Job): string {
     job.location ? fact("📍", job.location) : "",
     formatPosted(job) ? fact("🕒", formatPosted(job), "#6b7280") : "",
   ].filter(Boolean).join("");
+
+  // Outreach status line — tells the owner what's already in motion.
+  const outreachStatus = job.applyType === "MANUAL_NOTIFY"
+    ? `<p style="margin:10px 0 0;font-size:12px;color:#6b7280">📋 Manual apply — no outreach queued. Apply link is in the dashboard.</p>`
+    : `<p style="margin:10px 0 0;font-size:12px;color:#2563eb">🤝 Referral outreach queued — connection requests sending in next tick.</p>`;
 
   return `
 <div style="border:1px solid #e5e7eb;border-radius:10px;padding:18px;margin-bottom:14px;font-family:sans-serif">
@@ -86,11 +89,10 @@ function jobCard(job: Job): string {
   ${salaryFlagNote}
 
   <p style="margin:12px 0 0;font-size:14px;line-height:1.5;color:#4b5563">${job.aiReason ?? ""}</p>
+  ${outreachStatus}
 
-  <div style="margin-top:16px">
-    <a href="${approveUrl}" style="display:inline-block;background:#16a34a;color:#fff;padding:9px 18px;border-radius:6px;text-decoration:none;font-size:14px;font-weight:600">✓ Approve</a>
-    <a href="${skipUrl}" style="display:inline-block;background:#f3f4f6;color:#374151;padding:9px 18px;border-radius:6px;text-decoration:none;font-size:14px;margin-left:6px">✗ Skip</a>
-    <a href="${dashboardUrl}" style="display:inline-block;background:#eff6ff;color:#2563eb;padding:9px 18px;border-radius:6px;text-decoration:none;font-size:14px;font-weight:500;margin-left:6px">View →</a>
+  <div style="margin-top:14px">
+    <a href="${dashboardUrl}" style="display:inline-block;background:#1d4ed8;color:#fff;padding:9px 18px;border-radius:6px;text-decoration:none;font-size:14px;font-weight:600">View in dashboard →</a>
   </div>
 </div>`;
 }
@@ -108,7 +110,7 @@ export async function sendDailyDigest(jobs: Job[]): Promise<void> {
   <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0">
   ${jobs.map(jobCard).join("")}
   <p style="color:#9ca3af;font-size:12px;margin-top:24px">
-    Approve/Skip links open the dashboard so you can review the outreach message before anything sends.
+    Outreach is queuing automatically. Open the dashboard to track replies and manage templates.
     <a href="${config.app.baseUrl}" style="color:#6b7280">Open dashboard</a>
   </p>
 </body>
