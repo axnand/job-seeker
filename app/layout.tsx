@@ -13,36 +13,26 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={cn("font-sans antialiased", geist.variable)}>
-      <body className="min-h-screen bg-background">
-        {/* Top nav */}
-        <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-          <div className="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
-            <a href="/" className="font-bold text-base tracking-tight flex items-center gap-2">
-              <span className="text-primary">◈</span>
-              Job Seeker
-            </a>
-            <nav className="flex items-center gap-1">
-              {[
-                { href: "/",        label: "Board"    },
-                { href: "/add",     label: "Add Job"  },
-                { href: "/settings",label: "Settings" },
-              ].map(({ href, label }) => (
-                <a
-                  key={href}
-                  href={href}
-                  className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors"
-                >
-                  {label}
-                </a>
-              ))}
-            </nav>
-          </div>
+      <body className="min-h-screen bg-[#f5f5f5]">
+        <header className="sticky top-0 z-40 h-12 bg-white border-b border-border flex items-center px-6">
+          <span className="font-bold text-sm tracking-tight mr-8">Job Seeker</span>
+          <nav className="flex items-center gap-1">
+            {[
+              { href: "/",        label: "Board"    },
+              { href: "/add",     label: "Add Job"  },
+              { href: "/settings",label: "Settings" },
+            ].map(({ href, label }) => (
+              <a
+                key={href}
+                href={href}
+                className="px-3 py-1 text-sm text-muted-foreground hover:text-foreground rounded-md hover:bg-accent transition-colors"
+              >
+                {label}
+              </a>
+            ))}
+          </nav>
         </header>
-
-        {/* Page content */}
-        <main className="max-w-7xl mx-auto px-6 py-8">
-          {children}
-        </main>
+        <main>{children}</main>
       </body>
     </html>
   );

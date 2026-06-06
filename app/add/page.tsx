@@ -3,9 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { scoreJob } from "@/scoring/ai-scorer";
 import { normalizeSalary } from "@/salary/normalize";
 import { dedupeKey } from "@/sources/normalize";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
+import { getSettings } from "@/lib/settings";
 import type { SalaryBasis, SalaryConfidence, SalaryPeriod } from "@prisma/client";
 
 async function addJob(formData: FormData) {
@@ -13,18 +11,14 @@ async function addJob(formData: FormData) {
   const input = (formData.get("input") as string ?? "").trim();
   if (!input) return;
 
-  let jdText = "";
-  let applyUrl = "";
-  const company = "Unknown";
-  const role = "Unknown";
+  const settings = await getSettings();
+  let jdText = "", applyUrl = "";
+  const company = "Unknown", role = "Unknown";
 
-  const isUrl = input.startsWith("http");
-  if (isUrl) {
+  if (input.startsWith("http")) {
     applyUrl = input;
     try {
-      const r = await fetch(`https://r.jina.ai/${encodeURIComponent(input)}`, {
-        signal: AbortSignal.timeout(15_000),
-      });
+      const r = await fetch(`https://r.jina.ai/${encodeURIComponent(input)}`, { signal: AbortSignal.timeout(15_000) });
       if (r.ok) jdText = await r.text();
     } catch { /* ignore */ }
     if (!jdText) jdText = `[JD fetch failed — URL: ${input}]`;
@@ -32,23 +26,25 @@ async function addJob(formData: FormData) {
     jdText = input;
   }
 
-  const result = await scoreJob({ jdText, company, role }).catch(() => null);
+  const result = await scoreJob({
+    jdText, company, role,
+    relevanceThreshold: settings.search.relevanceThreshold,
+    minSalaryAmount:    settings.search.minSalaryAmount,
+    minSalaryCurrency:  settings.search.minSalaryCurrency,
+    strictSalary:       settings.search.strictSalary,
+  }).catch(() => null);
   if (!result) redirect("/");
 
   const normalized = await normalizeSalary(result.salary).catch(() => null);
 
   const job = await prisma.job.create({
     data: {
-      source: "MANUAL",
-      company, role, jdText, applyUrl,
+      source: "MANUAL", company, role, jdText, applyUrl,
       dedupeKey: dedupeKey(company, role, undefined),
       applyType: "MANUAL_NOTIFY",
-      aiScore: result.score,
-      aiReason: result.reason,
-      tailoredPitch: result.tailoredPitch,
+      aiScore: result.score, aiReason: result.reason, tailoredPitch: result.tailoredPitch,
       appStage: result.skipReason ? "SKIPPED" : "NEW",
-      salaryMin: result.salary.min ?? null,
-      salaryMax: result.salary.max ?? null,
+      salaryMin: result.salary.min ?? null, salaryMax: result.salary.max ?? null,
       salaryCurrency: result.salary.currency ?? null,
       salaryPeriod: result.salary.period ? (result.salary.period.toUpperCase() as SalaryPeriod) : null,
       salaryBasis: result.salary.basis ? (result.salary.basis.toUpperCase() as SalaryBasis) : null,
@@ -58,42 +54,58 @@ async function addJob(formData: FormData) {
     },
   });
 
-  redirect(`/jobs/${job.id}`);
+  redirect(`/?job=${job.id}`);
 }
 
 export default function AddJobPage() {
   return (
-    <div className="max-w-2xl mx-auto space-y-4">
-      <div>
-        <h1 className="text-2xl font-bold">Add a Job</h1>
-        <p className="text-muted-foreground text-sm mt-1">
-          Paste a job URL or raw JD text. The system scores it, extracts salary, and creates a record.
-        </p>
-      </div>
+    <div className="min-h-[calc(100vh-48px)] flex flex-col items-center justify-start pt-20 px-6">
+      <div className="w-full max-w-2xl space-y-8">
+        {/* Heading */}
+        <div className="text-center space-y-2">
+          <h1 className="text-3xl font-bold">Add New Job</h1>
+          <p className="text-muted-foreground">
+            URLs are fetched automatically. We&apos;ll score them against your preferences immediately.
+          </p>
+        </div>
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Job URL or JD text</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form action={addJob} className="space-y-4">
-            <Textarea
+        {/* Input */}
+        <form action={addJob} className="space-y-4">
+          <div className="bg-white border border-border rounded-xl shadow-sm overflow-hidden">
+            <textarea
               name="input"
-              rows={12}
-              placeholder={`https://boards.greenhouse.io/company/jobs/12345\n\n— or —\n\nPaste the full job description here...`}
-              className="font-mono text-sm resize-y"
+              rows={10}
+              placeholder="Paste a Greenhouse/Lever/Ashby URL or raw JD text here… (Enter one per line for bulk add)"
+              className="w-full px-5 py-4 text-sm font-mono resize-none focus:outline-none placeholder:text-muted-foreground/60 placeholder:font-sans"
               required
             />
-            <p className="text-xs text-muted-foreground">
-              URLs are fetched automatically (Jina reader). Greenhouse, Lever, and Ashby URLs work best.
-              If fetch fails, paste the JD text directly.
-            </p>
-            <Button type="submit" className="w-full">
-              Score & add →
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
+            <div className="border-t border-border px-5 py-3 flex justify-end bg-slate-50">
+              <span className="text-xs text-muted-foreground">Supports Greenhouse, Lever, Ashby · Jina reader fallback</span>
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            className="w-full bg-foreground hover:bg-foreground/90 text-background font-semibold py-3 rounded-xl text-sm transition-colors flex items-center justify-center gap-2"
+          >
+            Score &amp; add →
+          </button>
+        </form>
+
+        {/* Feature callouts */}
+        <div className="grid grid-cols-3 gap-4">
+          {[
+            { icon: "✦", title: "Auto-Parse",   desc: "Detects board type and extracts role, requirements, and salary automatically." },
+            { icon: "◈", title: "Smart Scoring", desc: "Every job is ranked 0–100 against your target roles, industries, and salary floor." },
+            { icon: "⊞", title: "Bulk Intake",   desc: "Add up to 50 URLs at once — one per line — to clear your open tabs in seconds." },
+          ].map(({ icon, title, desc }) => (
+            <div key={title} className="bg-white border border-border rounded-xl p-4">
+              <p className="text-sm font-semibold mb-1">{icon}  {title}</p>
+              <p className="text-xs text-muted-foreground leading-relaxed">{desc}</p>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

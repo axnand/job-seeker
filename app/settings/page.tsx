@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
@@ -13,337 +12,271 @@ import { Separator } from "@/components/ui/separator";
 import type { AppSettingsData } from "@/lib/settings";
 
 export default function SettingsPage() {
-  const [settings, setSettings] = useState<AppSettingsData | null>(null);
-  const [saving,   setSaving]   = useState(false);
-  const [saved,    setSaved]    = useState(false);
-  const [keyword,  setKeyword]  = useState("");
-  const [company,  setCompany]  = useState("");
+  const [s, setS]         = useState<AppSettingsData | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved]   = useState(false);
+  const [kw, setKw]         = useState("");
+  const [co, setCo]         = useState("");
 
   useEffect(() => {
-    fetch("/api/settings").then(r => r.json()).then(setSettings).catch(console.error);
+    fetch("/api/settings").then(r => r.json()).then(setS).catch(console.error);
   }, []);
 
-  // Always sends the full merged object — no partial nested shapes
   const save = useCallback(async (next: AppSettingsData) => {
-    setSettings(next);
-    setSaving(true); setSaved(false);
+    setS(next); setSaving(true); setSaved(false);
     await fetch("/api/settings", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      method: "PATCH", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(next),
     });
     setSaving(false); setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   }, []);
 
-  if (!settings) return (
-    <div className="max-w-3xl mx-auto py-12 text-center text-muted-foreground text-sm">Loading…</div>
+  if (!s) return (
+    <div className="flex items-center justify-center h-64 text-sm text-muted-foreground">Loading…</div>
   );
 
-  const { sources, search, outreach, ai } = settings;
+  const src = (v: Partial<typeof s.sources>)  => save({ ...s, sources:  { ...s.sources,  ...v } });
+  const sch = (v: Partial<typeof s.search>)   => save({ ...s, search:   { ...s.search,   ...v } });
+  const out = (v: Partial<typeof s.outreach>) => save({ ...s, outreach: { ...s.outreach, ...v } });
+  const ai  = (v: Partial<typeof s.ai>)       => save({ ...s, ai:       { ...s.ai,       ...v } });
 
-  // Typed helpers so every call site is one-liner
-  const setSources  = (v: Partial<typeof sources>)  => save({ ...settings, sources:  { ...sources,  ...v } });
-  const setSearch   = (v: Partial<typeof search>)   => save({ ...settings, search:   { ...search,   ...v } });
-  const setOutreach = (v: Partial<typeof outreach>) => save({ ...settings, outreach: { ...outreach, ...v } });
-  const setAi       = (v: Partial<typeof ai>)       => save({ ...settings, ai:       { ...ai,       ...v } });
+  const sliderVal = (raw: number | readonly number[], fallback: number) =>
+    Array.isArray(raw) ? (raw[0] ?? fallback) : ((raw as number) ?? fallback);
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
-      {/* Header + global kill switch */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Settings</h1>
-          <p className="text-muted-foreground text-sm mt-1">Changes save instantly.</p>
-        </div>
-        <div className="flex items-center gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-2.5">
-          <div>
-            <p className="text-sm font-semibold text-red-800">Pause all outreach</p>
-            <p className="text-xs text-red-500">Kill switch — no messages send</p>
-          </div>
-          <Switch
-            checked={outreach.globalPause}
-            onCheckedChange={v => setOutreach({ globalPause: v })}
-            className="data-[state=checked]:bg-red-500"
-          />
-        </div>
+    <div className="max-w-3xl mx-auto px-6 py-8 space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold">Settings</h1>
+        <p className="text-sm text-muted-foreground mt-1">Changes save instantly.</p>
       </div>
 
       <Tabs defaultValue="sources">
-        <TabsList className="grid w-full grid-cols-4">
-          <TabsTrigger value="sources">Sources</TabsTrigger>
-          <TabsTrigger value="search">Search</TabsTrigger>
-          <TabsTrigger value="outreach">Outreach</TabsTrigger>
-          <TabsTrigger value="ai">AI</TabsTrigger>
+        <TabsList className="border-b w-full justify-start rounded-none h-auto p-0 bg-transparent gap-0">
+          {["sources","search","outreach","ai"].map(t => (
+            <TabsTrigger
+              key={t} value={t}
+              className="rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:text-foreground text-muted-foreground capitalize px-4 py-2.5 text-sm font-medium transition-none"
+            >
+              {t === "ai" ? "AI" : t.charAt(0).toUpperCase() + t.slice(1)}
+            </TabsTrigger>
+          ))}
         </TabsList>
 
         {/* ── Sources ─────────────────────────────────────────────────── */}
-        <TabsContent value="sources" className="space-y-4 mt-4">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base">Job sources</CardTitle>
-              <CardDescription>Toggle which sources run during the daily cron.</CardDescription>
-            </CardHeader>
-            <Separator />
-            <CardContent className="pt-4 space-y-4">
-              {(
-                [
-                  { key: "linkedin"     as const, label: "LinkedIn",      desc: "Job board + hiring posts via Unipile"          },
-                  { key: "adzuna"       as const, label: "Adzuna",        desc: "India aggregator — free API"                   },
-                  { key: "atsWatchlist" as const, label: "ATS Watchlist", desc: "Greenhouse / Lever / Ashby company boards"     },
-                  { key: "remotive"     as const, label: "Remotive",      desc: "Curated remote tech roles"                     },
-                  { key: "remoteok"     as const, label: "RemoteOK",      desc: "Remote-only job board"                         },
-                  { key: "jsearch"      as const, label: "JSearch",       desc: "Google for Jobs aggregator (RapidAPI — paid)"  },
-                ]
-              ).map(({ key, label, desc }) => (
-                <div key={key} className="flex items-center justify-between">
-                  <div>
-                    <Label className="text-sm font-medium">{label}</Label>
-                    <p className="text-xs text-muted-foreground">{desc}</p>
-                  </div>
-                  <Switch
-                    checked={sources[key]}
-                    onCheckedChange={v => setSources({ [key]: v })}
-                  />
+        <TabsContent value="sources" className="mt-6 space-y-3">
+          <div className="bg-white border border-border rounded-xl divide-y divide-border">
+            {(
+              [
+                { key: "linkedin"     as const, label: "LinkedIn",      desc: "Job board + hiring posts via Unipile" },
+                { key: "adzuna"       as const, label: "Adzuna",        desc: "India aggregator — free API" },
+                { key: "atsWatchlist" as const, label: "ATS Watchlist", desc: "Greenhouse / Lever / Ashby company boards" },
+                { key: "remotive"     as const, label: "Remotive",      desc: "Curated remote tech roles" },
+                { key: "remoteok"     as const, label: "RemoteOK",      desc: "Remote-only job board" },
+                { key: "jsearch"      as const, label: "JSearch",       desc: "Google for Jobs aggregator (RapidAPI — paid)" },
+              ]
+            ).map(({ key, label, desc }) => (
+              <div key={key} className="flex items-center justify-between px-5 py-4">
+                <div>
+                  <p className="text-sm font-medium">{label}</p>
+                  <p className="text-xs text-muted-foreground">{desc}</p>
                 </div>
-              ))}
-            </CardContent>
-          </Card>
+                <Switch checked={s.sources[key]} onCheckedChange={v => src({ [key]: v })} />
+              </div>
+            ))}
+          </div>
         </TabsContent>
 
         {/* ── Search ──────────────────────────────────────────────────── */}
-        <TabsContent value="search" className="space-y-4 mt-4">
+        <TabsContent value="search" className="mt-6 space-y-4">
           {/* Keywords */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base">Keywords</CardTitle>
-              <CardDescription>Each keyword runs as a separate search query.</CardDescription>
-            </CardHeader>
+          <section className="bg-white border border-border rounded-xl p-5 space-y-3">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Keywords</p>
+            <div className="flex flex-wrap gap-2">
+              {s.search.keywords.map(k => (
+                <Badge key={k} variant="secondary" className="gap-1 font-normal pr-1">
+                  {k}
+                  <button onClick={() => sch({ keywords: s.search.keywords.filter(x => x !== k) })} className="ml-1 hover:text-foreground">×</button>
+                </Badge>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <Input value={kw} onChange={e => setKw(e.target.value)} placeholder="e.g. backend engineer" className="text-sm"
+                onKeyDown={e => { if (e.key==="Enter"&&kw.trim()) { sch({ keywords:[...s.search.keywords,kw.trim()] }); setKw(""); } }} />
+              <Button variant="outline" size="sm" onClick={() => { if(kw.trim()){ sch({ keywords:[...s.search.keywords,kw.trim()] }); setKw(""); } }}>Add</Button>
+            </div>
+          </section>
+
+          {/* Filters */}
+          <section className="bg-white border border-border rounded-xl p-5 space-y-5">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Filters</p>
+
+            <div className="space-y-1.5">
+              <Label className="text-sm">Location</Label>
+              <Input defaultValue={s.search.location} className="text-sm" onBlur={e => sch({ location: e.target.value })} />
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex justify-between">
+                <Label className="text-sm">Relevance threshold</Label>
+                <span className="text-sm font-semibold tabular-nums">{s.search.relevanceThreshold}</span>
+              </div>
+              <Slider min={0} max={100} step={5} value={[s.search.relevanceThreshold]}
+                onValueChange={r => setS(prev => prev ? { ...prev, search: { ...prev.search, relevanceThreshold: sliderVal(r, 60) } } : prev)}
+                onValueCommitted={r => sch({ relevanceThreshold: sliderVal(r, 60) })} />
+              <p className="text-xs text-muted-foreground">Jobs below this score are auto-skipped.</p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-sm">Min annual salary</Label>
+              <div className="flex gap-2">
+                <Input type="number" defaultValue={s.search.minSalaryAmount} className="text-sm"
+                  onBlur={e => sch({ minSalaryAmount: Number(e.target.value) })} />
+                <Input defaultValue={s.search.minSalaryCurrency} className="text-sm w-24" placeholder="INR"
+                  onBlur={e => sch({ minSalaryCurrency: e.target.value.toUpperCase() })} />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium">Strict salary filter</p>
+                <p className="text-xs text-muted-foreground">Skip jobs where salary is unknown. Off = keep + flag.</p>
+              </div>
+              <Switch checked={s.search.strictSalary} onCheckedChange={v => sch({ strictSalary: v })} />
+            </div>
+
             <Separator />
-            <CardContent className="pt-4 space-y-3">
+
+            <div className="space-y-2">
+              <Label className="text-sm">Company blacklist</Label>
               <div className="flex flex-wrap gap-2">
-                {search.keywords.map(kw => (
-                  <Badge key={kw} variant="secondary" className="gap-1 pr-1">
-                    {kw}
-                    <button
-                      onClick={() => setSearch({ keywords: search.keywords.filter(k => k !== kw) })}
-                      className="ml-1 text-muted-foreground hover:text-foreground"
-                    >×</button>
+                {s.search.blacklistedCompanies.map(c => (
+                  <Badge key={c} variant="destructive" className="gap-1 font-normal pr-1">
+                    {c}
+                    <button onClick={() => sch({ blacklistedCompanies: s.search.blacklistedCompanies.filter(x=>x!==c) })} className="ml-1">×</button>
                   </Badge>
                 ))}
               </div>
               <div className="flex gap-2">
-                <Input
-                  value={keyword}
-                  onChange={e => setKeyword(e.target.value)}
-                  placeholder="e.g. backend engineer"
-                  className="text-sm"
-                  onKeyDown={e => {
-                    if (e.key === "Enter" && keyword.trim()) {
-                      setSearch({ keywords: [...search.keywords, keyword.trim()] });
-                      setKeyword("");
-                    }
-                  }}
-                />
-                <Button variant="outline" size="sm" onClick={() => {
-                  if (keyword.trim()) { setSearch({ keywords: [...search.keywords, keyword.trim()] }); setKeyword(""); }
-                }}>Add</Button>
+                <Input value={co} onChange={e => setCo(e.target.value)} placeholder="Company name" className="text-sm"
+                  onKeyDown={e => { if(e.key==="Enter"&&co.trim()){ sch({ blacklistedCompanies:[...s.search.blacklistedCompanies,co.trim()] }); setCo(""); } }} />
+                <Button variant="outline" size="sm" onClick={() => { if(co.trim()){ sch({ blacklistedCompanies:[...s.search.blacklistedCompanies,co.trim()] }); setCo(""); } }}>Block</Button>
               </div>
-            </CardContent>
-          </Card>
-
-          {/* Filters */}
-          <Card>
-            <CardHeader className="pb-2"><CardTitle className="text-base">Filters</CardTitle></CardHeader>
-            <Separator />
-            <CardContent className="pt-4 space-y-5">
-              {/* Location */}
-              <div className="space-y-1.5">
-                <Label className="text-sm">Location</Label>
-                <Input
-                  defaultValue={search.location}
-                  className="text-sm"
-                  onBlur={e => setSearch({ location: e.target.value })}
-                />
-              </div>
-
-              {/* Relevance threshold */}
-              <div className="space-y-2">
-                <div className="flex justify-between">
-                  <Label className="text-sm">Relevance threshold</Label>
-                  <span className="text-sm font-semibold">{search.relevanceThreshold}</span>
-                </div>
-                <Slider
-                  min={0} max={100} step={5}
-                  value={[search.relevanceThreshold]}
-                  onValueChange={(raw) => { const v = Array.isArray(raw) ? (raw[0] ?? 60) : (raw ?? 60); setSettings(s => s ? { ...s, search: { ...s.search, relevanceThreshold: v } } : s); }}
-                  onValueCommitted={(raw) => { const v = Array.isArray(raw) ? (raw[0] ?? 60) : (raw ?? 60); setSearch({ relevanceThreshold: v }); }}
-                />
-                <p className="text-xs text-muted-foreground">Jobs below this score are auto-skipped.</p>
-              </div>
-
-              {/* Min salary */}
-              <div className="space-y-1.5">
-                <Label className="text-sm">Min annual salary</Label>
-                <div className="flex gap-2">
-                  <Input
-                    type="number"
-                    defaultValue={search.minSalaryAmount}
-                    className="text-sm"
-                    onBlur={e => setSearch({ minSalaryAmount: Number(e.target.value) })}
-                  />
-                  <Input
-                    defaultValue={search.minSalaryCurrency}
-                    className="text-sm w-24"
-                    placeholder="INR"
-                    onBlur={e => setSearch({ minSalaryCurrency: e.target.value.toUpperCase() })}
-                  />
-                </div>
-              </div>
-
-              {/* Strict salary */}
-              <div className="flex items-center justify-between">
-                <div>
-                  <Label className="text-sm font-medium">Strict salary filter</Label>
-                  <p className="text-xs text-muted-foreground">Skip jobs where salary is unknown or uncertain.</p>
-                </div>
-                <Switch checked={search.strictSalary} onCheckedChange={v => setSearch({ strictSalary: v })} />
-              </div>
-
-              {/* Blacklist */}
-              <div className="space-y-2">
-                <Label className="text-sm">Company blacklist</Label>
-                <div className="flex flex-wrap gap-2">
-                  {search.blacklistedCompanies.map(c => (
-                    <Badge key={c} variant="destructive" className="gap-1 pr-1">
-                      {c}
-                      <button
-                        onClick={() => setSearch({ blacklistedCompanies: search.blacklistedCompanies.filter(x => x !== c) })}
-                        className="ml-1 hover:text-white/80"
-                      >×</button>
-                    </Badge>
-                  ))}
-                </div>
-                <div className="flex gap-2">
-                  <Input
-                    value={company}
-                    onChange={e => setCompany(e.target.value)}
-                    placeholder="Company name"
-                    className="text-sm"
-                    onKeyDown={e => {
-                      if (e.key === "Enter" && company.trim()) {
-                        setSearch({ blacklistedCompanies: [...search.blacklistedCompanies, company.trim()] });
-                        setCompany("");
-                      }
-                    }}
-                  />
-                  <Button variant="outline" size="sm" onClick={() => {
-                    if (company.trim()) { setSearch({ blacklistedCompanies: [...search.blacklistedCompanies, company.trim()] }); setCompany(""); }
-                  }}>Block</Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+            </div>
+          </section>
         </TabsContent>
 
         {/* ── Outreach ────────────────────────────────────────────────── */}
-        <TabsContent value="outreach" className="space-y-4 mt-4">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base">Rate limits</CardTitle>
-              <CardDescription>Stay under LinkedIn's limits to protect your account.</CardDescription>
-            </CardHeader>
-            <Separator />
-            <CardContent className="pt-4 space-y-5">
+        <TabsContent value="outreach" className="mt-6 space-y-4">
+          {/* Kill switch */}
+          <div className={`border rounded-xl px-5 py-4 flex items-center justify-between transition-colors ${s.outreach.globalPause ? "bg-red-50 border-red-200" : "bg-white border-border"}`}>
+            <div className="flex items-center gap-3">
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm ${s.outreach.globalPause ? "bg-red-100" : "bg-muted"}`}>
+                {s.outreach.globalPause ? "⏸" : "▶"}
+              </div>
+              <div>
+                <p className={`text-sm font-semibold ${s.outreach.globalPause ? "text-red-800" : ""}`}>Pause all outreach</p>
+                <p className={`text-xs ${s.outreach.globalPause ? "text-red-500" : "text-muted-foreground"}`}>
+                  No messages will be sent across any source while active.
+                </p>
+              </div>
+            </div>
+            <Switch
+              checked={s.outreach.globalPause}
+              onCheckedChange={v => out({ globalPause: v })}
+              className="data-[state=checked]:bg-red-500"
+            />
+          </div>
+
+          {/* Rate limits + send window side by side */}
+          <div className="grid grid-cols-2 gap-4">
+            <section className="bg-white border border-border rounded-xl p-5 space-y-4">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                ◷ Rate Limits
+              </p>
               {(
                 [
-                  { key: "dailyInviteCap"           as const, label: "Daily invite cap",           min: 1, max: 20  },
-                  { key: "weeklyInviteCap"           as const, label: "Weekly invite cap",          min: 1, max: 100 },
-                  { key: "dailyDmCap"                as const, label: "Daily DM cap",               min: 1, max: 10  },
-                  { key: "maxReferralTargetsPerJob"  as const, label: "Max targets per job",        min: 1, max: 5   },
-                  { key: "followupAfterDays"         as const, label: "Follow-up after (days)",     min: 1, max: 14  },
-                  { key: "maxFollowups"              as const, label: "Max follow-ups",             min: 0, max: 3   },
-                  { key: "recontactCooldownDays"     as const, label: "Recontact cooldown (days)",  min: 7, max: 90  },
+                  { key: "dailyInviteCap"           as const, label: "Daily invite cap",    min:1, max:20  },
+                  { key: "weeklyInviteCap"           as const, label: "Weekly invite cap",   min:1, max:100 },
+                  { key: "dailyDmCap"                as const, label: "Daily DM cap",        min:1, max:10  },
+                  { key: "maxReferralTargetsPerJob"  as const, label: "Max targets / job",   min:1, max:5   },
+                  { key: "maxFollowups"              as const, label: "Max follow-ups",      min:0, max:3   },
+                  { key: "recontactCooldownDays"     as const, label: "Recontact cooldown",  min:7, max:90  },
                 ]
               ).map(({ key, label, min, max }) => (
-                <div key={key} className="space-y-2">
-                  <div className="flex justify-between">
-                    <Label className="text-sm">{label}</Label>
-                    <span className="text-sm font-semibold">{outreach[key]}</span>
+                <div key={key} className="space-y-1.5">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">{label}</span>
+                    <span className="font-semibold tabular-nums">{s.outreach[key]}</span>
                   </div>
-                  <Slider
-                    min={min} max={max} step={1}
-                    value={[outreach[key]]}
-                    onValueChange={(raw) => { const v = Array.isArray(raw) ? (raw[0] ?? min) : (raw ?? min); setSettings(s => s ? { ...s, outreach: { ...s.outreach, [key]: v } } : s); }}
-                    onValueCommitted={(raw) => { const v = Array.isArray(raw) ? (raw[0] ?? min) : (raw ?? min); setOutreach({ [key]: v }); }}
-                  />
+                  <Slider min={min} max={max} step={1} value={[s.outreach[key]]}
+                    onValueChange={r => setS(prev => prev ? { ...prev, outreach: { ...prev.outreach, [key]: sliderVal(r, min) } } : prev)}
+                    onValueCommitted={r => out({ [key]: sliderVal(r, min) })} />
                 </div>
               ))}
-            </CardContent>
-          </Card>
+            </section>
 
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base">Send window (IST hour)</CardTitle>
-              <CardDescription>Messages only go out within this window.</CardDescription>
-            </CardHeader>
-            <Separator />
-            <CardContent className="pt-4 space-y-5">
+            <section className="bg-white border border-border rounded-xl p-5 space-y-4">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                ◷ Send Window (IST)
+              </p>
               {(
                 [
-                  { key: "sendWindowStart" as const, label: "Start hour (IST)" },
-                  { key: "sendWindowEnd"   as const, label: "End hour (IST)"   },
+                  { key: "sendWindowStart"   as const, label: "Start Hour", fmt: (v: number) => `${v.toString().padStart(2,"0")}:00` },
+                  { key: "sendWindowEnd"     as const, label: "End Hour",   fmt: (v: number) => `${v.toString().padStart(2,"0")}:00` },
+                  { key: "followupAfterDays" as const, label: "Follow-up after N days", fmt: (v: number) => `${v}d` },
                 ]
-              ).map(({ key, label }) => (
-                <div key={key} className="space-y-2">
-                  <div className="flex justify-between">
-                    <Label className="text-sm">{label}</Label>
-                    <span className="text-sm font-semibold">{outreach[key]}:00</span>
+              ).map(({ key, label, fmt }) => (
+                <div key={key} className="space-y-1.5">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">{label}</span>
+                    <span className="font-semibold tabular-nums">{fmt(s.outreach[key])}</span>
                   </div>
-                  <Slider
-                    min={0} max={23} step={1}
-                    value={[outreach[key]]}
-                    onValueChange={(raw) => { const v = Array.isArray(raw) ? (raw[0] ?? 9) : (raw ?? 9); setSettings(s => s ? { ...s, outreach: { ...s.outreach, [key]: v } } : s); }}
-                    onValueCommitted={(raw) => { const v = Array.isArray(raw) ? (raw[0] ?? 9) : (raw ?? 9); setOutreach({ [key]: v }); }}
-                  />
+                  <Slider min={key === "followupAfterDays" ? 1 : 0} max={key === "followupAfterDays" ? 14 : 23} step={1}
+                    value={[s.outreach[key]]}
+                    onValueChange={r => setS(prev => prev ? { ...prev, outreach: { ...prev.outreach, [key]: sliderVal(r, 9) } } : prev)}
+                    onValueCommitted={r => out({ [key]: sliderVal(r, 9) })} />
                 </div>
               ))}
-            </CardContent>
-          </Card>
+
+              {/* Message templates — placeholder for Phase 2 */}
+              <Separator />
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Message Templates</p>
+              {["Invite Note", "First DM", "Follow-up"].map(t => (
+                <div key={t} className="flex items-center justify-between py-2 border-b border-border last:border-0">
+                  <span className="text-sm">{t}</span>
+                  <Badge variant="outline" className="text-[10px]">Phase 2</Badge>
+                </div>
+              ))}
+            </section>
+          </div>
         </TabsContent>
 
         {/* ── AI ──────────────────────────────────────────────────────── */}
-        <TabsContent value="ai" className="space-y-4 mt-4">
-          <Card>
-            <CardHeader className="pb-2"><CardTitle className="text-base">AI model</CardTitle></CardHeader>
+        <TabsContent value="ai" className="mt-6 space-y-4">
+          <section className="bg-white border border-border rounded-xl p-5 space-y-5">
+            <div className="space-y-1.5">
+              <Label className="text-sm">Default model</Label>
+              <Input defaultValue={s.ai.defaultModel} className="text-sm font-mono" placeholder="gpt-4o-mini"
+                onBlur={e => ai({ defaultModel: e.target.value })} />
+              <p className="text-xs text-muted-foreground">Used for scoring + salary extraction on every job. Manage API keys via .env.</p>
+            </div>
             <Separator />
-            <CardContent className="pt-4 space-y-4">
-              <div className="space-y-1.5">
-                <Label className="text-sm">Default model</Label>
-                <Input
-                  defaultValue={ai.defaultModel}
-                  className="text-sm font-mono"
-                  placeholder="gpt-4o-mini"
-                  onBlur={e => setAi({ defaultModel: e.target.value })}
-                />
-                <p className="text-xs text-muted-foreground">Used for scoring + salary. API key set via .env or AI Providers (Phase 3).</p>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium">Resume tailoring</p>
+                <p className="text-xs text-muted-foreground">AI rewrites LaTeX sections per JD. <Badge variant="outline" className="text-[10px] ml-1">Phase 4</Badge></p>
               </div>
-              <div className="flex items-center justify-between">
-                <div>
-                  <Label className="text-sm font-medium">Resume tailoring</Label>
-                  <p className="text-xs text-muted-foreground">AI rewrites LaTeX resume per job (Phase 4). Extra cost.</p>
-                </div>
-                <Switch checked={ai.enableResumeTailoring} onCheckedChange={v => setAi({ enableResumeTailoring: v })} />
-              </div>
-            </CardContent>
-          </Card>
+              <Switch checked={s.ai.enableResumeTailoring} onCheckedChange={v => ai({ enableResumeTailoring: v })} />
+            </div>
+          </section>
         </TabsContent>
       </Tabs>
 
-      {/* Toast */}
+      {/* Save toast */}
       {(saving || saved) && (
-        <div className={`fixed bottom-6 right-6 px-4 py-2 rounded-lg text-sm font-medium shadow-lg transition-all ${saved ? "bg-emerald-600 text-white" : "bg-primary text-primary-foreground"}`}>
-          {saving ? "Saving…" : "Saved ✓"}
+        <div className={`fixed bottom-6 right-6 flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium shadow-lg transition-all ${saved ? "bg-foreground text-background" : "bg-muted text-foreground"}`}>
+          {saving ? "Saving…" : "✓ Saved"}
         </div>
       )}
     </div>
