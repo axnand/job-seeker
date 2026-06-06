@@ -3,18 +3,20 @@
  * for scoring. Called from /api/cron/discover.
  */
 
-import { config } from "@/config";
+import { getSettings } from "@/lib/settings";
 import { fetchLinkedinJobs } from "./linkedin";
 import { fetchAdzunaJobs } from "./adzuna";
 import { fetchAtsWatchlist } from "./ats-watchlist";
 import { fetchRemotiveJobs } from "./remotive";
 import { fetchRemoteOKJobs } from "./remoteok";
+import { fetchJSearchJobs } from "./jsearch";
 import { dedupeJobs } from "./dedupe";
 import type { RawJob } from "./types";
 
 export async function discoverJobs(): Promise<RawJob[]> {
-  const keywords = config.search.keywords;
-  const sources = config.sources;
+  const settings = await getSettings();
+  const keywords = settings.search.keywords;
+  const sources  = settings.sources;
 
   const fetches: Promise<RawJob[]>[] = [];
 
@@ -43,6 +45,12 @@ export async function discoverJobs(): Promise<RawJob[]> {
   if (sources.remoteok) {
     // RemoteOK accepts one tag at a time; use first keyword only to avoid spam
     fetches.push(fetchRemoteOKJobs(keywords[0] ?? "engineering").catch(() => [] as RawJob[]));
+  }
+
+  if (sources.jsearch) {
+    fetches.push(
+      ...keywords.map(kw => fetchJSearchJobs(kw).catch(() => [] as RawJob[]))
+    );
   }
 
   const results = await Promise.allSettled(fetches);

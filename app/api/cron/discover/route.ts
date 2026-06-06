@@ -17,6 +17,7 @@ import { scoreJob } from "@/scoring/ai-scorer";
 import { normalizeSalary } from "@/salary/normalize";
 import { dedupeKey } from "@/sources/normalize";
 import { sendDailyDigest } from "@/email/digest";
+import { getSettings } from "@/lib/settings";
 import { config } from "@/config";
 import type { AppStage, SalaryBasis, SalaryConfidence, SalaryPeriod } from "@prisma/client";
 
@@ -24,7 +25,7 @@ const BATCH_SIZE = 10; // LLM calls per invocation — keep under Vercel timeout
 
 export async function POST() {
   try {
-    const rawJobs = await discoverJobs();
+    const [rawJobs, settings] = await Promise.all([discoverJobs(), getSettings()]);
     console.log(`[discover] ${rawJobs.length} fresh jobs after dedup`);
 
     const now = new Date();
@@ -46,6 +47,10 @@ export async function POST() {
           company: raw.company,
           role: raw.role,
           sourceSalary: raw.sourceSalary,
+          relevanceThreshold: settings.search.relevanceThreshold,
+          minSalaryAmount:    settings.search.minSalaryAmount,
+          minSalaryCurrency:  settings.search.minSalaryCurrency,
+          strictSalary:       settings.search.strictSalary,
         });
 
         scored.push({ raw, result });

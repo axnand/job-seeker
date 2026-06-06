@@ -30,7 +30,8 @@ function annualize(amount: number, period: "year" | "month" | "hour"): number {
  * Always converts to config.search.baseCurrency for comparison.
  */
 export async function normalizeSalary(
-  raw: RawSalary
+  raw: RawSalary,
+  overrideBaseCurrency?: string
 ): Promise<NormalizedSalary | null> {
   if (!raw.min && !raw.max) return null;
 
@@ -47,7 +48,7 @@ export async function normalizeSalary(
   const annualMax = annualize(max, period);
   const annualMid = (annualMin + annualMax) / 2;
 
-  const baseCurrency = config.search.baseCurrency;
+  const baseCurrency = overrideBaseCurrency ?? config.search.baseCurrency;
   const annualBase = await convertCurrency(annualMid, currency, baseCurrency);
 
   return { min, max, currency, period, basis, confidence, annualBase };
@@ -64,10 +65,12 @@ export interface SalaryGateResult {
  */
 export function salaryGate(
   salary: NormalizedSalary | null,
-  minAnnualBase: number
+  minAnnualBase: number,
+  strictSalary?: boolean
 ): SalaryGateResult {
+  const strict = strictSalary ?? config.search.strictSalary;
   if (!salary) {
-    if (config.search.strictSalary) {
+    if (strict) {
       return { pass: false, reason: "salary_unknown_strict_mode" };
     }
     return { pass: true, reason: "salary_unknown_kept" };

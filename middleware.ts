@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-const BASIC_USER = "admin";
 const PASS = process.env.APP_PASSWORD ?? "changeme";
 const CRON_SECRET = process.env.CRON_SECRET ?? "";
 
@@ -28,8 +27,9 @@ export function middleware(req: NextRequest) {
     const [scheme, encoded] = authHeader.split(" ");
     if (scheme === "Basic" && encoded) {
       const decoded = Buffer.from(encoded, "base64").toString("utf-8");
-      const [user, password] = decoded.split(":");
-      if (user === BASIC_USER && password === PASS) {
+      const colonIdx = decoded.indexOf(":");
+      const password = colonIdx >= 0 ? decoded.slice(colonIdx + 1) : decoded;
+      if (password === PASS) {
         return NextResponse.next();
       }
     }

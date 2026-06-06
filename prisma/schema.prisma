@@ -3,8 +3,17 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")       // transaction pooler — used at runtime
+  directUrl = env("DIRECT_URL")         // direct connection — used for migrations only
+}
+
+// ─── App Settings (single row, id="default") ─────────────────────────────────
+
+model AppSettings {
+  id        String   @id @default("default")
+  data      Json     // merged with config.ts defaults at runtime
+  updatedAt DateTime @updatedAt
 }
 
 // ─── AI Providers ────────────────────────────────────────────────────────────

@@ -13,6 +13,11 @@ export interface ScoringInput {
   role: string;
   /** Structured salary from the source, if available (higher-trust hint). */
   sourceSalary?: RawSalary;
+  /** Override config defaults with DB settings values. */
+  relevanceThreshold?: number;
+  minSalaryAmount?: number;
+  minSalaryCurrency?: string;
+  strictSalary?: boolean;
 }
 
 export interface ScoringOutput {
@@ -32,7 +37,12 @@ You MUST respond with a single JSON object — no prose, no markdown fences.`;
 
 function buildPrompt(input: ScoringInput): string {
   const { masterTexPath: resume, targetRoles, preferredIndustries, seniorityLevel } = config.resume;
-  const minSal = config.search.minSalary;
+  const minSal = {
+    amount:   input.minSalaryAmount   ?? config.search.minSalary.amount,
+    currency: input.minSalaryCurrency ?? config.search.minSalary.currency,
+    period:   config.search.minSalary.period,
+  };
+  const threshold = input.relevanceThreshold ?? config.search.relevanceThreshold;
 
   const salaryHint = input.sourceSalary?.min
     ? `\nSource-provided salary hint (high trust): ${JSON.stringify(input.sourceSalary)}`
@@ -58,7 +68,7 @@ ${input.jdText.slice(0, 6000)}
 2. Write a 2-sentence reason.
 3. Write a 3-line tailored pitch the owner can use in a LinkedIn DM.
 4. Extract or estimate the salary. If stated in the JD use it verbatim. If not, estimate based on role + seniority + company + location. Always provide min, max, currency, period.
-5. If score < ${config.search.relevanceThreshold}, set skipReason explaining why.
+5. If score < ${threshold}, set skipReason explaining why.
 
 Respond with ONLY this JSON (no markdown):
 {
@@ -104,9 +114,9 @@ export async function scoreJob(
       ? { ...parsed.salary, ...input.sourceSalary }
       : parsed.salary;
 
-  const minAnnual = config.search.minSalary.amount;
-  const normalized = await normalizeSalary(rawSalary);
-  const gate = salaryGate(normalized, minAnnual);
+  const minAnnual  = input.minSalaryAmount    ?? config.search.minSalary.amount;
+  const normalized = await normalizeSalary(rawSalary, input.minSalaryCurrency ?? config.search.minSalary.currency);
+  const gate = salaryGate(normalized, minAnnual, input.strictSalary ?? config.search.strictSalary);
 
   // Auto-skip if below salary and gate says fail
   let skipReason = parsed.skipReason;
