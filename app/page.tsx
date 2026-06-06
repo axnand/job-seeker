@@ -198,7 +198,7 @@ export default function BoardPage() {
   const sent    = jobs.filter(j => j.outreachState !== "NONE").length;
 
   const stats = [
-    { label:"Found this week", value: jobs.filter(j => new Date(j.createdAt).getTime() > tw).length, color:"text-zinc-900" },
+    { label:"Found this week", value: jobs.filter(j => j.appStage !== "SKIPPED" && new Date(j.createdAt).getTime() > tw).length, color:"text-zinc-900" },
     { label:"Approved",        value: jobs.filter(j => j.appStage === "APPROVED").length,             color:"text-blue-600" },
     { label:"Outreach sent",   value: sent,                                                            color:"text-indigo-600" },
     { label:"Replies",         value: replied,                                                         color:"text-emerald-600" },
@@ -270,13 +270,13 @@ export default function BoardPage() {
       {/* ── Kanban ────────────────────────────────────────────────────── */}
       <div className="flex-1 overflow-x-auto overflow-y-hidden px-8 pb-8">
         {/* White board container */}
-        <div className="flex h-full rounded-2xl border border-zinc-200 shadow-sm bg-white overflow-hidden min-w-max">
+        <div className="flex h-full w-full rounded-2xl border border-zinc-200 shadow-sm bg-white overflow-hidden">
           {STAGES.map((stage, i) => {
             const meta  = STAGE_META[stage];
             const cards = byStage[stage];
             const isLast = i === STAGES.length - 1;
             return (
-              <div key={stage} className={`w-[272px] flex-shrink-0 flex flex-col ${!isLast ? "border-r border-zinc-100" : ""}`}>
+              <div key={stage} className={`flex-1 min-w-[220px] flex flex-col ${!isLast ? "border-r border-zinc-100" : ""}`}>
 
                 {/* Column header */}
                 <div className={`flex-shrink-0 flex items-center gap-2.5 px-5 py-4 border-b border-zinc-100 border-l-[3px] ${meta.headerBorder} bg-white`}>
