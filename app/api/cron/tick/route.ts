@@ -30,3 +30,6 @@ export async function POST() {
     return NextResponse.json({ ok: false, error: String(err) }, { status: 500 });
   }
 }
+
+// cron-job.org / browsers can hit GET; same Bearer auth (middleware).
+export async function GET() { return POST(); }

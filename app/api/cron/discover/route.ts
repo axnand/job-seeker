@@ -161,3 +161,6 @@ async function runDiscover() {
     };
   }
 }
+
+// cron-job.org / browsers can hit GET; same Bearer auth (middleware).
+export async function GET() { return POST(); }
