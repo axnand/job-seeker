@@ -36,11 +36,13 @@ export const config = {
     baseCurrency: process.env.BASE_CURRENCY ?? "INR",
     strictSalary: false,
     blacklistedCompanies: [] as string[],
+    // Freshness — runs every few hours and only looks at recently-posted jobs.
+    // Window ≥ run interval so nothing is missed; dedup handles the overlap.
+    recencyDays: Number(process.env.RECENCY_DAYS ?? 2),
     // LinkedIn jobs search filters (Unipile native filters)
     linkedinSeniority: ["entry", "associate"] as const,  // new-grad band only
     linkedinPresence: ["remote", "hybrid", "on_site"] as const,
     linkedinJobType: ["full_time"] as const,
-    linkedinDatePostedDays: 14,
   },
 
   sources: {

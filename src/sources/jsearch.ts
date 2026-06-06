@@ -70,7 +70,7 @@ export async function fetchJSearchJobs(keyword: string): Promise<RawJob[]> {
   url.searchParams.set("query",           `${keyword} in India`);
   url.searchParams.set("page",            "1");
   url.searchParams.set("num_pages",       "1");          // 1 page keeps it under timeout
-  url.searchParams.set("date_posted",     "week");
+  url.searchParams.set("date_posted",     config.search.recencyDays <= 1 ? "today" : "3days");
   url.searchParams.set("employment_types","FULLTIME");
   url.searchParams.set("job_requirements","under_3_years_experience,no_experience"); // entry-level
 

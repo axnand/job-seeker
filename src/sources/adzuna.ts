@@ -35,6 +35,8 @@ export async function fetchAdzunaJobs(keyword: string): Promise<RawJob[]> {
     url.searchParams.set("what", keyword);
     url.searchParams.set("where", config.search.location);
     url.searchParams.set("results_per_page", "50");
+    url.searchParams.set("max_days_old", String(config.search.recencyDays)); // only recent postings
+    url.searchParams.set("sort_by", "date");
     url.searchParams.set("content-type", "application/json");
     if (config.search.minSalary.currency === "INR") {
       url.searchParams.set("salary_min", String(config.search.minSalary.amount / 12)); // monthly

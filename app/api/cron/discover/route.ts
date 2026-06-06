@@ -21,10 +21,12 @@ import { getSettings } from "@/lib/settings";
 import { config } from "@/config";
 import type { AppStage, SalaryBasis, SalaryConfidence, SalaryPeriod } from "@prisma/client";
 
-const BATCH_SIZE = 35; // LLM calls per invocation — gpt-4o-mini is cheap; stays under Vercel 60s
+const SCORE_CONCURRENCY = 6; // parallel LLM calls — fast without hammering rate limits
 
 // Obvious non-engineering titles — dropped before the LLM to save calls + budget.
 const NON_ENG = /\b(sales|account executive|recruiter|talent|copywriter|content writer|freelance writer|marketing|seo|designer|data (entry|analyst)|customer (support|success)|virtual assistant|teacher|tutor|nurse|driver|accountant|hr\b|business development|bdr|sdr)\b/i;
+
+export const maxDuration = 300; // allow long runs on Vercel Pro; hobby caps at 60s
 
 export async function POST() {
   try {
@@ -32,27 +34,24 @@ export async function POST() {
     console.log(`[discover] ${rawJobs.length} fresh jobs after dedup`);
 
     const now = new Date();
-    const maxPostedAge = config.staleness.noNewOutreachAfterDays * 24 * 60 * 60 * 1000;
+    // Freshness window — only score jobs posted within recencyDays.
+    const maxPostedAge = config.search.recencyDays * 24 * 60 * 60 * 1000;
 
-    // Drop stale postings + obvious non-engineering roles before scoring
+    // Drop old postings + obvious non-engineering roles before scoring
     const eligible = rawJobs.filter(job => {
       if (NON_ENG.test(job.role)) return false;
-      if (!job.postedAt) return true;
+      if (!job.postedAt) return true;                       // unknown age — keep
       return now.getTime() - job.postedAt.getTime() < maxPostedAge;
     });
 
-    // Prioritise India-native sources (LinkedIn/Adzuna) over generic remote boards
-    const SOURCE_PRIORITY: Record<string, number> = {
-      LINKEDIN_JOB: 0, ATS_WATCHLIST: 1, ADZUNA: 2, JSEARCH: 3, REMOTIVE: 4, REMOTEOK: 5, MANUAL: 0, LINKEDIN_POST: 1,
-    };
-    eligible.sort((a, b) => (SOURCE_PRIORITY[a.source] ?? 9) - (SOURCE_PRIORITY[b.source] ?? 9));
+    console.log(`[discover] scoring all ${eligible.length} eligible jobs (concurrency ${SCORE_CONCURRENCY})`);
 
-    const batch = eligible.slice(0, BATCH_SIZE);
-    const scored = [];
-
-    for (const raw of batch) {
-      try {
-        const result = await scoreJob({
+    // Score EVERYTHING — no cap. Run in small parallel chunks for speed.
+    const scored: Array<{ raw: typeof eligible[number]; result: Awaited<ReturnType<typeof scoreJob>> }> = [];
+    for (let i = 0; i < eligible.length; i += SCORE_CONCURRENCY) {
+      const chunk = eligible.slice(i, i + SCORE_CONCURRENCY);
+      const results = await Promise.allSettled(
+        chunk.map(raw => scoreJob({
           jdText: raw.jdText,
           company: raw.company,
           role: raw.role,
@@ -61,11 +60,11 @@ export async function POST() {
           minSalaryAmount:    settings.search.minSalaryAmount,
           minSalaryCurrency:  settings.search.minSalaryCurrency,
           strictSalary:       settings.search.strictSalary,
-        });
-
-        scored.push({ raw, result });
-      } catch (err) {
-        console.error(`[discover] scoring failed for ${raw.company} - ${raw.role}:`, err);
+        }).then(result => ({ raw, result })))
+      );
+      for (const r of results) {
+        if (r.status === "fulfilled") scored.push(r.value);
+        else console.error(`[discover] scoring failed:`, r.reason);
       }
     }
 
@@ -129,9 +128,9 @@ export async function POST() {
     return NextResponse.json({
       ok: true,
       fetched: rawJobs.length,
+      eligible: eligible.length,
       scored: scored.length,
       emailed: toEmail.length,
-      remaining: eligible.length - batch.length,
     });
   } catch (err) {
     console.error("[discover] fatal error:", err);

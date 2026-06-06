@@ -51,8 +51,8 @@ export async function fetchLinkedinJobs(keyword: string): Promise<RawJob[]> {
     keywords: keyword,
     seniority: [...config.search.linkedinSeniority],
     job_type: [...config.search.linkedinJobType],
-    date_posted: config.search.linkedinDatePostedDays,
-    sort_by: "date",
+    date_posted: config.search.recencyDays,   // only recent postings
+    sort_by: "date",                            // newest first
   };
   if (region) params.region = region;
 

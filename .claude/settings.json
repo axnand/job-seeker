@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(echo \"TYPECHECK EXIT: $?\")",
-      "Bash(echo \"db reachable exit: $?\")"
+      "Bash(echo \"db reachable exit: $?\")",
+      "Bash(perl -pi -e 's/s\\\\.staleness\\\\?\\\\.archiveAfterDays \\\\?\\\\? 14/INVITE_ACCEPT_TIMEOUT_DAYS/g' src/outreach/thread-worker.ts)"
     ]
   }
 }
