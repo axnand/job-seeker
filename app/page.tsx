@@ -97,6 +97,21 @@ export default function BoardPage() {
   const [acting, setActing]     = useState(false);
   const [uploadingResume, setUploadingResume] = useState(false);
   const resumeFileRef = useRef<HTMLInputElement>(null);
+  const [sel, setSel]       = useState<Set<string>>(new Set());
+  const [sending, setSending] = useState(false);
+  const toggleSel = (id: string) => setSel(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const sendSelected = async () => {
+    if (sel.size === 0) return;
+    setSending(true);
+    const jobIds = [...sel];
+    const res = await fetch("/api/outreach/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobIds }) }).then(r => r.json()).catch(() => null);
+    setSending(false);
+    setSel(new Set());
+    const d = await fetch("/api/jobs?limit=200").then(r => r.json()).catch(() => null);
+    if (d?.jobs) setJobs(d.jobs);
+    if (res?.paused) alert("Outreach is paused — turn off the global pause in Settings → Outreach.");
+    else if (res?.capped) alert("Daily/weekly send cap hit. The rest will go out automatically in the next window.");
+  };
 
   // Filters + sort (client-side over the loaded jobs)
   const [fSource, setFSource] = useState("All");
@@ -285,6 +300,20 @@ export default function BoardPage() {
                   <span className="ml-auto text-xs font-semibold text-zinc-400 tabular-nums bg-zinc-100 rounded-full px-2 py-0.5 min-w-[24px] text-center">
                     {cards.length}
                   </span>
+                  {stage === "APPROVED" && cards.length > 0 && (
+                    <button
+                      onClick={() => setSel(prev => {
+                        const ids = cards.map(c => c.id);
+                        const allSel = ids.every(id => prev.has(id));
+                        const n = new Set(prev);
+                        ids.forEach(id => allSel ? n.delete(id) : n.add(id));
+                        return n;
+                      })}
+                      className="text-[11px] text-zinc-400 hover:text-zinc-700 font-medium ml-1"
+                    >
+                      {cards.every(c => sel.has(c.id)) ? "Clear" : "Select all"}
+                    </button>
+                  )}
                 </div>
 
                 {/* Cards */}
@@ -303,9 +332,17 @@ export default function BoardPage() {
                   {cards.map(job => {
                     const sal     = fmtSalary(job.salaryAnnualBase, job.salaryCurrency);
                     const outreach = OUTREACH_META[job.outreachState];
+                    const isSel = sel.has(job.id);
                     return (
-                      <button key={job.id} onClick={() => openJob(job)}
-                        className="w-full text-left bg-white rounded-xl p-4 border border-zinc-200 hover:border-zinc-300 hover:shadow-md active:scale-[0.99] transition-all shadow-sm">
+                      <div key={job.id} className="relative">
+                      {job.appStage === "APPROVED" && (
+                        <button onClick={(e) => { e.stopPropagation(); toggleSel(job.id); }}
+                          className={`absolute top-2.5 right-2.5 z-10 w-5 h-5 rounded-md border flex items-center justify-center text-[11px] leading-none transition-colors ${isSel ? "bg-zinc-900 border-zinc-900 text-white" : "bg-white border-zinc-300 text-transparent hover:border-zinc-500"}`}>
+                          ✓
+                        </button>
+                      )}
+                      <button onClick={() => openJob(job)}
+                        className={`w-full text-left bg-white rounded-xl p-4 border hover:shadow-md active:scale-[0.99] transition-all shadow-sm ${isSel ? "border-zinc-900 ring-1 ring-zinc-900" : "border-zinc-200 hover:border-zinc-300"}`}>
 
                         <div className="flex items-start gap-3 mb-3">
                           <Avatar className={`h-8 w-8 rounded-xl shrink-0 ${avatarClr(job.company)}`}>
@@ -349,6 +386,7 @@ export default function BoardPage() {
                           )}
                         </div>
                       </button>
+                      </div>
                     );
                   })}
                 </div>
@@ -357,6 +395,18 @@ export default function BoardPage() {
           })}
         </div>
       </div>
+
+      {/* ── Bulk send action bar ──────────────────────────────────────── */}
+      {sel.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-zinc-900 text-white rounded-full shadow-xl pl-5 pr-2 py-2">
+          <span className="text-sm font-medium">{sel.size} selected</span>
+          <button onClick={() => setSel(new Set())} className="text-xs text-zinc-300 hover:text-white">Clear</button>
+          <button onClick={sendSelected} disabled={sending}
+            className="bg-white text-zinc-900 text-sm font-semibold rounded-full px-4 py-1.5 hover:bg-zinc-100 disabled:opacity-60 flex items-center gap-1.5">
+            {sending ? "Sending…" : "Send requests →"}
+          </button>
+        </div>
+      )}
 
       {/* ── Job Drawer ────────────────────────────────────────────────── */}
       <Sheet open={!!selected} onOpenChange={v => { if (!v) { setSelected(null); setDetail(null); } }}>

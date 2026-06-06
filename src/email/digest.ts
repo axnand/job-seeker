@@ -9,15 +9,28 @@ import { sendMail } from "./mailer";
 import { config } from "@/config";
 
 function formatSalary(job: Job): string {
-  if (!job.salaryAnnualBase) return "Salary unknown";
+  if (!job.salaryAnnualBase) return "Salary not stated";
   const base = config.search.baseCurrency;
   const formatted = new Intl.NumberFormat("en-IN", {
     style: "currency",
     currency: base,
     maximumFractionDigits: 0,
   }).format(job.salaryAnnualBase);
-  const badge = job.salaryBasis === "STATED" ? "stated" : `est. ${job.salaryConfidence ?? ""}`;
-  return `${formatted}/yr (${badge})`;
+  const badge = job.salaryBasis === "STATED" ? "stated" : `est. ${(job.salaryConfidence ?? "").toLowerCase()}`;
+  return `${formatted}/yr · ${badge}`;
+}
+
+function formatPosted(job: Job): string {
+  const when = job.postedAt ?? job.discoveredAt;
+  if (!when) return "";
+  const days = Math.floor((Date.now() - new Date(when).getTime()) / 86_400_000);
+  const label =
+    days <= 0 ? "Posted today" :
+    days === 1 ? "Posted yesterday" :
+    days < 7 ? `Posted ${days} days ago` :
+    days < 14 ? "Posted last week" :
+    `Posted ${Math.floor(days / 7)} weeks ago`;
+  return job.postedAt ? label : label.replace("Posted", "Found");
 }
 
 function applyTypeBadge(job: Job): string {
@@ -43,28 +56,41 @@ function jobCard(job: Job): string {
   const skipUrl = `${config.app.baseUrl}/api/webhooks/approval?token=${createActionToken(job.id, "skip")}`;
   const dashboardUrl = `${config.app.baseUrl}/jobs/${job.id}`;
   const salaryFlagNote = job.salaryFlagReason
-    ? `<p style="color:#b45309;font-size:12px;margin:4px 0 0">⚠️ ${job.salaryFlagReason.replace(/_/g, " ")}</p>`
+    ? `<p style="color:#b45309;font-size:12px;margin:8px 0 0">⚠️ ${job.salaryFlagReason.replace(/_/g, " ")}</p>`
     : "";
 
+  // Key facts the owner scans first — salary, location, recency.
+  const fact = (icon: string, text: string, color = "#374151") =>
+    `<td style="padding:0 16px 0 0;font-size:13px;color:${color};white-space:nowrap;vertical-align:top">${icon}&nbsp;${text}</td>`;
+  const facts = [
+    fact("💰", formatSalary(job), job.salaryAnnualBase ? "#059669" : "#9ca3af"),
+    job.location ? fact("📍", job.location) : "",
+    formatPosted(job) ? fact("🕒", formatPosted(job), "#6b7280") : "",
+  ].filter(Boolean).join("");
+
   return `
-<div style="border:1px solid #e5e7eb;border-radius:8px;padding:16px;margin-bottom:16px;font-family:sans-serif">
-  <div style="display:flex;justify-content:space-between;align-items:flex-start">
-    <div>
-      <h3 style="margin:0 0 4px;font-size:16px">${job.company}</h3>
-      <p style="margin:0 0 8px;color:#374151;font-size:15px"><strong>${job.role}</strong></p>
-    </div>
-    <div style="text-align:right">
-      <span style="background:#dbeafe;color:#1d4ed8;padding:2px 8px;border-radius:9999px;font-size:13px;font-weight:600">${job.aiScore}/100</span>
-    </div>
-  </div>
-  <p style="margin:0 0 4px;font-size:13px;color:#6b7280">${applyTypeBadge(job)} &nbsp;·&nbsp; ${sourceBadge(job)}</p>
-  <p style="margin:4px 0;font-size:14px;color:#1f2937">${job.aiReason ?? ""}</p>
-  <p style="margin:4px 0;font-size:13px;color:#059669;font-weight:500">${formatSalary(job)}</p>
+<div style="border:1px solid #e5e7eb;border-radius:10px;padding:18px;margin-bottom:14px;font-family:sans-serif">
+  <table style="width:100%;border-collapse:collapse"><tr>
+    <td style="vertical-align:top">
+      <div style="font-size:16px;font-weight:700;color:#111827">${job.company}</div>
+      <div style="margin-top:2px;color:#374151;font-size:15px;font-weight:500">${job.role}</div>
+    </td>
+    <td style="vertical-align:top;text-align:right;white-space:nowrap">
+      <span style="background:#dbeafe;color:#1d4ed8;padding:3px 10px;border-radius:9999px;font-size:13px;font-weight:700">${job.aiScore}/100</span>
+    </td>
+  </tr></table>
+
+  <div style="margin-top:6px;font-size:12px;color:#6b7280">${applyTypeBadge(job)} &nbsp;·&nbsp; ${sourceBadge(job)}</div>
+
+  <table style="margin-top:12px;border-collapse:collapse"><tr>${facts}</tr></table>
   ${salaryFlagNote}
-  <div style="margin-top:12px;display:flex;gap:8px">
-    <a href="${approveUrl}" style="background:#16a34a;color:#fff;padding:8px 16px;border-radius:6px;text-decoration:none;font-size:14px;font-weight:500">✓ Approve</a>
-    <a href="${skipUrl}" style="background:#f3f4f6;color:#374151;padding:8px 16px;border-radius:6px;text-decoration:none;font-size:14px">✗ Skip</a>
-    <a href="${dashboardUrl}" style="background:#eff6ff;color:#2563eb;padding:8px 16px;border-radius:6px;text-decoration:none;font-size:14px">View →</a>
+
+  <p style="margin:12px 0 0;font-size:14px;line-height:1.5;color:#4b5563">${job.aiReason ?? ""}</p>
+
+  <div style="margin-top:16px">
+    <a href="${approveUrl}" style="display:inline-block;background:#16a34a;color:#fff;padding:9px 18px;border-radius:6px;text-decoration:none;font-size:14px;font-weight:600">✓ Approve</a>
+    <a href="${skipUrl}" style="display:inline-block;background:#f3f4f6;color:#374151;padding:9px 18px;border-radius:6px;text-decoration:none;font-size:14px;margin-left:6px">✗ Skip</a>
+    <a href="${dashboardUrl}" style="display:inline-block;background:#eff6ff;color:#2563eb;padding:9px 18px;border-radius:6px;text-decoration:none;font-size:14px;font-weight:500;margin-left:6px">View →</a>
   </div>
 </div>`;
 }

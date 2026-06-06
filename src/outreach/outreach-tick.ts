@@ -93,6 +93,60 @@ export async function runOutreachTick(): Promise<TickResult> {
   return base;
 }
 
+/**
+ * Manual scoped send for the dashboard "Send requests" bulk action.
+ * Fires the QUEUED threads for the given jobs NOW — bypasses the send window
+ * (the owner explicitly clicked send) but still respects the globalPause kill
+ * switch and the daily/weekly rate budget (account safety).
+ */
+export async function sendForJobs(jobIds: string[]): Promise<{
+  sent: number; failed: number; paused?: boolean; capped?: boolean; noThreads?: boolean;
+}> {
+  if (jobIds.length === 0) return { sent: 0, failed: 0 };
+  const settings = await getSettings();
+  if (settings.outreach.globalPause) return { sent: 0, failed: 0, paused: true };
+
+  const budget = await getSendBudget(settings);
+  const budgetMut: SendBudgetMut = { invitesLeft: budget.invitesLeft, dmsLeft: budget.dmsLeft };
+  if (budgetMut.invitesLeft <= 0 && budgetMut.dmsLeft <= 0) return { sent: 0, failed: 0, capped: true };
+
+  const outreaches = await prisma.outreach.findMany({
+    where: { jobId: { in: jobIds }, threadId: { not: null } },
+    select: { threadId: true },
+  });
+  const threadIds = outreaches.map((o) => o.threadId!).filter(Boolean);
+  if (threadIds.length === 0) return { sent: 0, failed: 0, noThreads: true };
+
+  // Claim (null nextActionAt) so the cron doesn't double-process.
+  const claimable = await prisma.channelThread.findMany({
+    where: { id: { in: threadIds }, status: { in: ["PENDING", "ACTIVE"] } },
+    select: { id: true },
+  });
+  await prisma.channelThread.updateMany({
+    where: { id: { in: claimable.map((c) => c.id) } },
+    data: { nextActionAt: null },
+  });
+
+  let sent = 0, failed = 0;
+  for (const { id } of claimable) {
+    if (budgetMut.invitesLeft <= 0 && budgetMut.dmsLeft <= 0) {
+      await prisma.channelThread.updateMany({ where: { id }, data: { nextActionAt: new Date() } }).catch(() => {});
+      continue;
+    }
+    try {
+      await processThread(id, budgetMut, settings);
+      sent++;
+    } catch (err) {
+      failed++;
+      console.error(`[send] thread ${id} failed:`, (err as Error).message);
+      await prisma.channelThread
+        .updateMany({ where: { id, status: { in: ["PENDING", "ACTIVE"] } }, data: { nextActionAt: new Date(Date.now() + RETRY_DELAY_MS) } })
+        .catch(() => {});
+    }
+  }
+  return { sent, failed, ...(budgetMut.invitesLeft <= 0 ? { capped: true } : {}) };
+}
+
 // ─── Claim ────────────────────────────────────────────────────────────────────
 
 async function claimDueThreads(limit: number): Promise<string[]> {
