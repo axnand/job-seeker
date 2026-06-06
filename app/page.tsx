@@ -334,10 +334,10 @@ export default function BoardPage() {
                     const outreach = OUTREACH_META[job.outreachState];
                     const isSel = sel.has(job.id);
                     return (
-                      <div key={job.id} className="relative">
+                      <div key={job.id} className="relative group">
                       {job.appStage === "APPROVED" && (
                         <button onClick={(e) => { e.stopPropagation(); toggleSel(job.id); }}
-                          className={`absolute top-2.5 right-2.5 z-10 w-5 h-5 rounded-md border flex items-center justify-center text-[11px] leading-none transition-colors ${isSel ? "bg-zinc-900 border-zinc-900 text-white" : "bg-white border-zinc-300 text-transparent hover:border-zinc-500"}`}>
+                          className={`absolute top-2.5 right-2.5 z-10 w-5 h-5 rounded-md border flex items-center justify-center text-[11px] leading-none transition-all ${isSel ? "bg-zinc-900 border-zinc-900 text-white opacity-100" : "bg-white border-zinc-300 text-transparent hover:border-zinc-500 opacity-0 group-hover:opacity-100"}`}>
                           ✓
                         </button>
                       )}
