@@ -294,6 +294,22 @@ export default function SettingsPage() {
                 </div>
               </Section>
 
+              <Section title="Pipeline" desc="Replenishment targets per job.">
+                <div className="space-y-5">
+                  {([
+                    { key: "connectTarget"         as const, label: "Accept target / job",  min: 1,  max: 15, fmt: (v: number) => String(v),  hint: "Top up until this many people accept the invite." },
+                    { key: "maxInvitesPerJob"       as const, label: "Max invites / job",    min: 5,  max: 50, fmt: (v: number) => String(v),  hint: "Hard ceiling on total invites ever sent per job." },
+                    { key: "inviteTimeoutDays"      as const, label: "Invite timeout",       min: 3,  max: 21, fmt: (v: number) => `${v}d`,   hint: "Cancel unaccepted invite after this — frees a slot." },
+                    { key: "replenishIntervalHours" as const, label: "Replenish check every", min: 1, max: 48, fmt: (v: number) => `${v}h`,   hint: "Min time between people-search top-ups per job." },
+                  ]).map(({ key, label, min, max, fmt, hint }) => (
+                    <SliderField key={key} label={label} value={s.outreach[key]} min={min} max={max} step={1}
+                      displayValue={fmt(s.outreach[key])} hint={hint}
+                      onChange={v => setS(prev => prev ? { ...prev, outreach: { ...prev.outreach, [key]: v } } : prev)}
+                      onCommit={v => out({ [key]: v })}
+                    />
+                  ))}
+                </div>
+              </Section>
             </div>
           </div>
 

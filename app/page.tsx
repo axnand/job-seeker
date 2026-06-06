@@ -99,18 +99,27 @@ export default function BoardPage() {
   const resumeFileRef = useRef<HTMLInputElement>(null);
   const [sel, setSel]       = useState<Set<string>>(new Set());
   const [sending, setSending] = useState(false);
+  const [askNote, setAskNote] = useState(false);
+  const [toast, setToast]   = useState<{ msg: string; tone: "info" | "warn" | "error" } | null>(null);
+  const showToast = useCallback((msg: string, tone: "info" | "warn" | "error" = "info") => {
+    setToast({ msg, tone });
+    setTimeout(() => setToast(null), 4500);
+  }, []);
   const toggleSel = (id: string) => setSel(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-  const sendSelected = async () => {
+  const sendSelected = async (withNote: boolean) => {
     if (sel.size === 0) return;
     setSending(true);
+    setAskNote(false);
     const jobIds = [...sel];
-    const res = await fetch("/api/outreach/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobIds }) }).then(r => r.json()).catch(() => null);
+    const res = await fetch("/api/outreach/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobIds, withNote }) }).then(r => r.json()).catch(() => null);
     setSending(false);
     setSel(new Set());
     const d = await fetch("/api/jobs?limit=200").then(r => r.json()).catch(() => null);
     if (d?.jobs) setJobs(d.jobs);
-    if (res?.paused) alert("Outreach is paused — turn off the global pause in Settings → Outreach.");
-    else if (res?.capped) alert("Daily/weekly send cap hit. The rest will go out automatically in the next window.");
+    if (res?.paused) showToast("Outreach is paused — turn it back on in Settings → Outreach.", "error");
+    else if (res?.capped) showToast("Daily/weekly send cap hit. The rest go out automatically in the next window.", "warn");
+    else if (res?.noThreads) showToast("Nothing to send for the selected jobs.", "info");
+    else if (typeof res?.sent === "number") showToast(`Sent ${res.sent} request${res.sent !== 1 ? "s" : ""}.`, "info");
   };
 
   // Filters + sort (client-side over the loaded jobs)
@@ -396,15 +405,45 @@ export default function BoardPage() {
         </div>
       </div>
 
+      {/* ── Toast ─────────────────────────────────────────────────────── */}
+      {toast && (
+        <div className={`fixed top-6 left-1/2 -translate-x-1/2 z-[60] flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium shadow-lg border animate-in fade-in slide-in-from-top-2 ${
+          toast.tone === "error" ? "bg-red-50 border-red-200 text-red-700"
+          : toast.tone === "warn" ? "bg-amber-50 border-amber-200 text-amber-800"
+          : "bg-zinc-900 border-zinc-800 text-white"
+        }`}>
+          <span>{toast.tone === "error" ? "⛔" : toast.tone === "warn" ? "⚠" : "✓"}</span>
+          {toast.msg}
+          <button onClick={() => setToast(null)} className="ml-1 opacity-50 hover:opacity-100">×</button>
+        </div>
+      )}
+
       {/* ── Bulk send action bar ──────────────────────────────────────── */}
-      {sel.size > 0 && (
+      {sel.size > 0 && !askNote && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-zinc-900 text-white rounded-full shadow-xl pl-5 pr-2 py-2">
           <span className="text-sm font-medium">{sel.size} selected</span>
           <button onClick={() => setSel(new Set())} className="text-xs text-zinc-300 hover:text-white">Clear</button>
-          <button onClick={sendSelected} disabled={sending}
+          <button onClick={() => setAskNote(true)} disabled={sending}
             className="bg-white text-zinc-900 text-sm font-semibold rounded-full px-4 py-1.5 hover:bg-zinc-100 disabled:opacity-60 flex items-center gap-1.5">
             {sending ? "Sending…" : "Send requests →"}
           </button>
+        </div>
+      )}
+
+      {/* Connection-note choice for the manual bulk send */}
+      {sel.size > 0 && askNote && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-zinc-900 text-white rounded-2xl shadow-xl px-4 py-3">
+          <span className="text-sm font-medium mr-1">Add a connection note to {sel.size} invite{sel.size !== 1 ? "s" : ""}?</span>
+          <button onClick={() => sendSelected(true)} disabled={sending}
+            className="bg-white text-zinc-900 text-sm font-semibold rounded-full px-4 py-1.5 hover:bg-zinc-100 disabled:opacity-60">
+            With note
+          </button>
+          <button onClick={() => sendSelected(false)} disabled={sending}
+            className="bg-zinc-700 text-white text-sm font-semibold rounded-full px-4 py-1.5 hover:bg-zinc-600 disabled:opacity-60">
+            Without note
+          </button>
+          <button onClick={() => setAskNote(false)} disabled={sending}
+            className="text-xs text-zinc-300 hover:text-white px-2">Cancel</button>
         </div>
       )}
 

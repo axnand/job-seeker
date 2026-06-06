@@ -14,8 +14,8 @@
 import type { Job } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { config } from "@/config";
-import { getSettings } from "@/lib/settings";
-import { findTargets } from "./people-finder";
+import { getSettings, type AppSettingsData } from "@/lib/settings";
+import { findTargets, type OutreachTarget } from "./people-finder";
 import { writeMessages } from "./message-writer";
 import { sendManualNotify } from "@/email/alerts";
 import { recomputeOutreachState } from "@/status/outreach-state";
@@ -43,14 +43,34 @@ export async function enqueueOutreach(job: Job): Promise<EnqueueResult> {
   if (existing > 0) return { mode: "noop", targetsDrafted: existing };
 
   const settings = await getSettings();
-  const followupsTotal = 1 + Math.max(0, settings.outreach.maxFollowups); // first DM + N followups
-  const pitch = job.tailoredPitch ?? `${job.role} is a strong fit for my backend / full-stack background.`;
 
   const targets = await findTargets(job);
   if (targets.length === 0) {
     console.log(`[enqueue] job ${job.id} (${job.company}) — no outreach targets found`);
     return { mode: "no_targets", targetsDrafted: 0 };
   }
+
+  const drafted = await draftAndQueueTargets(job, targets, settings);
+  await recomputeOutreachState(job.id).catch(() => {});
+  return { mode: "referral", targetsDrafted: drafted };
+}
+
+/**
+ * Draft + QUEUE outreach for a set of targets (shared by initial enqueue and the
+ * replenish top-up loop). For each target: write the messages, upsert the shared
+ * Contact, and create an Outreach + ChannelThread in the QUEUED phase with
+ * nextActionAt=now so the next tick claims and sends it (still gated by the send
+ * window + rate budget + globalPause). Returns the count successfully drafted.
+ *
+ * Does NOT recompute outreach state — the caller does that once after the batch.
+ */
+export async function draftAndQueueTargets(
+  job: Job,
+  targets: OutreachTarget[],
+  settings: AppSettingsData,
+): Promise<number> {
+  const followupsTotal = 1 + Math.max(0, settings.outreach.maxFollowups); // first DM + N followups
+  const pitch = job.tailoredPitch ?? `${job.role} is a strong fit for my backend / full-stack background.`;
 
   let drafted = 0;
   for (const target of targets) {
@@ -98,7 +118,12 @@ export async function enqueueOutreach(job: Job): Promise<EnqueueResult> {
           nextActionAt: new Date(),
           providerState: {
             phase: "QUEUED",
-            connectionNote: messages.connectionNote,
+            // Connection note is OPTIONAL and OFF by default: an empty
+            // connectionNote means the invite is sent with NO note. The drafted
+            // text is kept as connectionNoteDraft so the manual bulk-send can
+            // opt in ("Send with note") without regenerating it.
+            connectionNote: "",
+            connectionNoteDraft: messages.connectionNote,
             firstDm: messages.firstDm,
             followup: messages.followup,
           },
@@ -116,6 +141,5 @@ export async function enqueueOutreach(job: Job): Promise<EnqueueResult> {
     }
   }
 
-  await recomputeOutreachState(job.id).catch(() => {});
-  return { mode: "referral", targetsDrafted: drafted };
+  return drafted;
 }

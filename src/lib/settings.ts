@@ -42,6 +42,8 @@ export interface AppSettingsData {
   };
   outreach: {
     globalPause: boolean; maxReferralTargetsPerJob: number;
+    connectTarget: number; maxInvitesPerJob: number;
+    replenishIntervalHours: number; inviteTimeoutDays: number;
     followupAfterDays: number; maxFollowups: number; recontactCooldownDays: number;
     dailyInviteCap: number; weeklyInviteCap: number; dailyDmCap: number;
     sendWindowStart: number; sendWindowEnd: number;
@@ -88,6 +90,10 @@ function defaults(): AppSettingsData {
     outreach: {
       globalPause:              c.outreach.globalPause,
       maxReferralTargetsPerJob: c.outreach.maxReferralTargetsPerJob,
+      connectTarget:            c.outreach.connectTarget,
+      maxInvitesPerJob:         c.outreach.maxInvitesPerJob,
+      replenishIntervalHours:   c.outreach.replenishIntervalHours,
+      inviteTimeoutDays:        c.outreach.inviteTimeoutDays,
       followupAfterDays:        c.outreach.followupAfterDays,
       maxFollowups:             c.outreach.maxFollowups,
       recontactCooldownDays:    c.outreach.recontactCooldownDays,

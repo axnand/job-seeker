@@ -16,6 +16,7 @@ import { config } from "@/config";
 import { getSettings } from "@/lib/settings";
 import { getSendBudget, isWithinSendWindow } from "./limits";
 import { processThread, markThreadReplied, type SendBudgetMut } from "./thread-worker";
+import { replenishOutreach } from "./replenish";
 import { isNegativeReply } from "./classify-reply";
 import { recomputeOutreachState } from "@/status/outreach-state";
 import {
@@ -38,12 +39,13 @@ export interface TickResult {
   pollAccepted: number;
   pollReplied: number;
   staleArchived: number;
+  replenished: number;
 }
 
 export async function runOutreachTick(): Promise<TickResult> {
   const settings = await getSettings();
   const base: TickResult = {
-    processed: 0, failed: 0, claimed: 0, pollAccepted: 0, pollReplied: 0, staleArchived: 0,
+    processed: 0, failed: 0, claimed: 0, pollAccepted: 0, pollReplied: 0, staleArchived: 0, replenished: 0,
   };
 
   // Poll fallbacks first — read-only-ish, safe regardless of pause/window, and
@@ -61,6 +63,17 @@ export async function runOutreachTick(): Promise<TickResult> {
   if (settings.outreach.globalPause) {
     return { ...base, paused: true };
   }
+
+  // Top up jobs whose invite pipeline has open slots (accepted < target). This
+  // only QUEUES fresh threads — it runs regardless of the send window because the
+  // claim loop below (and on later ticks) still gates the actual sends.
+  base.replenished = await replenishOutreach(settings)
+    .then((r) => r.queued)
+    .catch((e) => {
+      console.error("[tick] replenishOutreach failed:", e);
+      return 0;
+    });
+
   if (!isWithinSendWindow(settings)) {
     return { ...base, outsideWindow: true };
   }
@@ -99,7 +112,10 @@ export async function runOutreachTick(): Promise<TickResult> {
  * (the owner explicitly clicked send) but still respects the globalPause kill
  * switch and the daily/weekly rate budget (account safety).
  */
-export async function sendForJobs(jobIds: string[]): Promise<{
+export async function sendForJobs(
+  jobIds: string[],
+  opts: { withNote?: boolean } = {},
+): Promise<{
   sent: number; failed: number; paused?: boolean; capped?: boolean; noThreads?: boolean;
 }> {
   if (jobIds.length === 0) return { sent: 0, failed: 0 };
@@ -120,12 +136,27 @@ export async function sendForJobs(jobIds: string[]): Promise<{
   // Claim (null nextActionAt) so the cron doesn't double-process.
   const claimable = await prisma.channelThread.findMany({
     where: { id: { in: threadIds }, status: { in: ["PENDING", "ACTIVE"] } },
-    select: { id: true },
+    select: { id: true, providerState: true },
   });
   await prisma.channelThread.updateMany({
     where: { id: { in: claimable.map((c) => c.id) } },
     data: { nextActionAt: null },
   });
+
+  // Connection note is opt-in for the manual flow. When the owner chose "with
+  // note", copy the drafted note into the live connectionNote so doSendInvite
+  // includes it; otherwise leave it empty (bare invite).
+  if (opts.withNote) {
+    for (const c of claimable) {
+      const ps = (c.providerState as Record<string, unknown> | null) ?? {};
+      const draft = (ps.connectionNoteDraft as string) ?? "";
+      if (draft && !ps.connectionNote) {
+        await prisma.channelThread
+          .updateMany({ where: { id: c.id }, data: { providerState: { ...ps, connectionNote: draft } } })
+          .catch(() => {});
+      }
+    }
+  }
 
   let sent = 0, failed = 0;
   for (const { id } of claimable) {

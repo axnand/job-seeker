@@ -33,7 +33,6 @@ import { handleSendError } from "./safety";
 import { nextSendWindowOpen } from "./limits";
 
 const MAX_CONSECUTIVE_FAILURES = 5;
-const INVITE_ACCEPT_TIMEOUT_DAYS = 14; // archive an unaccepted invite after this
 
 export interface SendBudgetMut {
   invitesLeft: number;
@@ -305,7 +304,7 @@ async function doSendInvite(
         status: "ACTIVE",
         providerState: { ...ps, phase: "INVITE_PENDING", inviteSentAt: ps.inviteSentAt ?? new Date().toISOString() },
         inviteSentAt: thread.inviteSentAt ?? new Date(),
-        nextActionAt: daysFromNow(INVITE_ACCEPT_TIMEOUT_DAYS),
+        nextActionAt: daysFromNow(s.outreach.inviteTimeoutDays),
       });
       console.log(`${tag} invite already pending — waiting`);
       return;
@@ -330,7 +329,7 @@ async function doSendInvite(
       status: "ACTIVE",
       providerState: { ...ps, phase: "INVITE_PENDING", inviteSentAt: new Date().toISOString() },
       inviteSentAt: new Date(),
-      nextActionAt: daysFromNow(INVITE_ACCEPT_TIMEOUT_DAYS),
+      nextActionAt: daysFromNow(s.outreach.inviteTimeoutDays),
     },
     { kind: "INVITE", body: note, providerMessageId: invitationId || null },
   );

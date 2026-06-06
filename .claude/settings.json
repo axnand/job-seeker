@@ -4,7 +4,10 @@
       "Bash(echo \"TYPECHECK EXIT: $?\")",
       "Bash(echo \"db reachable exit: $?\")",
       "Bash(perl -pi -e 's/s\\\\.staleness\\\\?\\\\.archiveAfterDays \\\\?\\\\? 14/INVITE_ACCEPT_TIMEOUT_DAYS/g' src/outreach/thread-worker.ts)",
-      "Bash(echo \"FINAL TYPECHECK EXIT: $?\")"
+      "Bash(echo \"FINAL TYPECHECK EXIT: $?\")",
+      "Bash(echo \"TC: $?\")",
+      "Bash(sed -n '59,140p' prisma/schema.prisma)",
+      "Bash(sed -n '243,310p' prisma/schema.prisma)"
     ]
   }
 }

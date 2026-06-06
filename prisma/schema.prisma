@@ -101,6 +101,12 @@ model Job {
 
   // Outreach state cache — machine-owned, derived from threads
   outreachState  OutreachState @default(NONE)
+  // Last time the replenish loop topped up (or attempted to) this job's outreach.
+  // Used to back off LinkedIn people-search so we don't re-query every tick.
+  lastReplenishAt DateTime?
+  // Set the first time the replenish loop determines the candidate pool or invite
+  // ceiling is exhausted — gates the one-time "pool exhausted" alert email.
+  poolAlertedAt   DateTime?
 
   // Staleness
   postedAt       DateTime?

@@ -7,6 +7,7 @@ type BaseResume = { baseResumeKey: string | null; name: string | null; url: stri
 export default function ResumePage() {
   const [resume, setResume] = useState<BaseResume | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -15,16 +16,26 @@ export default function ResumePage() {
 
   async function upload(file: File) {
     setUploading(true);
+    setError(null);
     const fd = new FormData();
     fd.append("file", file);
-    const res = await fetch("/api/resume/base", { method: "POST", body: fd }).then(r => r.json());
+    const res = await fetch("/api/resume/base", { method: "POST", body: fd }).then(r => r.json()).catch(() => null);
     setUploading(false);
-    if (res.ok) setResume({ baseResumeKey: res.baseResumeKey, name: res.name, url: res.url });
-    else alert(res.error ?? "Upload failed");
+    if (res?.ok) setResume({ baseResumeKey: res.baseResumeKey, name: res.name, url: res.url });
+    else {
+      setError(res?.error ?? "Upload failed");
+      setTimeout(() => setError(null), 4500);
+    }
   }
 
   return (
     <div className="max-w-2xl mx-auto px-6 py-10 space-y-6">
+      {error && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[60] flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium shadow-lg border bg-red-50 border-red-200 text-red-700">
+          <span>⛔</span> {error}
+          <button onClick={() => setError(null)} className="ml-1 opacity-50 hover:opacity-100">×</button>
+        </div>
+      )}
       <div>
         <h1 className="text-xl font-bold text-zinc-900">Resume</h1>
         <p className="text-sm text-zinc-500 mt-1">

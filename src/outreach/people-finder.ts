@@ -35,6 +35,33 @@ export interface OutreachTarget {
 
 const RECRUITER_HINT = /\b(recruit|talent|hr\b|people ops|sourcer|staffing|hiring)\b/i;
 
+// Intent keywords for the recruiter/talent search pass (independent of the role).
+const RECRUITER_KEYWORDS = "recruiter talent acquisition";
+
+// Seniority / employment-type / noise tokens that shouldn't drive a peer search —
+// we want people in the FUNCTION, regardless of level.
+const ROLE_NOISE =
+  /\b(senior|sr|staff|principal|lead|junior|jr|associate|intern|trainee|grad|graduate|new\s*grad|entry[- ]?level|mid[- ]?senior|i{1,3}|iv|v|1|2|3|remote|hybrid|on[- ]?site|full[- ]?time|part[- ]?time|contract|permanent|freelance)\b/g;
+
+/**
+ * Turn a job title into a clean function keyword for people search.
+ *   "Senior Java Backend Developer (Remote)" → "java backend developer"
+ *   "SDE II"                                  → "software engineer"
+ * Falls back to "software engineer" when nothing meaningful survives.
+ */
+export function roleKeywords(role: string): string {
+  const cleaned = (role ?? "")
+    .toLowerCase()
+    .replace(/\(.*?\)/g, " ")          // strip parentheticals
+    .replace(/\bsdet\b/g, "software engineer in test")
+    .replace(/\bsde\b/g, "software engineer")
+    .replace(/[-–—|/,_]+/g, " ")
+    .replace(ROLE_NOISE, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned || "software engineer";
+}
+
 function extractPublicId(url?: string): string | null {
   if (!url) return null;
   try {
@@ -141,9 +168,16 @@ function matchesCompany(p: OutreachTarget, token: string): boolean {
 }
 
 /**
- * People search scoped to the target company. LinkedIn's company filter is soft
- * (it leaks people from other companies), so we ALWAYS hard-filter results by the
- * company brand token. If nothing matches, return [] — never DM random people.
+ * People search scoped to the target company. Runs TWO passes and merges them:
+ *   • recruiter pass — talent/recruiting people who own the req
+ *   • peer pass      — people in the actual role (from job.role) who can refer
+ * Neither is the old literal "software engineer recruiter": a recruiter's
+ * headline rarely contains the role, and a peer's rarely contains "recruiter",
+ * so a single query missed both. We classify (RECRUITER vs REFERRAL) afterwards.
+ *
+ * LinkedIn's company filter is soft (it leaks people from other companies), so we
+ * ALWAYS hard-filter results by the company brand token. If nothing matches,
+ * return [] — never DM random people.
  */
 async function targetsFromSearch(job: Job, accountId: string): Promise<OutreachTarget[]> {
   try {
@@ -163,13 +197,20 @@ async function targetsFromSearch(job: Job, accountId: string): Promise<OutreachT
       return [];
     }
 
-    const people = await searchPeople(accountId, { keywords: "software engineer recruiter", companyId, limit: 40 });
-    const targets = people.map(personToTarget).filter((t): t is OutreachTarget => t !== null);
+    const peerKeywords = roleKeywords(job.role);
+    const [recruiters, peers] = await Promise.all([
+      searchPeople(accountId, { keywords: RECRUITER_KEYWORDS, companyId, limit: 40 }).catch(() => []),
+      searchPeople(accountId, { keywords: peerKeywords, companyId, limit: 40 }).catch(() => []),
+    ]);
+
+    const targets = [...recruiters, ...peers]
+      .map(personToTarget)
+      .filter((t): t is OutreachTarget => t !== null);
 
     // Hard relevance gate: keep only people whose headline/company mentions the brand.
     const relevant = targets.filter((t) => matchesCompany(t, token));
     if (relevant.length === 0) {
-      console.log(`[people-finder] no people matched company "${job.company}" (token "${token}") — skipping`);
+      console.log(`[people-finder] no people matched company "${job.company}" (token "${token}", role "${peerKeywords}") — skipping`);
     }
     return relevant;
   } catch (err) {
@@ -178,11 +219,22 @@ async function targetsFromSearch(job: Job, accountId: string): Promise<OutreachT
   }
 }
 
+export interface FindTargetsOpts {
+  /** Provider ids to exclude (e.g. people already targeted for this job). */
+  exclude?: Set<string>;
+  /** Max targets to return. Defaults to maxReferralTargetsPerJob. */
+  max?: number;
+}
+
 /**
- * Returns up to maxReferralTargetsPerJob targets for this job, deduped against
- * the Contact cooldown. Recruiters are prioritized over peers.
+ * Returns up to `max` (default maxReferralTargetsPerJob) targets for this job,
+ * deduped against the Contact cooldown and any `exclude` set. Recruiters are
+ * prioritized over peers.
+ *
+ * For post-sourced jobs the author IS the target — we never fan out to random
+ * company people, so an excluded/used author yields [] (no replenishment).
  */
-export async function findTargets(job: Job): Promise<OutreachTarget[]> {
+export async function findTargets(job: Job, opts: FindTargetsOpts = {}): Promise<OutreachTarget[]> {
   const accountId = config.owner.linkedinAccountId;
   if (!accountId) {
     console.warn("[people-finder] no OWNER_LINKEDIN_ACCOUNT_ID configured — cannot find targets");
@@ -190,13 +242,18 @@ export async function findTargets(job: Job): Promise<OutreachTarget[]> {
   }
 
   const settings = await getSettings();
-  const maxTargets = settings.outreach.maxReferralTargetsPerJob;
+  const max = opts.max ?? settings.outreach.maxReferralTargetsPerJob;
   const cooldownDays = settings.outreach.recontactCooldownDays;
+  const exclude = opts.exclude ?? new Set<string>();
+  if (max <= 0) return [];
 
-  // 1. dm_author short-circuit
+  // 1. dm_author short-circuit — the author is the only target for a post job.
   if (job.sourcePostAuthorUrl) {
     const author = await targetFromPostAuthor(job, accountId);
-    if (author) return dedupeAndFilter([author], cooldownDays, maxTargets);
+    if (author && !exclude.has(author.providerId)) {
+      return dedupeAndFilter([author], cooldownDays, max, exclude);
+    }
+    return [];
   }
 
   // 2 + 3. hiring team, then search — gather a pool, prioritize recruiters
@@ -209,18 +266,19 @@ export async function findTargets(job: Job): Promise<OutreachTarget[]> {
   // Stable sort: recruiters first (they can move the req fastest), then referrals.
   pool.sort((a, b) => (a.role === "RECRUITER" ? 0 : 1) - (b.role === "RECRUITER" ? 0 : 1));
 
-  return dedupeAndFilter(pool, cooldownDays, maxTargets);
+  return dedupeAndFilter(pool, cooldownDays, max, exclude);
 }
 
 async function dedupeAndFilter(
   pool: OutreachTarget[],
   cooldownDays: number,
-  maxTargets: number
+  maxTargets: number,
+  exclude: Set<string> = new Set<string>()
 ): Promise<OutreachTarget[]> {
-  // Dedupe within the pool by providerId
+  // Dedupe within the pool by providerId, dropping anything in `exclude`.
   const seen = new Set<string>();
   const unique = pool.filter((t) => {
-    if (!t.providerId || seen.has(t.providerId)) return false;
+    if (!t.providerId || seen.has(t.providerId) || exclude.has(t.providerId)) return false;
     seen.add(t.providerId);
     return true;
   });

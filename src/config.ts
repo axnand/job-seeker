@@ -86,7 +86,16 @@ Targeting: entry-level / SDE-1 / junior software engineering roles at strong pro
   },
 
   outreach: {
+    // maxReferralTargetsPerJob is the IN-FLIGHT batch size: how many connection
+    // invites we keep pending at once for a job. The replenish loop refills this
+    // pool as invites are accepted or time out — until connectTarget accepted
+    // connections are reached, maxInvitesPerJob total is hit, or the company's
+    // candidate pool is exhausted.
     maxReferralTargetsPerJob: 10,
+    connectTarget: 8,          // stop topping up once this many people accept
+    maxInvitesPerJob: 20,      // hard ceiling on total invites ever sent per job
+    replenishIntervalHours: 12, // min hours between people-search top-ups per job
+    inviteTimeoutDays: 7,      // cancel an unaccepted invite after this, free the slot
     followupAfterDays: 4,
     maxFollowups: 1,
     recontactCooldownDays: 30,
