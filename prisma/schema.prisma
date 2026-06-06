@@ -8,6 +8,15 @@ datasource db {
   directUrl = env("DIRECT_URL")         // direct connection — used for migrations only
 }
 
+// ─── Resume profile (single row, id="default") ───────────────────────────────
+
+model ResumeProfile {
+  id             String   @id @default("default")
+  baseResumeKey  String?  // S3 key of the master/base resume PDF
+  baseResumeName String?  // original filename, for display
+  updatedAt      DateTime @updatedAt
+}
+
 // ─── App Settings (single row, id="default") ─────────────────────────────────
 
 model AppSettings {
@@ -80,9 +89,11 @@ model Job {
   salaryConfidence SalaryConfidence?
   salaryAnnualBase Float?   // normalized annual in owner's base currency
 
-  // Tailored resume (Phase 4)
-  tailoredResumeTex String?  // S3 key
-  salaryFlagReason  String?  // e.g. "low_confidence_estimate_below_threshold"
+  // Resume tailoring gate (human-in-the-loop)
+  needsTailoring       Boolean  @default(false) // AI says base resume should be tailored for this role
+  tailoringSuggestions String?  @db.Text        // exact changes the owner should make
+  tailoredResumeKey    String?                  // S3 key once the owner uploads a tailored PDF
+  salaryFlagReason     String?
 
   // Application stage — human-owned
   appStage       AppStage   @default(NEW)
@@ -151,11 +162,21 @@ model ChannelThread {
   pendingSendStartedAt  DateTime?
 
   // State machine
-  providerState        Json?         // { phase: "INVITE_PENDING" | "CONNECTED" | "MESSAGED" | ... }
+  providerState        Json?         // { phase: "DRAFT" | "INVITE_PENDING" | "CONNECTED" | "MESSAGED" | ...; connectionNote; firstDm }
+
+  // Sequence progress
+  followupsSent        Int           @default(0)
+  followupsTotal       Int           @default(1) // first DM counts as send #1; +N followups
+  inviteSentAt         DateTime?
+  lastMessageAt        DateTime?     // last OUTBOUND send time (followup scheduling anchor)
 
   // Metrics
   consecutiveFailures  Int           @default(0)
   lastInboundAt        DateTime?
+
+  // Soft-archive (append-only; no hard deletes)
+  archivedAt           DateTime?
+  archivedReason       String?
 
   createdAt            DateTime      @default(now())
   updatedAt            DateTime      @updatedAt
@@ -173,6 +194,7 @@ model ThreadMessage {
   id                String        @id @default(cuid())
   threadId          String
   direction         MsgDirection
+  kind              MessageKind   @default(FIRST_DM) // discriminates invite vs DM for rate-limit counting
   body              String        @db.Text
   providerMessageId String?       // Unipile message_id (dedup)
   sentAt            DateTime      @default(now())
@@ -242,6 +264,13 @@ enum ThreadStatus {
 enum MsgDirection {
   OUTBOUND
   INBOUND
+}
+
+enum MessageKind {
+  INVITE      // connection request (the note)
+  FIRST_DM    // first message after connecting
+  FOLLOWUP    // subsequent nudge
+  INBOUND_MSG // a received reply (recorded for history)
 }
 
 enum SalaryPeriod {

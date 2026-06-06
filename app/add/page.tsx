@@ -43,6 +43,7 @@ async function addJob(formData: FormData) {
       dedupeKey: dedupeKey(company, role, undefined),
       applyType: "MANUAL_NOTIFY",
       aiScore: result.score, aiReason: result.reason, tailoredPitch: result.tailoredPitch,
+      needsTailoring: result.needsTailoring, tailoringSuggestions: result.tailoringSuggestions,
       appStage: result.skipReason ? "SKIPPED" : "NEW",
       salaryMin: result.salary.min ?? null, salaryMax: result.salary.max ?? null,
       salaryCurrency: result.salary.currency ?? null,

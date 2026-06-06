@@ -94,6 +94,8 @@ export async function POST() {
           aiScore: result.score,
           aiReason: result.reason,
           tailoredPitch: result.tailoredPitch,
+          needsTailoring: result.needsTailoring,
+          tailoringSuggestions: result.tailoringSuggestions,
           appStage,
 
           salaryMin: result.salary.min ?? null,

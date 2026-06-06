@@ -29,6 +29,9 @@ export interface ScoringOutput {
   salaryFlagReason?: string;
   /** Normalized annual base in config.search.baseCurrency — null if unknown */
   salaryAnnualBase?: number;
+  /** Resume tailoring gate */
+  needsTailoring: boolean;
+  tailoringSuggestions: string | null;
 }
 
 const SYSTEM_PROMPT = `You are a sharp job-fit analyst screening roles for a specific early-career candidate.
@@ -80,7 +83,8 @@ Start at a baseline and adjust:
 2. reason: 2 sentences — explicitly mention seniority fit, pay vs ${minLPA} LPA, and stack fit.
 3. tailoredPitch: 3 lines the candidate can paste into a LinkedIn DM (specific to this role + their backend/distributed-systems background).
 4. salary: extract if stated, else estimate from role + level + company + India market. For India roles use INR. CRITICAL: min/max must be the FULL absolute amount in the base currency unit — e.g. 18 LPA = 1800000 (rupees/year), NOT 18 and NOT in lakhs. period MUST be exactly one of "year" | "month" | "hour" (never "LPA"/"annum").
-5. If score < ${threshold}, set skipReason (one short phrase, e.g. "senior role - 5+ yrs required", "below 14.5 LPA", "non-engineering").
+5. RESUME TAILORING: The candidate's base resume (above) is strong and general. Decide if it should be tailored BEFORE applying/outreach. Default to needsTailoring=false — only set true when the JD emphasizes specific skills/keywords/domains that are present in the candidate's experience but NOT prominent in the base resume, and surfacing them would materially help (e.g. a specific framework, domain like payments/fintech, or a keyword an ATS would screen on). If true, tailoringSuggestions = 2-4 SPECIFIC, concrete edits (what to add/emphasize and where), each truthful to the candidate's actual background — never invent skills they lack. If false, set tailoringSuggestions to null.
+6. If score < ${threshold}, set skipReason (one short phrase, e.g. "senior role - 5+ yrs required", "below 14.5 LPA", "non-engineering").
 
 Respond with ONLY this JSON (no markdown):
 {
@@ -88,7 +92,9 @@ Respond with ONLY this JSON (no markdown):
   "reason": "<2 sentences>",
   "tailoredPitch": "<3 lines>",
   "skipReason": null,
-  "salary": { "min": <number>, "max": <number>, "currency": "<ISO 4217>", "period": "year|month|hour", "basis": "stated|estimated", "confidence": "high|medium|low" }
+  "salary": { "min": <number>, "max": <number>, "currency": "<ISO 4217>", "period": "year|month|hour", "basis": "stated|estimated", "confidence": "high|medium|low" },
+  "needsTailoring": <true|false>,
+  "tailoringSuggestions": "<specific edits, or null>"
 }`;
 }
 
@@ -142,6 +148,8 @@ export async function scoreJob(
     tailoredPitch: string;
     skipReason: string | null;
     salary: RawSalary;
+    needsTailoring?: boolean;
+    tailoringSuggestions?: string | null;
   }>(result.text);
 
   // Merge source salary as override if it was stated (higher trust than LLM estimate)
@@ -171,5 +179,7 @@ export async function scoreJob(
       ? gate.reason
       : undefined,
     salaryAnnualBase: normalized?.annualBase,
+    needsTailoring: parsed.needsTailoring === true,
+    tailoringSuggestions: parsed.needsTailoring === true ? (parsed.tailoringSuggestions ?? null) : null,
   };
 }

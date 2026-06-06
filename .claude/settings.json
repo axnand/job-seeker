@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(echo \"TYPECHECK EXIT: $?\")",
+      "Bash(echo \"db reachable exit: $?\")"
+    ]
+  }
+}

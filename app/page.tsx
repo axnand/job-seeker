@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Sheet, SheetContent, SheetHeader } from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
@@ -17,6 +17,7 @@ type Job = {
   salaryBasis: string | null; salaryConfidence: string | null;
   salaryFlagReason: string | null; applyUrl: string; location: string | null;
   jdText: string; createdAt: string;
+  needsTailoring: boolean; tailoringSuggestions: string | null; tailoredResumeKey: string | null;
   outreaches?: Array<{
     id: string; role: string;
     contact: { name: string; title: string | null; linkedinUrl: string };
@@ -81,6 +82,8 @@ export default function BoardPage() {
   const [detail, setDetail]     = useState<Job | null>(null);
   const [copied, setCopied]     = useState(false);
   const [acting, setActing]     = useState(false);
+  const [uploadingResume, setUploadingResume] = useState(false);
+  const resumeFileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetch("/api/jobs?limit=200").then(r => r.json())
@@ -101,6 +104,16 @@ export default function BoardPage() {
     setDetail(updated);
     setJobs(prev => prev.map(j => j.id === jobId ? { ...j, appStage: updated.appStage } : j));
     setActing(false);
+  }, []);
+
+  const uploadTailored = useCallback(async (jobId: string, file: File) => {
+    setUploadingResume(true);
+    const fd = new FormData();
+    fd.append("file", file);
+    await fetch(`/api/resume/tailored?jobId=${jobId}`, { method: "POST", body: fd });
+    const updated = await fetch(`/api/jobs/${jobId}`).then(r => r.json()) as Job;
+    setDetail(updated);
+    setUploadingResume(false);
   }, []);
 
   const byStage = STAGES.reduce<Record<string, Job[]>>((a,s) => { a[s]=[]; return a; }, {});
@@ -349,6 +362,39 @@ export default function BoardPage() {
                     className="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold px-4 py-2 rounded-xl shadow-sm transition-colors">
                     ↗ Apply
                   </a>
+                )}
+              </div>
+
+              <Separator className="bg-zinc-100" />
+
+              {/* Resume gate */}
+              <div>
+                <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest mb-2">Resume</p>
+                {!job.needsTailoring ? (
+                  <div className="flex items-center gap-2 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2.5">
+                    <span>✓</span> Base resume is a good fit — no tailoring needed.
+                  </div>
+                ) : job.tailoredResumeKey ? (
+                  <div className="flex items-center justify-between gap-2 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2.5">
+                    <span className="flex items-center gap-2">✓ Tailored resume uploaded</span>
+                    <a href={`/api/resume/download?key=${encodeURIComponent(job.tailoredResumeKey)}`} target="_blank" rel="noopener noreferrer"
+                      className="text-xs font-medium underline">View</a>
+                  </div>
+                ) : (
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5 space-y-2.5">
+                    <p className="text-sm font-semibold text-amber-800">⚠ Tailoring recommended before outreach</p>
+                    {job.tailoringSuggestions && (
+                      <p className="text-xs text-amber-700 leading-relaxed whitespace-pre-line">{job.tailoringSuggestions}</p>
+                    )}
+                    <button
+                      onClick={() => resumeFileRef.current?.click()}
+                      disabled={uploadingResume}
+                      className="text-xs font-medium text-white bg-amber-600 hover:bg-amber-700 rounded-lg px-3 py-2 transition-colors">
+                      {uploadingResume ? "Uploading…" : "↑ Upload tailored resume (PDF)"}
+                    </button>
+                    <input ref={resumeFileRef} type="file" accept="application/pdf" className="hidden"
+                      onChange={e => { const f = e.target.files?.[0]; if (f) uploadTailored(job.id, f); }} />
+                  </div>
                 )}
               </div>
 

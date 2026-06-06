@@ -18,6 +18,8 @@
     "schema": "prisma/schema.prisma"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1063.0",
+    "@aws-sdk/s3-request-presigner": "^3.1063.0",
     "@base-ui/react": "^1.5.0",
     "@prisma/client": "^6.2.1",
     "class-variance-authority": "^0.7.1",
