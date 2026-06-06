@@ -71,12 +71,13 @@ Target roles: ${targetRoles.join(", ")}
 Preferred industries: ${preferredIndustries.join(", ")}
 Acceptable seniority: ${constraints.acceptableSeniority.join(", ")}
 HARD REJECT seniority: ${constraints.rejectSeniority.join(", ")}
-Current base: ${constraints.currentBaseLPA} LPA. Minimum acceptable base: ${minLPA} LPA (anything at/below is a pay cut).
+Current FIXED BASE salary: ${constraints.currentBaseLPA} LPA. Minimum acceptable FIXED BASE: ${minLPA} LPA.
+IMPORTANT: Compare only against fixed/guaranteed base salary — NOT CTC, NOT total comp, NOT variable pay, NOT bonuses, NOT ESOPs/RSUs. In India, CTC often includes PF, gratuity, variable bonus, and ESOPs which are not guaranteed. A role offering ₹25L CTC with ₹10L base is below the floor.
 
 ## Scoring rubric (be strict — most jobs should NOT pass)
 - SENIORITY MISMATCH (most important): Senior / staff / principal / lead / EM / architect, or 4+ years required → score 0-25. Hard fail.
 - Internship / unpaid / contract / temp → score 0-20.
-- PAY: Salary at or below ${minLPA} LPA → score 0-35. Reward roles clearly above ${minLPA} LPA.
+- PAY (base salary only — NOT CTC): Fixed/guaranteed base at or below ${minLPA} LPA → score 0-35. If the stated salary is CTC-inclusive (mentions PF, variable, ESOPs, gratuity), estimate the fixed base as 60-70% of CTC for a junior role in India. Reward roles with a clear base above ${minLPA} LPA.
 - STACK FIT: Reward Java/Spring Boot/Kafka/Node/TypeScript/backend/distributed/full-stack. Non-engineering → score 0-15.
 - LEVEL FIT: Reward "new grad", "entry-level", "SDE-1", "associate", "Software Engineer I", "0-2 years", "1-3 years".
 - LOCATION (hard rule): India only. ACCEPT: (a) jobs in India, (b) global-remote/APAC-remote. HARD REJECT on-site/hybrid outside India → score 0-15.
@@ -86,7 +87,11 @@ Current base: ${constraints.currentBaseLPA} LPA. Minimum acceptable base: ${minL
 1. Score 0-100 per the rubric.
 2. reason: 2 sentences — seniority fit, pay vs ${minLPA} LPA, stack fit.
 3. tailoredPitch: 3 lines the candidate can paste into a LinkedIn DM. Use ONLY real facts from their background. NO bracket placeholders like [Name], [Company], [Role] — the pitch must be complete and ready to send as-is.
-4. salary: extract if stated, else estimate for India market. INR annual. min/max = FULL rupee amount (18 LPA = 1800000). period = "year"|"month"|"hour" only.
+4. salary: Extract or estimate the FIXED BASE salary only — not CTC.
+   - If the JD states a base salary range explicitly → use it, basis="stated".
+   - If the JD only states CTC → estimate fixed base as ~60-70% of CTC (Indian junior-role norm), basis="estimated", confidence="medium".
+   - If no salary info → estimate base from role + seniority + company + India market, basis="estimated".
+   - min/max = FULL rupee amount (18 LPA base = 1800000). period = "year"|"month"|"hour" only. currency = "INR" for India roles.
 5. RESUME TAILORING: needsTailoring=false by default. Set true only when the JD emphasizes skills in the candidate's background but not prominent in the base resume, AND surfacing them would materially help. If true, tailoringSuggestions = 2-4 concrete edits (truthful only — never invent skills). If false, tailoringSuggestions = null.
 6. If score < ${threshold}, set skipReason (short phrase, e.g. "senior role 5+ yrs", "below ${minLPA} LPA", "non-engineering", "US-only on-site").
 
