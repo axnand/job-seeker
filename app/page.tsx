@@ -1,13 +1,10 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Sheet, SheetContent, SheetHeader } from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
-import {
-  Sheet, SheetContent, SheetHeader,
-} from "@/components/ui/sheet";
+import { Button } from "@/components/ui/button";
 import type { AppStage, OutreachState } from "@prisma/client";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -26,55 +23,39 @@ type Job = {
   }>;
 };
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// ─── Config ───────────────────────────────────────────────────────────────────
 
 const STAGES: AppStage[] = ["NEW","APPROVED","APPLIED","INTERVIEWING","OFFER","CLOSED"];
 const STAGE_LABEL: Record<AppStage, string> = {
   NEW:"New", APPROVED:"Approved", SKIPPED:"Skipped",
   APPLIED:"Applied", INTERVIEWING:"Interviewing", OFFER:"Offer", CLOSED:"Closed",
 };
-const STAGE_ACCENT: Record<AppStage, string> = {
-  NEW:"bg-slate-100", APPROVED:"bg-blue-50", SKIPPED:"bg-slate-50",
-  APPLIED:"bg-violet-50", INTERVIEWING:"bg-amber-50", OFFER:"bg-emerald-50", CLOSED:"bg-red-50",
+const STAGE_BG: Record<AppStage, string> = {
+  NEW:"bg-zinc-50", APPROVED:"bg-blue-50/60", SKIPPED:"bg-zinc-50",
+  APPLIED:"bg-violet-50/60", INTERVIEWING:"bg-amber-50/60", OFFER:"bg-emerald-50/60", CLOSED:"bg-red-50/60",
 };
 const SOURCE_LABEL: Record<string, string> = {
   LINKEDIN_JOB:"LinkedIn", LINKEDIN_POST:"LI Post", ADZUNA:"Adzuna",
   ATS_WATCHLIST:"Watchlist", REMOTIVE:"Remotive", REMOTEOK:"RemoteOK",
   JSEARCH:"JSearch", MANUAL:"Manual",
 };
-const OUTREACH_LABEL: Record<string, string> = {
-  NONE:"", INVITE_SENT:"Invite sent", CONNECTED:"Connected",
-  MESSAGED:"Messaged", REPLIED:"Replied ✓", NO_REPLY_ARCHIVED:"No reply",
+const OUTREACH_LABEL: Record<string, { text: string; cls: string }> = {
+  NONE:               { text: "", cls: "" },
+  INVITE_SENT:        { text: "Invite sent",  cls: "bg-blue-50 text-blue-700 border-blue-200" },
+  CONNECTED:          { text: "Connected",    cls: "bg-blue-50 text-blue-700 border-blue-200" },
+  MESSAGED:           { text: "Messaged",     cls: "bg-indigo-50 text-indigo-700 border-indigo-200" },
+  REPLIED:            { text: "Replied ✓",    cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  NO_REPLY_ARCHIVED:  { text: "No reply",     cls: "bg-zinc-100 text-zinc-500 border-zinc-200" },
 };
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Utils ────────────────────────────────────────────────────────────────────
 
-function scoreColor(n: number | null) {
-  if (n === null) return "bg-slate-100 text-slate-500";
-  if (n >= 80) return "bg-green-100 text-green-800";
-  if (n >= 60) return "bg-amber-100 text-amber-700";
-  return "bg-red-100 text-red-700";
-}
+const scoreClr = (n: number | null) => n === null ? "bg-zinc-100 text-zinc-400" : n >= 80 ? "bg-green-100 text-green-800" : n >= 60 ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700";
 
-function fmtSalary(base: number | null, currency: string | null) {
-  if (!base) return null;
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency", currency: currency ?? "INR",
-    maximumFractionDigits: 0, notation: "compact",
-  }).format(base);
-}
+const avatarClr = (name: string) => ["bg-blue-100 text-blue-700","bg-violet-100 text-violet-700","bg-emerald-100 text-emerald-700","bg-amber-100 text-amber-700","bg-rose-100 text-rose-700","bg-cyan-100 text-cyan-700","bg-indigo-100 text-indigo-700","bg-orange-100 text-orange-700"][name.charCodeAt(0) % 8];
 
-function companyInitial(name: string) { return name.charAt(0).toUpperCase(); }
-
-function avatarColor(name: string) {
-  const colors = [
-    "bg-blue-100 text-blue-700","bg-violet-100 text-violet-700",
-    "bg-emerald-100 text-emerald-700","bg-amber-100 text-amber-700",
-    "bg-rose-100 text-rose-700","bg-cyan-100 text-cyan-700",
-    "bg-indigo-100 text-indigo-700","bg-orange-100 text-orange-700",
-  ];
-  return colors[name.charCodeAt(0) % colors.length];
-}
+const fmtSalary = (base: number | null, cur: string | null) => !base ? null :
+  new Intl.NumberFormat("en-IN", { style:"currency", currency: cur??"INR", maximumFractionDigits:0, notation:"compact" }).format(base);
 
 // ─── Board ────────────────────────────────────────────────────────────────────
 
@@ -82,9 +63,9 @@ export default function BoardPage() {
   const [jobs, setJobs]       = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Job | null>(null);
-  const [detailJob, setDetailJob] = useState<Job | null>(null);
+  const [detail, setDetail]   = useState<Job | null>(null);
   const [copied, setCopied]   = useState(false);
-  const [actioning, setActioning] = useState(false);
+  const [acting, setActing]   = useState(false);
 
   useEffect(() => {
     fetch("/api/jobs?limit=200").then(r => r.json())
@@ -92,26 +73,24 @@ export default function BoardPage() {
       .catch(() => setLoading(false));
   }, []);
 
-  const openDrawer = useCallback(async (job: Job) => {
-    setSelected(job);
+  const openJob = useCallback(async (job: Job) => {
+    setSelected(job); setDetail(null);
     const full = await fetch(`/api/jobs/${job.id}`).then(r => r.json()) as Job;
-    setDetailJob(full);
+    setDetail(full);
   }, []);
+
+  const closeJob = () => { setSelected(null); setDetail(null); };
 
   const act = useCallback(async (jobId: string, action: string) => {
-    setActioning(true);
-    await fetch("/api/jobs/action", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ jobId, action }),
-    });
+    setActing(true);
+    await fetch("/api/jobs/action", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ jobId, action }) });
     const updated = await fetch(`/api/jobs/${jobId}`).then(r => r.json()) as Job;
-    setDetailJob(updated);
+    setDetail(updated);
     setJobs(prev => prev.map(j => j.id === jobId ? { ...j, appStage: updated.appStage } : j));
-    setActioning(false);
+    setActing(false);
   }, []);
 
-  const byStage = STAGES.reduce<Record<string, Job[]>>((a,s) => { a[s]=[];return a; }, {});
+  const byStage = STAGES.reduce<Record<string, Job[]>>((a,s) => { a[s]=[]; return a; }, {});
   for (const j of jobs) if (j.appStage !== "SKIPPED" && byStage[j.appStage]) byStage[j.appStage].push(j);
 
   const tw = Date.now() - 7*24*60*60*1000;
@@ -128,163 +107,158 @@ export default function BoardPage() {
     ["Response rate",   outreached ? `${Math.round(replied/outreached*100)}%` : "—"],
   ] as [string, string | number][];
 
-  const job = detailJob ?? selected;
+  const job = detail ?? selected;
 
   return (
     <div className="px-6 py-5 space-y-4">
-      {/* Stats */}
+
+      {/* ── Stats ─────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-7 gap-3">
         {stats.map(([label, val]) => (
-          <div key={label} className="bg-white border border-border rounded-lg px-4 py-3">
-            <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">{label}</p>
-            <p className="text-2xl font-bold mt-0.5">{loading ? "—" : val}</p>
+          <div key={label} className="bg-white rounded-xl border border-zinc-200 px-4 py-3">
+            <p className="text-[10px] font-medium text-zinc-400 uppercase tracking-widest">{label}</p>
+            <p className="text-2xl font-bold text-zinc-900 mt-0.5 tabular-nums">{loading ? "—" : val}</p>
           </div>
         ))}
       </div>
 
-      {/* Filters */}
+      {/* ── Filter bar ────────────────────────────────────────────────── */}
       <div className="flex items-center gap-2">
-        <select className="text-sm border border-border rounded-md px-3 py-1.5 bg-white text-foreground">
-          <option>Source: All</option>
-          {Object.entries(SOURCE_LABEL).map(([k,v]) => <option key={k} value={k}>{v}</option>)}
-        </select>
-        <select className="text-sm border border-border rounded-md px-3 py-1.5 bg-white text-foreground">
-          <option>Apply: All</option>
-          <option value="REFERRAL_FIRST">Referral First</option>
-          <option value="MANUAL_NOTIFY">Manual Apply</option>
-        </select>
-        <select className="text-sm border border-border rounded-md px-3 py-1.5 bg-white text-foreground">
-          <option>Score: All</option>
-          <option>Score: &gt; 80</option>
-          <option>Score: &gt; 70</option>
-          <option>Score: &gt; 60</option>
-        </select>
+        {["Source: All", "Apply: All", "Score: All"].map(label => (
+          <select key={label} className="text-xs border border-zinc-200 rounded-lg px-3 py-1.5 bg-white text-zinc-600 focus:outline-none">
+            <option>{label}</option>
+          </select>
+        ))}
+        <div className="ml-auto flex items-center gap-1 text-xs text-zinc-400">
+          Sort by:
+          {["Score","Salary","Date"].map(s => (
+            <button key={s} className="px-2 py-1 rounded hover:bg-white hover:text-zinc-700 transition-colors">{s}</button>
+          ))}
+        </div>
       </div>
 
-      {/* Kanban */}
-      <div className="flex gap-4 overflow-x-auto pb-4">
+      {/* ── Kanban ────────────────────────────────────────────────────── */}
+      <div className="flex gap-3 overflow-x-auto pb-4">
         {STAGES.map(stage => (
-          <div key={stage} className="w-[260px] flex-shrink-0">
-            <div className="flex items-center gap-2 mb-2.5 px-0.5">
-              <span className="text-sm font-semibold">{STAGE_LABEL[stage]}</span>
-              <span className="text-xs text-muted-foreground bg-muted rounded-full px-2 py-0.5 font-medium">
+          <div key={stage} className="w-[255px] flex-shrink-0 flex flex-col gap-2">
+
+            {/* Column header */}
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-zinc-800">{STAGE_LABEL[stage]}</span>
+              <span className="text-xs font-medium text-zinc-400 bg-zinc-100 rounded-full px-2 py-0.5 tabular-nums">
                 {byStage[stage].length}
               </span>
             </div>
 
-            <div className={`rounded-xl p-2 min-h-[120px] flex flex-col gap-2 ${STAGE_ACCENT[stage]}`}>
-              {loading && <p className="text-xs text-muted-foreground m-auto">Loading…</p>}
+            {/* Lane */}
+            <div className={`rounded-xl p-2 min-h-28 flex flex-col gap-2 ${STAGE_BG[stage]}`}>
+              {loading && <p className="m-auto text-xs text-zinc-400">Loading…</p>}
               {!loading && byStage[stage].length === 0 && (
-                <p className="text-xs text-muted-foreground m-auto">Empty</p>
+                <p className="m-auto text-xs text-zinc-400">Empty</p>
               )}
 
-              {byStage[stage].map(job => (
-                <button
-                  key={job.id}
-                  onClick={() => openDrawer(job)}
-                  className="w-full text-left bg-white rounded-lg p-3 border border-border/60 hover:border-border hover:shadow-sm transition-all"
-                >
-                  {/* Company + score */}
-                  <div className="flex items-start justify-between gap-2 mb-2">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <Avatar className={`h-7 w-7 text-xs shrink-0 ${avatarColor(job.company)}`}>
-                        <AvatarFallback className={`text-xs font-semibold ${avatarColor(job.company)}`}>
-                          {companyInitial(job.company)}
+              {byStage[stage].map(job => {
+                const sal = fmtSalary(job.salaryAnnualBase, job.salaryCurrency);
+                const outreach = OUTREACH_LABEL[job.outreachState];
+                return (
+                  <button key={job.id} onClick={() => openJob(job)}
+                    className="w-full text-left bg-white rounded-lg p-3 border border-zinc-200/80 hover:border-zinc-300 hover:shadow-sm active:scale-[0.99] transition-all">
+
+                    {/* Header */}
+                    <div className="flex items-start gap-2 mb-2">
+                      <Avatar className={`h-7 w-7 rounded-lg shrink-0 text-xs ${avatarClr(job.company)}`}>
+                        <AvatarFallback className={`rounded-lg text-xs font-bold ${avatarClr(job.company)}`}>
+                          {job.company.charAt(0).toUpperCase()}
                         </AvatarFallback>
                       </Avatar>
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold truncate leading-tight">{job.company}</p>
-                        <p className="text-xs text-muted-foreground truncate">{job.role}</p>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-zinc-900 truncate leading-tight">{job.company}</p>
+                        <p className="text-xs text-zinc-500 truncate leading-tight mt-0.5">{job.role}</p>
                       </div>
+                      {job.aiScore !== null && (
+                        <span className={`text-xs font-bold px-1.5 py-0.5 rounded-md shrink-0 ${scoreClr(job.aiScore)}`}>
+                          {job.aiScore}
+                        </span>
+                      )}
                     </div>
-                    {job.aiScore !== null && (
-                      <span className={`text-xs font-bold px-1.5 py-0.5 rounded shrink-0 ${scoreColor(job.aiScore)}`}>
-                        {job.aiScore}
-                      </span>
-                    )}
-                  </div>
 
-                  {/* Salary */}
-                  {job.salaryAnnualBase && (
-                    <p className={`text-xs font-medium mb-1.5 ${job.salaryBasis === "ESTIMATED" ? "text-amber-600" : "text-emerald-700"}`}>
-                      {fmtSalary(job.salaryAnnualBase, job.salaryCurrency)}/yr
-                      <span className="font-normal text-muted-foreground ml-1">
-                        · {job.salaryBasis === "STATED" ? "stated" : `est.`}
+                    {/* Salary */}
+                    {sal && (
+                      <p className={`text-xs font-medium mb-1.5 ${job.salaryBasis === "ESTIMATED" ? "text-amber-600" : "text-emerald-600"}`}>
+                        {sal}/yr · <span className="font-normal text-zinc-400">{job.salaryBasis === "STATED" ? "stated" : "est."}</span>
                         {job.salaryFlagReason && " ⚠"}
-                      </span>
-                    </p>
-                  )}
+                      </p>
+                    )}
 
-                  {/* Badges */}
-                  <div className="flex flex-wrap items-center gap-1">
-                    <span className="text-[10px] text-muted-foreground border border-border rounded px-1.5 py-0.5">
-                      {SOURCE_LABEL[job.source] ?? job.source}
-                    </span>
-                    {job.applyType === "REFERRAL_FIRST" && (
-                      <span className="text-[10px] text-violet-700 border border-violet-200 bg-violet-50 rounded px-1.5 py-0.5">
-                        Referral
+                    {/* Chips */}
+                    <div className="flex flex-wrap gap-1">
+                      <span className="text-[10px] text-zinc-500 border border-zinc-200 rounded-md px-1.5 py-0.5">
+                        {SOURCE_LABEL[job.source] ?? job.source}
                       </span>
-                    )}
-                    {job.outreachState !== "NONE" && (
-                      <span className={`text-[10px] rounded px-1.5 py-0.5 ${
-                        job.outreachState === "REPLIED"
-                          ? "text-emerald-700 bg-emerald-50 border border-emerald-200"
-                          : "text-blue-600 bg-blue-50 border border-blue-200"
-                      }`}>
-                        {OUTREACH_LABEL[job.outreachState]}
-                      </span>
-                    )}
-                  </div>
-                </button>
-              ))}
+                      {job.applyType === "REFERRAL_FIRST" && (
+                        <span className="text-[10px] text-violet-600 border border-violet-200 bg-violet-50 rounded-md px-1.5 py-0.5">
+                          Referral
+                        </span>
+                      )}
+                      {job.outreachState !== "NONE" && outreach.text && (
+                        <span className={`text-[10px] border rounded-md px-1.5 py-0.5 ${outreach.cls}`}>
+                          {outreach.text}
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </div>
         ))}
       </div>
 
-      {/* ── Job Detail Drawer ───────────────────────────────────────────── */}
-      <Sheet open={!!selected} onOpenChange={open => { if (!open) { setSelected(null); setDetailJob(null); } }}>
-        <SheetContent className="w-[520px] sm:max-w-[520px] overflow-y-auto p-0">
-          <SheetHeader className="px-6 pt-5 pb-4 border-b">
+      {/* ── Job Drawer ────────────────────────────────────────────────── */}
+      <Sheet open={!!selected} onOpenChange={v => { if (!v) closeJob(); }}>
+        <SheetContent
+          className="!w-[500px] !max-w-[500px] overflow-y-auto p-0 flex flex-col"
+          showCloseButton
+        >
+          {/* Header */}
+          <SheetHeader className="px-6 pt-5 pb-4 border-b border-zinc-200 flex-shrink-0">
             <div className="flex items-start gap-3">
               {job && (
-                <Avatar className={`h-10 w-10 shrink-0 ${avatarColor(job.company)}`}>
-                  <AvatarFallback className={`font-bold ${avatarColor(job.company)}`}>
-                    {companyInitial(job.company)}
+                <Avatar className={`h-10 w-10 rounded-xl shrink-0 ${avatarClr(job.company)}`}>
+                  <AvatarFallback className={`rounded-xl font-bold text-sm ${avatarClr(job.company)}`}>
+                    {job.company.charAt(0).toUpperCase()}
                   </AvatarFallback>
                 </Avatar>
               )}
-              <div className="flex-1 min-w-0">
+              <div className="flex-1 min-w-0 pr-8">
                 <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <h2 className="font-bold text-base leading-tight">
+                  <div className="min-w-0">
+                    <p className="font-bold text-base leading-tight truncate">
                       {job?.company} · {job?.role}
-                    </h2>
-                    {job?.location && (
-                      <p className="text-xs text-muted-foreground mt-0.5">{job.location}</p>
-                    )}
+                    </p>
+                    {job?.location && <p className="text-xs text-zinc-500 mt-0.5">{job.location}</p>}
                   </div>
                   {job?.aiScore !== null && job?.aiScore !== undefined && (
                     <div className="text-right shrink-0">
-                      <p className={`text-2xl font-bold ${scoreColor(job.aiScore).split(" ")[1]}`}>{job.aiScore}</p>
-                      <p className="text-[10px] text-muted-foreground uppercase tracking-wide">AI Score</p>
+                      <p className={`text-2xl font-bold ${scoreClr(job.aiScore).split(" ")[1]}`}>{job.aiScore}</p>
+                      <p className="text-[9px] text-zinc-400 uppercase tracking-widest">AI Score</p>
                     </div>
                   )}
                 </div>
 
-                {/* Status badges */}
+                {/* Status row */}
                 <div className="flex flex-wrap gap-1.5 mt-2.5">
                   {job && (
                     <>
-                      <Badge variant="outline" className="text-xs">{STAGE_LABEL[job.appStage]}</Badge>
-                      <Badge variant="outline" className="text-xs">{SOURCE_LABEL[job.source] ?? job.source}</Badge>
+                      <span className="text-[10px] border border-zinc-200 rounded-md px-2 py-0.5 text-zinc-600">{STAGE_LABEL[job.appStage]}</span>
+                      <span className="text-[10px] border border-zinc-200 rounded-md px-2 py-0.5 text-zinc-500">{SOURCE_LABEL[job.source] ?? job.source}</span>
                       {job.applyType === "REFERRAL_FIRST" && (
-                        <Badge variant="outline" className="text-xs text-violet-600 border-violet-200">Referral First</Badge>
+                        <span className="text-[10px] border border-violet-200 bg-violet-50 text-violet-700 rounded-md px-2 py-0.5">Referral First</span>
                       )}
-                      {job.outreachState !== "NONE" && (
-                        <Badge variant="outline" className="text-xs text-blue-600 border-blue-200">
-                          {OUTREACH_LABEL[job.outreachState]}
-                        </Badge>
+                      {job.outreachState !== "NONE" && OUTREACH_LABEL[job.outreachState].text && (
+                        <span className={`text-[10px] border rounded-md px-2 py-0.5 ${OUTREACH_LABEL[job.outreachState].cls}`}>
+                          {OUTREACH_LABEL[job.outreachState].text}
+                        </span>
                       )}
                     </>
                   )}
@@ -293,31 +267,31 @@ export default function BoardPage() {
             </div>
           </SheetHeader>
 
+          {/* Body */}
           {job && (
-            <div className="px-6 py-5 space-y-5">
+            <div className="px-6 py-5 space-y-5 flex-1 overflow-y-auto">
+
               {/* AI Analysis */}
               {job.aiReason && (
                 <div>
-                  <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">
-                    ✦ AI Analysis
-                  </p>
-                  <p className="text-sm text-foreground leading-relaxed">{job.aiReason}</p>
+                  <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest mb-1.5">✦ AI Analysis</p>
+                  <p className="text-sm text-zinc-700 leading-relaxed">{job.aiReason}</p>
                 </div>
               )}
 
-              {/* Generated Pitch */}
+              {/* Pitch */}
               {job.tailoredPitch && (
-                <div className="bg-slate-50 border border-border rounded-lg p-4">
+                <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-4">
                   <div className="flex items-center justify-between mb-2">
-                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Generated Pitch (DM)</p>
+                    <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest">Generated Pitch</p>
                     <button
                       onClick={() => { navigator.clipboard.writeText(job.tailoredPitch!); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
-                      className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
+                      className="text-xs text-zinc-400 hover:text-zinc-700 transition-colors"
                     >
                       {copied ? "Copied ✓" : "Copy"}
                     </button>
                   </div>
-                  <p className="text-sm text-foreground leading-relaxed italic whitespace-pre-line">
+                  <p className="text-sm text-zinc-700 leading-relaxed italic whitespace-pre-line">
                     &ldquo;{job.tailoredPitch}&rdquo;
                   </p>
                 </div>
@@ -330,25 +304,21 @@ export default function BoardPage() {
                 <div>
                   {job.salaryAnnualBase ? (
                     <>
-                      <p className={`text-xl font-bold ${job.salaryBasis === "ESTIMATED" ? "text-amber-700" : "text-foreground"}`}>
+                      <p className={`text-xl font-bold ${job.salaryBasis === "ESTIMATED" ? "text-amber-700" : "text-zinc-900"}`}>
                         {fmtSalary(job.salaryAnnualBase, job.salaryCurrency)}/yr
-                        <span className="text-sm font-normal text-muted-foreground ml-2">
-                          {job.salaryBasis === "STATED" ? "stated" : `est. · ${job.salaryConfidence?.toLowerCase()}`}
-                        </span>
                       </p>
-                      {job.salaryFlagReason && (
-                        <p className="text-xs text-amber-600 mt-0.5">⚠ {job.salaryFlagReason.replace(/_/g," ")}</p>
-                      )}
+                      <p className="text-xs text-zinc-400 mt-0.5">
+                        {job.salaryBasis === "STATED" ? "Stated" : `Estimated · ${job.salaryConfidence?.toLowerCase() ?? ""} confidence`}
+                      </p>
+                      {job.salaryFlagReason && <p className="text-xs text-amber-600 mt-0.5">⚠ {job.salaryFlagReason.replace(/_/g," ")}</p>}
                     </>
                   ) : (
-                    <p className="text-sm text-muted-foreground">Salary unknown</p>
+                    <p className="text-sm text-zinc-400">Salary unknown</p>
                   )}
                 </div>
                 {job.applyUrl && (
-                  <a
-                    href={job.applyUrl} target="_blank" rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-                  >
+                  <a href={job.applyUrl} target="_blank" rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
                     ↗ Apply
                   </a>
                 )}
@@ -359,16 +329,13 @@ export default function BoardPage() {
               {/* Actions */}
               {job.appStage === "NEW" && (
                 <div className="space-y-2">
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Update Application Stage</p>
+                  <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest">Actions</p>
                   <div className="flex gap-2">
-                    <Button
-                      onClick={() => act(job.id, "approve")}
-                      disabled={actioning}
-                      className="flex-1 bg-foreground hover:bg-foreground/90 text-background"
-                    >
-                      ✓ Approve & Queue Outreach
+                    <Button onClick={() => act(job.id, "approve")} disabled={acting}
+                      className="flex-1 bg-zinc-900 hover:bg-zinc-800 text-white text-sm">
+                      ✓ Approve &amp; Queue Outreach
                     </Button>
-                    <Button onClick={() => act(job.id, "skip")} disabled={actioning} variant="outline">
+                    <Button onClick={() => act(job.id, "skip")} disabled={acting} variant="outline" className="text-sm">
                       Skip
                     </Button>
                   </div>
@@ -377,10 +344,11 @@ export default function BoardPage() {
 
               {["APPROVED","APPLIED"].includes(job.appStage) && (
                 <div className="space-y-2">
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Update Application Stage</p>
+                  <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest">Update Stage</p>
                   <div className="flex flex-wrap gap-2">
                     {["applied","interviewing","offer","closed"].map(a => (
-                      <Button key={a} onClick={() => act(job.id, a)} disabled={actioning} variant="outline" size="sm" className="capitalize">
+                      <Button key={a} onClick={() => act(job.id, a)} disabled={acting}
+                        variant="outline" size="sm" className="capitalize text-xs">
                         {a}
                       </Button>
                     ))}
@@ -393,23 +361,21 @@ export default function BoardPage() {
                 <>
                   <Separator />
                   <div>
-                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Outreach History</p>
+                    <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest mb-3">Outreach History</p>
                     <div className="space-y-3">
                       {job.outreaches!.map(o => (
                         <div key={o.id} className="flex items-start gap-3">
-                          <div className="mt-1 w-1.5 h-1.5 rounded-full bg-muted-foreground shrink-0" />
-                          <div className="flex-1">
-                            <div className="flex items-center justify-between">
-                              <p className="text-sm font-semibold">
+                          <div className="mt-2 w-1.5 h-1.5 rounded-full bg-zinc-300 shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-sm font-medium text-zinc-900 truncate">
                                 {o.contact.name}
-                                {o.contact.title && (
-                                  <span className="font-normal text-muted-foreground"> @ {o.contact.title}</span>
-                                )}
+                                {o.contact.title && <span className="font-normal text-zinc-500"> · {o.contact.title}</span>}
                               </p>
                               <a href={o.contact.linkedinUrl} target="_blank" rel="noopener noreferrer"
-                                className="text-xs text-blue-600 hover:underline">LinkedIn</a>
+                                className="text-xs text-blue-600 hover:underline shrink-0">LinkedIn →</a>
                             </div>
-                            <p className="text-xs text-muted-foreground capitalize">{o.role.toLowerCase()}</p>
+                            <p className="text-xs text-zinc-400 capitalize">{o.role.toLowerCase()}</p>
                           </div>
                         </div>
                       ))}
@@ -421,8 +387,8 @@ export default function BoardPage() {
               {/* Full JD */}
               <Separator />
               <div>
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Job Description</p>
-                <pre className="text-xs text-muted-foreground whitespace-pre-wrap font-sans leading-relaxed max-h-80 overflow-y-auto">
+                <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest mb-2">Job Description</p>
+                <pre className="text-xs text-zinc-500 whitespace-pre-wrap font-sans leading-relaxed max-h-72 overflow-y-auto pr-1">
                   {job.jdText}
                 </pre>
               </div>

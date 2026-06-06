@@ -1,18 +1,25 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import type { AppSettingsData } from "@/lib/settings";
+
+type Tab = "sources" | "search" | "outreach" | "ai";
+const TABS: { key: Tab; label: string }[] = [
+  { key: "sources",  label: "Sources"  },
+  { key: "search",   label: "Search"   },
+  { key: "outreach", label: "Outreach" },
+  { key: "ai",       label: "AI"       },
+];
 
 export default function SettingsPage() {
   const [s, setS]         = useState<AppSettingsData | null>(null);
+  const [tab, setTab]     = useState<Tab>("sources");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved]   = useState(false);
   const [kw, setKw]         = useState("");
@@ -25,7 +32,8 @@ export default function SettingsPage() {
   const save = useCallback(async (next: AppSettingsData) => {
     setS(next); setSaving(true); setSaved(false);
     await fetch("/api/settings", {
-      method: "PATCH", headers: { "Content-Type": "application/json" },
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(next),
     });
     setSaving(false); setSaved(true);
@@ -33,7 +41,7 @@ export default function SettingsPage() {
   }, []);
 
   if (!s) return (
-    <div className="flex items-center justify-center h-64 text-sm text-muted-foreground">Loading…</div>
+    <div className="flex items-center justify-center h-64 text-sm text-zinc-400">Loading settings…</div>
   );
 
   const src = (v: Partial<typeof s.sources>)  => save({ ...s, sources:  { ...s.sources,  ...v } });
@@ -41,142 +49,154 @@ export default function SettingsPage() {
   const out = (v: Partial<typeof s.outreach>) => save({ ...s, outreach: { ...s.outreach, ...v } });
   const ai  = (v: Partial<typeof s.ai>)       => save({ ...s, ai:       { ...s.ai,       ...v } });
 
-  const sliderVal = (raw: number | readonly number[], fallback: number) =>
-    Array.isArray(raw) ? (raw[0] ?? fallback) : ((raw as number) ?? fallback);
+  const sv = (raw: number | readonly number[], fb: number) =>
+    Array.isArray(raw) ? (raw[0] ?? fb) : ((raw as number) ?? fb);
 
   return (
     <div className="max-w-3xl mx-auto px-6 py-8 space-y-6">
+
+      {/* Title */}
       <div>
-        <h1 className="text-2xl font-bold">Settings</h1>
-        <p className="text-sm text-muted-foreground mt-1">Changes save instantly.</p>
+        <h1 className="text-xl font-bold text-zinc-900">Settings</h1>
+        <p className="text-sm text-zinc-500 mt-0.5">Changes save instantly.</p>
       </div>
 
-      <Tabs defaultValue="sources">
-        <TabsList className="border-b w-full justify-start rounded-none h-auto p-0 bg-transparent gap-0">
-          {["sources","search","outreach","ai"].map(t => (
-            <TabsTrigger
-              key={t} value={t}
-              className="rounded-none border-b-2 border-transparent data-[state=active]:border-foreground data-[state=active]:text-foreground text-muted-foreground capitalize px-4 py-2.5 text-sm font-medium transition-none"
-            >
-              {t === "ai" ? "AI" : t.charAt(0).toUpperCase() + t.slice(1)}
-            </TabsTrigger>
-          ))}
-        </TabsList>
+      {/* Tab bar */}
+      <div className="flex items-center gap-0.5 border-b border-zinc-200">
+        {TABS.map(t => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
+              tab === t.key
+                ? "border-zinc-900 text-zinc-900"
+                : "border-transparent text-zinc-500 hover:text-zinc-700"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
 
-        {/* ── Sources ─────────────────────────────────────────────────── */}
-        <TabsContent value="sources" className="mt-6 space-y-3">
-          <div className="bg-white border border-border rounded-xl divide-y divide-border">
-            {(
-              [
-                { key: "linkedin"     as const, label: "LinkedIn",      desc: "Job board + hiring posts via Unipile" },
-                { key: "adzuna"       as const, label: "Adzuna",        desc: "India aggregator — free API" },
-                { key: "atsWatchlist" as const, label: "ATS Watchlist", desc: "Greenhouse / Lever / Ashby company boards" },
-                { key: "remotive"     as const, label: "Remotive",      desc: "Curated remote tech roles" },
-                { key: "remoteok"     as const, label: "RemoteOK",      desc: "Remote-only job board" },
-                { key: "jsearch"      as const, label: "JSearch",       desc: "Google for Jobs aggregator (RapidAPI — paid)" },
-              ]
-            ).map(({ key, label, desc }) => (
-              <div key={key} className="flex items-center justify-between px-5 py-4">
-                <div>
-                  <p className="text-sm font-medium">{label}</p>
-                  <p className="text-xs text-muted-foreground">{desc}</p>
-                </div>
-                <Switch checked={s.sources[key]} onCheckedChange={v => src({ [key]: v })} />
+      {/* ── Sources ─────────────────────────────────────────────────── */}
+      {tab === "sources" && (
+        <div className="bg-white rounded-xl border border-zinc-200 divide-y divide-zinc-100">
+          {(
+            [
+              { key: "linkedin"     as const, label: "LinkedIn",      desc: "Job board + hiring posts via Unipile" },
+              { key: "adzuna"       as const, label: "Adzuna",        desc: "India aggregator — free API" },
+              { key: "atsWatchlist" as const, label: "ATS Watchlist", desc: "Greenhouse / Lever / Ashby company boards" },
+              { key: "remotive"     as const, label: "Remotive",      desc: "Curated remote tech roles" },
+              { key: "remoteok"     as const, label: "RemoteOK",      desc: "Remote-only job board" },
+              { key: "jsearch"      as const, label: "JSearch",       desc: "Google for Jobs aggregator (RapidAPI — paid)" },
+            ]
+          ).map(({ key, label, desc }) => (
+            <div key={key} className="flex items-center justify-between px-5 py-4">
+              <div>
+                <p className="text-sm font-medium text-zinc-900">{label}</p>
+                <p className="text-xs text-zinc-500 mt-0.5">{desc}</p>
               </div>
-            ))}
-          </div>
-        </TabsContent>
+              <Switch checked={s.sources[key]} onCheckedChange={v => src({ [key]: v })} />
+            </div>
+          ))}
+        </div>
+      )}
 
-        {/* ── Search ──────────────────────────────────────────────────── */}
-        <TabsContent value="search" className="mt-6 space-y-4">
+      {/* ── Search ──────────────────────────────────────────────────── */}
+      {tab === "search" && (
+        <div className="space-y-4">
+
           {/* Keywords */}
-          <section className="bg-white border border-border rounded-xl p-5 space-y-3">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Keywords</p>
-            <div className="flex flex-wrap gap-2">
+          <Section title="Keywords" desc="Each keyword runs as a separate search query.">
+            <div className="flex flex-wrap gap-2 mb-3">
               {s.search.keywords.map(k => (
-                <Badge key={k} variant="secondary" className="gap-1 font-normal pr-1">
+                <span key={k} className="inline-flex items-center gap-1 text-xs bg-zinc-100 text-zinc-700 rounded-lg px-2.5 py-1.5 font-medium">
                   {k}
-                  <button onClick={() => sch({ keywords: s.search.keywords.filter(x => x !== k) })} className="ml-1 hover:text-foreground">×</button>
-                </Badge>
+                  <button onClick={() => sch({ keywords: s.search.keywords.filter(x => x !== k) })}
+                    className="text-zinc-400 hover:text-zinc-700 ml-0.5">×</button>
+                </span>
               ))}
             </div>
             <div className="flex gap-2">
               <Input value={kw} onChange={e => setKw(e.target.value)} placeholder="e.g. backend engineer" className="text-sm"
                 onKeyDown={e => { if (e.key==="Enter"&&kw.trim()) { sch({ keywords:[...s.search.keywords,kw.trim()] }); setKw(""); } }} />
-              <Button variant="outline" size="sm" onClick={() => { if(kw.trim()){ sch({ keywords:[...s.search.keywords,kw.trim()] }); setKw(""); } }}>Add</Button>
+              <Button variant="outline" size="sm" onClick={() => { if(kw.trim()) { sch({ keywords:[...s.search.keywords,kw.trim()] }); setKw(""); } }}>
+                Add
+              </Button>
             </div>
-          </section>
+          </Section>
 
-          {/* Filters */}
-          <section className="bg-white border border-border rounded-xl p-5 space-y-5">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Filters</p>
+          {/* Location + thresholds */}
+          <Section title="Filters">
+            <div className="space-y-5">
+              <Field label="Location">
+                <Input defaultValue={s.search.location} className="text-sm"
+                  onBlur={e => sch({ location: e.target.value })} />
+              </Field>
 
-            <div className="space-y-1.5">
-              <Label className="text-sm">Location</Label>
-              <Input defaultValue={s.search.location} className="text-sm" onBlur={e => sch({ location: e.target.value })} />
-            </div>
+              <SliderField
+                label="Relevance threshold" value={s.search.relevanceThreshold}
+                min={0} max={100} step={5}
+                hint="Jobs below this score are auto-skipped."
+                onChange={v => setS(prev => prev ? { ...prev, search: { ...prev.search, relevanceThreshold: v } } : prev)}
+                onCommit={v => sch({ relevanceThreshold: v })}
+              />
 
-            <div className="space-y-2">
-              <div className="flex justify-between">
-                <Label className="text-sm">Relevance threshold</Label>
-                <span className="text-sm font-semibold tabular-nums">{s.search.relevanceThreshold}</span>
+              <Field label="Min annual salary">
+                <div className="flex gap-2">
+                  <Input type="number" defaultValue={s.search.minSalaryAmount} className="text-sm"
+                    onBlur={e => sch({ minSalaryAmount: Number(e.target.value) })} />
+                  <Input defaultValue={s.search.minSalaryCurrency} className="text-sm w-24" placeholder="INR"
+                    onBlur={e => sch({ minSalaryCurrency: e.target.value.toUpperCase() })} />
+                </div>
+              </Field>
+
+              <ToggleField
+                label="Strict salary filter"
+                desc="Skip jobs where salary is completely unknown. Off = keep but flag."
+                checked={s.search.strictSalary}
+                onChange={v => sch({ strictSalary: v })}
+              />
+
+              <div className="pt-1 border-t border-zinc-100">
+                <Label className="text-sm font-medium text-zinc-700 block mb-2">Company blacklist</Label>
+                <div className="flex flex-wrap gap-2 mb-3">
+                  {s.search.blacklistedCompanies.map(c => (
+                    <span key={c} className="inline-flex items-center gap-1 text-xs bg-red-50 text-red-700 border border-red-200 rounded-lg px-2.5 py-1.5">
+                      {c}
+                      <button onClick={() => sch({ blacklistedCompanies: s.search.blacklistedCompanies.filter(x=>x!==c) })}
+                        className="text-red-400 hover:text-red-700 ml-0.5">×</button>
+                    </span>
+                  ))}
+                  {s.search.blacklistedCompanies.length === 0 && <p className="text-xs text-zinc-400">No companies blocked</p>}
+                </div>
+                <div className="flex gap-2">
+                  <Input value={co} onChange={e => setCo(e.target.value)} placeholder="Company name" className="text-sm"
+                    onKeyDown={e => { if(e.key==="Enter"&&co.trim()) { sch({ blacklistedCompanies:[...s.search.blacklistedCompanies,co.trim()] }); setCo(""); } }} />
+                  <Button variant="outline" size="sm" onClick={() => { if(co.trim()) { sch({ blacklistedCompanies:[...s.search.blacklistedCompanies,co.trim()] }); setCo(""); } }}>
+                    Block
+                  </Button>
+                </div>
               </div>
-              <Slider min={0} max={100} step={5} value={[s.search.relevanceThreshold]}
-                onValueChange={r => setS(prev => prev ? { ...prev, search: { ...prev.search, relevanceThreshold: sliderVal(r, 60) } } : prev)}
-                onValueCommitted={r => sch({ relevanceThreshold: sliderVal(r, 60) })} />
-              <p className="text-xs text-muted-foreground">Jobs below this score are auto-skipped.</p>
             </div>
+          </Section>
+        </div>
+      )}
 
-            <div className="space-y-1.5">
-              <Label className="text-sm">Min annual salary</Label>
-              <div className="flex gap-2">
-                <Input type="number" defaultValue={s.search.minSalaryAmount} className="text-sm"
-                  onBlur={e => sch({ minSalaryAmount: Number(e.target.value) })} />
-                <Input defaultValue={s.search.minSalaryCurrency} className="text-sm w-24" placeholder="INR"
-                  onBlur={e => sch({ minSalaryCurrency: e.target.value.toUpperCase() })} />
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium">Strict salary filter</p>
-                <p className="text-xs text-muted-foreground">Skip jobs where salary is unknown. Off = keep + flag.</p>
-              </div>
-              <Switch checked={s.search.strictSalary} onCheckedChange={v => sch({ strictSalary: v })} />
-            </div>
-
-            <Separator />
-
-            <div className="space-y-2">
-              <Label className="text-sm">Company blacklist</Label>
-              <div className="flex flex-wrap gap-2">
-                {s.search.blacklistedCompanies.map(c => (
-                  <Badge key={c} variant="destructive" className="gap-1 font-normal pr-1">
-                    {c}
-                    <button onClick={() => sch({ blacklistedCompanies: s.search.blacklistedCompanies.filter(x=>x!==c) })} className="ml-1">×</button>
-                  </Badge>
-                ))}
-              </div>
-              <div className="flex gap-2">
-                <Input value={co} onChange={e => setCo(e.target.value)} placeholder="Company name" className="text-sm"
-                  onKeyDown={e => { if(e.key==="Enter"&&co.trim()){ sch({ blacklistedCompanies:[...s.search.blacklistedCompanies,co.trim()] }); setCo(""); } }} />
-                <Button variant="outline" size="sm" onClick={() => { if(co.trim()){ sch({ blacklistedCompanies:[...s.search.blacklistedCompanies,co.trim()] }); setCo(""); } }}>Block</Button>
-              </div>
-            </div>
-          </section>
-        </TabsContent>
-
-        {/* ── Outreach ────────────────────────────────────────────────── */}
-        <TabsContent value="outreach" className="mt-6 space-y-4">
+      {/* ── Outreach ────────────────────────────────────────────────── */}
+      {tab === "outreach" && (
+        <div className="space-y-4">
           {/* Kill switch */}
-          <div className={`border rounded-xl px-5 py-4 flex items-center justify-between transition-colors ${s.outreach.globalPause ? "bg-red-50 border-red-200" : "bg-white border-border"}`}>
+          <div className={`rounded-xl border px-5 py-4 flex items-center justify-between transition-colors ${s.outreach.globalPause ? "bg-red-50 border-red-200" : "bg-white border-zinc-200"}`}>
             <div className="flex items-center gap-3">
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm ${s.outreach.globalPause ? "bg-red-100" : "bg-muted"}`}>
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-base ${s.outreach.globalPause ? "bg-red-100" : "bg-zinc-100"}`}>
                 {s.outreach.globalPause ? "⏸" : "▶"}
               </div>
               <div>
-                <p className={`text-sm font-semibold ${s.outreach.globalPause ? "text-red-800" : ""}`}>Pause all outreach</p>
-                <p className={`text-xs ${s.outreach.globalPause ? "text-red-500" : "text-muted-foreground"}`}>
+                <p className={`text-sm font-semibold ${s.outreach.globalPause ? "text-red-900" : "text-zinc-900"}`}>
+                  Pause all outreach
+                </p>
+                <p className={`text-xs mt-0.5 ${s.outreach.globalPause ? "text-red-500" : "text-zinc-500"}`}>
                   No messages will be sent across any source while active.
                 </p>
               </div>
@@ -188,97 +208,141 @@ export default function SettingsPage() {
             />
           </div>
 
-          {/* Rate limits + send window side by side */}
+          {/* Rate limits + Send window side by side */}
           <div className="grid grid-cols-2 gap-4">
-            <section className="bg-white border border-border rounded-xl p-5 space-y-4">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-                ◷ Rate Limits
-              </p>
-              {(
-                [
-                  { key: "dailyInviteCap"           as const, label: "Daily invite cap",    min:1, max:20  },
-                  { key: "weeklyInviteCap"           as const, label: "Weekly invite cap",   min:1, max:100 },
-                  { key: "dailyDmCap"                as const, label: "Daily DM cap",        min:1, max:10  },
-                  { key: "maxReferralTargetsPerJob"  as const, label: "Max targets / job",   min:1, max:5   },
-                  { key: "maxFollowups"              as const, label: "Max follow-ups",      min:0, max:3   },
-                  { key: "recontactCooldownDays"     as const, label: "Recontact cooldown",  min:7, max:90  },
-                ]
-              ).map(({ key, label, min, max }) => (
-                <div key={key} className="space-y-1.5">
-                  <div className="flex justify-between text-xs">
-                    <span className="text-muted-foreground">{label}</span>
-                    <span className="font-semibold tabular-nums">{s.outreach[key]}</span>
-                  </div>
-                  <Slider min={min} max={max} step={1} value={[s.outreach[key]]}
-                    onValueChange={r => setS(prev => prev ? { ...prev, outreach: { ...prev.outreach, [key]: sliderVal(r, min) } } : prev)}
-                    onValueCommitted={r => out({ [key]: sliderVal(r, min) })} />
-                </div>
-              ))}
-            </section>
+            <Section title="Rate Limits">
+              <div className="space-y-4">
+                {([
+                  { key: "dailyInviteCap"           as const, label: "Daily invite cap",    min:1,  max:20  },
+                  { key: "weeklyInviteCap"           as const, label: "Weekly invite cap",   min:1,  max:100 },
+                  { key: "dailyDmCap"                as const, label: "Daily DM cap",        min:1,  max:10  },
+                  { key: "maxReferralTargetsPerJob"  as const, label: "Max targets / job",   min:1,  max:5   },
+                  { key: "maxFollowups"              as const, label: "Max follow-ups",      min:0,  max:3   },
+                  { key: "recontactCooldownDays"     as const, label: "Recontact cooldown",  min:7,  max:90  },
+                ]).map(({ key, label, min, max }) => (
+                  <SliderField key={key} label={label} value={s.outreach[key]} min={min} max={max} step={1}
+                    onChange={v => setS(prev => prev ? { ...prev, outreach: { ...prev.outreach, [key]: v } } : prev)}
+                    onCommit={v => out({ [key]: v })}
+                  />
+                ))}
+              </div>
+            </Section>
 
-            <section className="bg-white border border-border rounded-xl p-5 space-y-4">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-                ◷ Send Window (IST)
-              </p>
-              {(
-                [
-                  { key: "sendWindowStart"   as const, label: "Start Hour", fmt: (v: number) => `${v.toString().padStart(2,"0")}:00` },
-                  { key: "sendWindowEnd"     as const, label: "End Hour",   fmt: (v: number) => `${v.toString().padStart(2,"0")}:00` },
-                  { key: "followupAfterDays" as const, label: "Follow-up after N days", fmt: (v: number) => `${v}d` },
-                ]
-              ).map(({ key, label, fmt }) => (
-                <div key={key} className="space-y-1.5">
-                  <div className="flex justify-between text-xs">
-                    <span className="text-muted-foreground">{label}</span>
-                    <span className="font-semibold tabular-nums">{fmt(s.outreach[key])}</span>
-                  </div>
-                  <Slider min={key === "followupAfterDays" ? 1 : 0} max={key === "followupAfterDays" ? 14 : 23} step={1}
-                    value={[s.outreach[key]]}
-                    onValueChange={r => setS(prev => prev ? { ...prev, outreach: { ...prev.outreach, [key]: sliderVal(r, 9) } } : prev)}
-                    onValueCommitted={r => out({ [key]: sliderVal(r, 9) })} />
+            <div className="space-y-4">
+              <Section title="Send Window (IST)">
+                <div className="space-y-4">
+                  {([
+                    { key: "sendWindowStart"   as const, label: "Start hour", fmt: (v: number) => `${v.toString().padStart(2,"0")}:00` },
+                    { key: "sendWindowEnd"     as const, label: "End hour",   fmt: (v: number) => `${v.toString().padStart(2,"0")}:00` },
+                    { key: "followupAfterDays" as const, label: "Follow-up after", fmt: (v: number) => `${v}d` },
+                  ]).map(({ key, label, fmt }) => (
+                    <SliderField key={key} label={label} value={s.outreach[key]}
+                      min={key === "followupAfterDays" ? 1 : 0} max={key === "followupAfterDays" ? 14 : 23} step={1}
+                      displayValue={fmt(s.outreach[key])}
+                      onChange={v => setS(prev => prev ? { ...prev, outreach: { ...prev.outreach, [key]: v } } : prev)}
+                      onCommit={v => out({ [key]: v })}
+                    />
+                  ))}
                 </div>
-              ))}
+              </Section>
 
-              {/* Message templates — placeholder for Phase 2 */}
-              <Separator />
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Message Templates</p>
-              {["Invite Note", "First DM", "Follow-up"].map(t => (
-                <div key={t} className="flex items-center justify-between py-2 border-b border-border last:border-0">
-                  <span className="text-sm">{t}</span>
-                  <Badge variant="outline" className="text-[10px]">Phase 2</Badge>
-                </div>
-              ))}
-            </section>
+              <Section title="Message Templates">
+                {["Invite Note", "First DM", "Follow-up"].map(t => (
+                  <div key={t} className="flex items-center justify-between py-2 border-b border-zinc-100 last:border-0">
+                    <span className="text-sm text-zinc-700">{t}</span>
+                    <Badge variant="outline" className="text-[10px] text-zinc-400">Phase 2</Badge>
+                  </div>
+                ))}
+              </Section>
+            </div>
           </div>
-        </TabsContent>
+        </div>
+      )}
 
-        {/* ── AI ──────────────────────────────────────────────────────── */}
-        <TabsContent value="ai" className="mt-6 space-y-4">
-          <section className="bg-white border border-border rounded-xl p-5 space-y-5">
-            <div className="space-y-1.5">
-              <Label className="text-sm">Default model</Label>
+      {/* ── AI ──────────────────────────────────────────────────────── */}
+      {tab === "ai" && (
+        <Section title="Model">
+          <div className="space-y-5">
+            <Field label="Default model" hint="Used for scoring + salary extraction on every job.">
               <Input defaultValue={s.ai.defaultModel} className="text-sm font-mono" placeholder="gpt-4o-mini"
                 onBlur={e => ai({ defaultModel: e.target.value })} />
-              <p className="text-xs text-muted-foreground">Used for scoring + salary extraction on every job. Manage API keys via .env.</p>
+            </Field>
+            <div className="border-t border-zinc-100 pt-4">
+              <ToggleField
+                label="Resume tailoring"
+                desc={<>AI rewrites LaTeX resume sections per JD. <Badge variant="outline" className="text-[10px] ml-1 align-middle">Phase 4</Badge></>}
+                checked={s.ai.enableResumeTailoring}
+                onChange={v => ai({ enableResumeTailoring: v })}
+              />
             </div>
-            <Separator />
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium">Resume tailoring</p>
-                <p className="text-xs text-muted-foreground">AI rewrites LaTeX sections per JD. <Badge variant="outline" className="text-[10px] ml-1">Phase 4</Badge></p>
-              </div>
-              <Switch checked={s.ai.enableResumeTailoring} onCheckedChange={v => ai({ enableResumeTailoring: v })} />
-            </div>
-          </section>
-        </TabsContent>
-      </Tabs>
+          </div>
+        </Section>
+      )}
 
-      {/* Save toast */}
+      {/* Toast */}
       {(saving || saved) && (
-        <div className={`fixed bottom-6 right-6 flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium shadow-lg transition-all ${saved ? "bg-foreground text-background" : "bg-muted text-foreground"}`}>
+        <div className={`fixed bottom-6 right-6 flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium shadow-lg transition-all z-50 ${saved ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-700"}`}>
           {saving ? "Saving…" : "✓ Saved"}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function Section({ title, desc, children }: { title: string; desc?: string; children: React.ReactNode }) {
+  return (
+    <div className="bg-white rounded-xl border border-zinc-200 p-5">
+      <div className="mb-4">
+        <p className="text-sm font-semibold text-zinc-900">{title}</p>
+        {desc && <p className="text-xs text-zinc-500 mt-0.5">{desc}</p>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-sm font-medium text-zinc-700">{label}</Label>
+      {children}
+      {hint && <p className="text-xs text-zinc-400">{hint}</p>}
+    </div>
+  );
+}
+
+function ToggleField({ label, desc, checked, onChange }: {
+  label: string; desc: React.ReactNode; checked: boolean; onChange: (v: boolean) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <div>
+        <p className="text-sm font-medium text-zinc-900">{label}</p>
+        <p className="text-xs text-zinc-500 mt-0.5">{desc}</p>
+      </div>
+      <Switch checked={checked} onCheckedChange={onChange} />
+    </div>
+  );
+}
+
+function SliderField({ label, value, min, max, step, hint, displayValue, onChange, onCommit }: {
+  label: string; value: number; min: number; max: number; step: number;
+  hint?: string; displayValue?: string;
+  onChange: (v: number) => void; onCommit: (v: number) => void;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-zinc-600">{label}</span>
+        <span className="text-xs font-semibold text-zinc-900 tabular-nums">{displayValue ?? value}</span>
+      </div>
+      <Slider min={min} max={max} step={step} value={[value]}
+        onValueChange={r => { const v = Array.isArray(r) ? (r[0]??min) : (r??min); onChange(v); }}
+        onValueCommitted={r => { const v = Array.isArray(r) ? (r[0]??min) : (r??min); onCommit(v); }}
+      />
+      {hint && <p className="text-xs text-zinc-400">{hint}</p>}
     </div>
   );
 }

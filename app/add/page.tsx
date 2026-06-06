@@ -59,49 +59,49 @@ async function addJob(formData: FormData) {
 
 export default function AddJobPage() {
   return (
-    <div className="min-h-[calc(100vh-48px)] flex flex-col items-center justify-start pt-20 px-6">
+    <div className="min-h-[calc(100vh-44px)] bg-zinc-100 flex flex-col items-center justify-start pt-16 px-6">
       <div className="w-full max-w-2xl space-y-8">
+
         {/* Heading */}
-        <div className="text-center space-y-2">
-          <h1 className="text-3xl font-bold">Add New Job</h1>
-          <p className="text-muted-foreground">
+        <div className="text-center space-y-1.5">
+          <h1 className="text-2xl font-bold text-zinc-900">Add New Job</h1>
+          <p className="text-sm text-zinc-500">
             URLs are fetched automatically. We&apos;ll score them against your preferences immediately.
           </p>
         </div>
 
-        {/* Input */}
-        <form action={addJob} className="space-y-4">
-          <div className="bg-white border border-border rounded-xl shadow-sm overflow-hidden">
+        {/* Input card */}
+        <form action={addJob}>
+          <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
             <textarea
               name="input"
               rows={10}
-              placeholder="Paste a Greenhouse/Lever/Ashby URL or raw JD text here… (Enter one per line for bulk add)"
-              className="w-full px-5 py-4 text-sm font-mono resize-none focus:outline-none placeholder:text-muted-foreground/60 placeholder:font-sans"
+              placeholder="Paste a Greenhouse / Lever / Ashby URL or raw JD text here…&#10;(One per line for bulk add)"
+              className="w-full px-5 py-4 text-sm font-mono resize-none focus:outline-none placeholder:text-zinc-400 placeholder:font-sans bg-white"
               required
             />
-            <div className="border-t border-border px-5 py-3 flex justify-end bg-slate-50">
-              <span className="text-xs text-muted-foreground">Supports Greenhouse, Lever, Ashby · Jina reader fallback</span>
+            <div className="border-t border-zinc-100 bg-zinc-50 px-5 py-3 flex items-center justify-between">
+              <p className="text-xs text-zinc-400">Greenhouse · Lever · Ashby APIs · Jina reader fallback</p>
+              <button
+                type="submit"
+                className="bg-zinc-900 hover:bg-zinc-800 text-white text-sm font-medium px-5 py-2 rounded-lg transition-colors"
+              >
+                Score &amp; add →
+              </button>
             </div>
           </div>
-
-          <button
-            type="submit"
-            className="w-full bg-foreground hover:bg-foreground/90 text-background font-semibold py-3 rounded-xl text-sm transition-colors flex items-center justify-center gap-2"
-          >
-            Score &amp; add →
-          </button>
         </form>
 
-        {/* Feature callouts */}
-        <div className="grid grid-cols-3 gap-4">
+        {/* Feature cards */}
+        <div className="grid grid-cols-3 gap-3">
           {[
-            { icon: "✦", title: "Auto-Parse",   desc: "Detects board type and extracts role, requirements, and salary automatically." },
-            { icon: "◈", title: "Smart Scoring", desc: "Every job is ranked 0–100 against your target roles, industries, and salary floor." },
-            { icon: "⊞", title: "Bulk Intake",   desc: "Add up to 50 URLs at once — one per line — to clear your open tabs in seconds." },
+            { icon: "✦", title: "Auto-Parse",    desc: "Detects ATS type and extracts role, requirements, and salary from the JD automatically." },
+            { icon: "◈", title: "Smart Scoring",  desc: "Every job is ranked 0–100 against your resume, target roles, industry, and salary floor." },
+            { icon: "⊞", title: "Bulk Intake",    desc: "Paste up to 50 URLs at once — one per line — to process an entire Open Tabs session." },
           ].map(({ icon, title, desc }) => (
-            <div key={title} className="bg-white border border-border rounded-xl p-4">
-              <p className="text-sm font-semibold mb-1">{icon}  {title}</p>
-              <p className="text-xs text-muted-foreground leading-relaxed">{desc}</p>
+            <div key={title} className="bg-white border border-zinc-200 rounded-xl p-4">
+              <p className="text-sm font-semibold text-zinc-900 mb-1.5">{icon}  {title}</p>
+              <p className="text-xs text-zinc-500 leading-relaxed">{desc}</p>
             </div>
           ))}
         </div>
