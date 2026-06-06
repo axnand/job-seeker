@@ -21,6 +21,19 @@ function fill(tpl: string, vars: Record<string, string>): string {
   return tpl.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? "").replace(/\s+/g, " ").trim();
 }
 
+/**
+ * Clean a job role for human-readable use in messages.
+ * Job boards add formatting noise: "SDE ; Backend", "Software Engineer | Remote", "Dev (Full-Stack)".
+ * Strip separators and parentheticals, take the first meaningful segment.
+ */
+function cleanRole(role: string): string {
+  return role
+    .replace(/\s*[;|–—]\s*.*/g, "")   // strip everything after ; | – —
+    .replace(/\s*\(.*?\)\s*/g, " ")   // strip parentheticals
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export async function writeMessages(opts: {
   target: OutreachTarget;
   company: string;
@@ -31,11 +44,12 @@ export async function writeMessages(opts: {
   const templates = settings?.templates ?? config.templates;
 
   const firstName = opts.target.name.split(" ")[0] || opts.target.name;
+  const role = cleanRole(opts.role);
   const vars: Record<string, string> = {
     firstName,
     name: opts.target.name,
     company: opts.company,
-    role: opts.role,
+    role,
     pitch: opts.pitch,
     ownerName: config.owner.name || "",
     ownerFirstName: (config.owner.name || "").split(" ")[0] || "",

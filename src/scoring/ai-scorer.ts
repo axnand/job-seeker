@@ -86,7 +86,12 @@ IMPORTANT: Compare only against fixed/guaranteed base salary — NOT CTC, NOT to
 ## Tasks
 1. Score 0-100 per the rubric.
 2. reason: 2 sentences — seniority fit, pay vs ${minLPA} LPA, stack fit.
-3. tailoredPitch: 3 lines the candidate can paste into a LinkedIn DM. Use ONLY real facts from their background. NO bracket placeholders like [Name], [Company], [Role] — the pitch must be complete and ready to send as-is.
+3. tailoredPitch: 3 lines the candidate can paste into a LinkedIn DM. Rules:
+   - Use ONLY real, specific facts from their background (e.g. "built Kafka pipelines processing 500K records" — NOT "strong background in").
+   - Start with the most impressive, concrete thing they've done that maps to THIS JD.
+   - NO filler: no "excited about your innovative approach", no "I believe I can contribute", no "looking forward to", no "strong background in X".
+   - NO bracket placeholders like [Name], [Company], [Role] — must be complete and ready to send.
+   - NO opening salutation — just the 3-line pitch itself.
 4. salary: Extract or estimate the FIXED BASE salary only — not CTC.
    - If the JD states a base salary range explicitly → use it, basis="stated".
    - If the JD only states CTC → estimate fixed base as ~60-70% of CTC (Indian junior-role norm), basis="estimated", confidence="medium".
