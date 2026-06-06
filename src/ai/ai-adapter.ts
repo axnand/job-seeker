@@ -1,0 +1,172 @@
+/**
+ * Multi-provider LLM client.
+ * Supports: openai-compatible (OpenAI, Groq, Grok, Ollama, etc.) + anthropic.
+ * Provider config is loaded from the AiProvider DB table; falls back to env vars.
+ */
+
+import { prisma } from "@/lib/prisma";
+import { config } from "@/config";
+
+export interface ChatMessage {
+  role: "system" | "user" | "assistant";
+  content: string;
+}
+
+export interface ChatCompletionOptions {
+  temperature?: number;
+  max_tokens?: number;
+  response_format?: { type: "json_object" | "text" };
+}
+
+export interface ChatCompletionResult {
+  text: string;
+  usage?: { prompt_tokens: number; completion_tokens: number };
+}
+
+interface ProviderConfig {
+  providerType: string;
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+}
+
+async function loadProvider(providerId?: string): Promise<ProviderConfig> {
+  // Try DB first
+  try {
+    let provider = null;
+    if (providerId) {
+      provider = await prisma.aiProvider.findUnique({ where: { id: providerId } });
+    } else {
+      provider = await prisma.aiProvider.findFirst({ where: { isDefault: true } });
+    }
+    if (provider) {
+      return {
+        providerType: provider.providerType,
+        baseUrl: provider.baseUrl,
+        apiKey: provider.apiKey,
+        model: provider.model,
+      };
+    }
+  } catch {
+    // DB might not be available during build
+  }
+
+  // Fallback to env
+  return {
+    providerType: "openai-compatible",
+    baseUrl: "https://api.openai.com/v1",
+    apiKey: config.ai.fallbackApiKey,
+    model: config.ai.defaultModel,
+  };
+}
+
+export async function chatCompletion(
+  messages: ChatMessage[],
+  opts: ChatCompletionOptions = {},
+  providerId?: string
+): Promise<ChatCompletionResult> {
+  const provider = await loadProvider(providerId);
+
+  if (provider.providerType === "anthropic") {
+    return callAnthropic(provider, messages, opts);
+  }
+  return callOpenAICompatible(provider, messages, opts);
+}
+
+async function callOpenAICompatible(
+  provider: ProviderConfig,
+  messages: ChatMessage[],
+  opts: ChatCompletionOptions
+): Promise<ChatCompletionResult> {
+  const url = `${provider.baseUrl.replace(/\/$/, "")}/chat/completions`;
+
+  const body: Record<string, unknown> = {
+    model: provider.model,
+    messages,
+    temperature: opts.temperature ?? 0.3,
+    max_tokens: opts.max_tokens ?? 2048,
+  };
+  if (opts.response_format) body.response_format = opts.response_format;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${provider.apiKey}`,
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(60_000),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`LLM request failed ${res.status}: ${text}`);
+  }
+
+  const data = await res.json() as {
+    choices: Array<{ message: { content: string } }>;
+    usage?: { prompt_tokens: number; completion_tokens: number };
+  };
+
+  return {
+    text: data.choices[0]?.message?.content ?? "",
+    usage: data.usage,
+  };
+}
+
+async function callAnthropic(
+  provider: ProviderConfig,
+  messages: ChatMessage[],
+  opts: ChatCompletionOptions
+): Promise<ChatCompletionResult> {
+  const url = `${provider.baseUrl.replace(/\/$/, "")}/messages`;
+
+  const system = messages.find(m => m.role === "system")?.content;
+  const filtered = messages.filter(m => m.role !== "system");
+
+  const body: Record<string, unknown> = {
+    model: provider.model,
+    max_tokens: opts.max_tokens ?? 2048,
+    messages: filtered,
+  };
+  if (system) body.system = system;
+  if (opts.temperature !== undefined) body.temperature = opts.temperature;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": provider.apiKey,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(60_000),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Anthropic request failed ${res.status}: ${text}`);
+  }
+
+  const data = await res.json() as {
+    content: Array<{ type: string; text: string }>;
+    usage?: { input_tokens: number; output_tokens: number };
+  };
+
+  const text = data.content.find(b => b.type === "text")?.text ?? "";
+  return {
+    text,
+    usage: data.usage
+      ? { prompt_tokens: data.usage.input_tokens, completion_tokens: data.usage.output_tokens }
+      : undefined,
+  };
+}
+
+/** Parse JSON from LLM output, tolerating markdown code fences. */
+export function parseJsonResponse<T>(text: string): T {
+  const cleaned = text
+    .replace(/^```(?:json)?\s*/m, "")
+    .replace(/\s*```\s*$/m, "")
+    .trim();
+  return JSON.parse(cleaned) as T;
+}

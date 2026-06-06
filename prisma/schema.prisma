@@ -1,0 +1,258 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── AI Providers ────────────────────────────────────────────────────────────
+
+model AiProvider {
+  id           String   @id @default(cuid())
+  name         String
+  providerType String   // "openai-compatible" | "anthropic" | "bedrock"
+  baseUrl      String
+  apiKey       String   // stored as-is (personal tool, no vault needed for v1)
+  model        String
+  isDefault    Boolean  @default(false)
+  isForTailoring Boolean @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+// ─── Contact (one row per LinkedIn human) ────────────────────────────────────
+
+model Contact {
+  id                 String     @id @default(cuid())
+  linkedinProviderId String     @unique // Unipile / LinkedIn provider_id — dedup key
+  name               String
+  title              String?
+  company            String?
+  linkedinUrl        String
+  lastContactedAt    DateTime?  // gate: never re-contact within recontactCooldownDays
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  outreaches         Outreach[]
+}
+
+// ─── Job ─────────────────────────────────────────────────────────────────────
+
+model Job {
+  id             String     @id @default(cuid())
+  source         JobSource
+  company        String
+  role           String
+  jdText         String     @db.Text
+  applyUrl       String
+  location       String?
+  jobProviderId  String?    // source-native id
+  sourcePostUrl  String?    // LinkedIn post URL (linkedin_post)
+  dedupeKey      String               // normalize(company)+role+location
+  applyType      ApplyType
+
+  // Post-specific
+  sourcePostAuthorUrl  String?
+  sourcePostAuthorName String?
+
+  // AI scoring (populated after scoring step)
+  aiScore        Int?
+  aiReason       String?    @db.Text
+  tailoredPitch  String?    @db.Text
+
+  // Salary (LLM-derived + code-normalized)
+  salaryMin        Float?
+  salaryMax        Float?
+  salaryCurrency   String?
+  salaryPeriod     SalaryPeriod?
+  salaryBasis      SalaryBasis?
+  salaryConfidence SalaryConfidence?
+  salaryAnnualBase Float?   // normalized annual in owner's base currency
+
+  // Tailored resume (Phase 4)
+  tailoredResumeTex String?  // S3 key
+  salaryFlagReason  String?  // e.g. "low_confidence_estimate_below_threshold"
+
+  // Application stage — human-owned
+  appStage       AppStage   @default(NEW)
+  appStageNote   String?
+
+  // Outreach state cache — machine-owned, derived from threads
+  outreachState  OutreachState @default(NONE)
+
+  // Staleness
+  postedAt       DateTime?
+  discoveredAt   DateTime   @default(now())
+
+  createdAt      DateTime   @default(now())
+  approvedAt     DateTime?
+  appliedAt      DateTime?
+  updatedAt      DateTime   @updatedAt
+
+  outreaches     Outreach[]
+
+  @@index([appStage])
+  @@index([dedupeKey])
+  @@index([source])
+  @@index([createdAt])
+}
+
+// ─── Outreach (join: Job ↔ Contact ↔ ChannelThread) ──────────────────────────
+
+model Outreach {
+  id        String        @id @default(cuid())
+  jobId     String
+  contactId String
+  threadId  String?       @unique // FK to ChannelThread once started
+  role      OutreachRole
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  job     Job     @relation(fields: [jobId], references: [id])
+  contact Contact @relation(fields: [contactId], references: [id])
+
+  @@index([jobId])
+  @@index([contactId])
+}
+
+// ─── ChannelThread (outreach engine — ported from Hirro) ─────────────────────
+
+model ChannelThread {
+  id                   String        @id @default(cuid())
+  // Link to the outreach join row (replaces Hirro's taskId)
+  outreachId           String?       @unique
+
+  status               ThreadStatus  @default(PENDING)
+  channel              String        // "linkedin"
+
+  // Account binding — sticky once set
+  accountId            String?
+
+  // Unipile identifiers
+  providerChatId       String?       // LinkedIn chat_id (DM thread)
+  candidateProviderId  String?       // LinkedIn provider_id of the contact
+
+  // Scheduling
+  nextActionAt         DateTime?
+
+  // Crash recovery
+  pendingSendKey        String?
+  pendingSendStartedAt  DateTime?
+
+  // State machine
+  providerState        Json?         // { phase: "INVITE_PENDING" | "CONNECTED" | "MESSAGED" | ... }
+
+  // Metrics
+  consecutiveFailures  Int           @default(0)
+  lastInboundAt        DateTime?
+
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  messages             ThreadMessage[]
+
+  @@index([status, nextActionAt])
+  @@index([providerChatId])
+  @@index([candidateProviderId])
+}
+
+// ─── ThreadMessage ────────────────────────────────────────────────────────────
+
+model ThreadMessage {
+  id                String        @id @default(cuid())
+  threadId          String
+  direction         MsgDirection
+  body              String        @db.Text
+  providerMessageId String?       // Unipile message_id (dedup)
+  sentAt            DateTime      @default(now())
+
+  thread            ChannelThread @relation(fields: [threadId], references: [id])
+
+  @@index([threadId])
+  @@index([providerMessageId])
+}
+
+// ─── WebhookEvent (dedup table) ──────────────────────────────────────────────
+
+model WebhookEvent {
+  id          String   @id  // provider dedup id
+  provider    String
+  eventType   String
+  processedAt DateTime @default(now())
+
+  @@index([processedAt])
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum JobSource {
+  LINKEDIN_JOB
+  LINKEDIN_POST
+  ADZUNA
+  ATS_WATCHLIST
+  REMOTIVE
+  REMOTEOK
+  JSEARCH
+  MANUAL
+}
+
+enum ApplyType {
+  REFERRAL_FIRST
+  MANUAL_NOTIFY
+}
+
+enum AppStage {
+  NEW
+  APPROVED
+  SKIPPED
+  APPLIED
+  INTERVIEWING
+  OFFER
+  CLOSED
+}
+
+enum OutreachState {
+  NONE
+  INVITE_SENT
+  CONNECTED
+  MESSAGED
+  REPLIED
+  NO_REPLY_ARCHIVED
+}
+
+enum ThreadStatus {
+  PENDING
+  ACTIVE
+  REPLIED
+  PAUSED
+  ARCHIVED
+}
+
+enum MsgDirection {
+  OUTBOUND
+  INBOUND
+}
+
+enum SalaryPeriod {
+  YEAR
+  MONTH
+  HOUR
+}
+
+enum SalaryBasis {
+  STATED
+  ESTIMATED
+}
+
+enum SalaryConfidence {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum OutreachRole {
+  REFERRAL
+  RECRUITER
+}

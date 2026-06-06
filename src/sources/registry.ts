@@ -1,0 +1,57 @@
+/**
+ * Runs all enabled source adapters, dedupes, and returns fresh RawJobs ready
+ * for scoring. Called from /api/cron/discover.
+ */
+
+import { config } from "@/config";
+import { fetchLinkedinJobs } from "./linkedin";
+import { fetchAdzunaJobs } from "./adzuna";
+import { fetchAtsWatchlist } from "./ats-watchlist";
+import { fetchRemotiveJobs } from "./remotive";
+import { fetchRemoteOKJobs } from "./remoteok";
+import { dedupeJobs } from "./dedupe";
+import type { RawJob } from "./types";
+
+export async function discoverJobs(): Promise<RawJob[]> {
+  const keywords = config.search.keywords;
+  const sources = config.sources;
+
+  const fetches: Promise<RawJob[]>[] = [];
+
+  if (sources.linkedin) {
+    fetches.push(
+      ...keywords.map(kw => fetchLinkedinJobs(kw).catch(() => [] as RawJob[]))
+    );
+  }
+
+  if (sources.adzuna) {
+    fetches.push(
+      ...keywords.map(kw => fetchAdzunaJobs(kw).catch(() => [] as RawJob[]))
+    );
+  }
+
+  if (sources.atsWatchlist) {
+    fetches.push(fetchAtsWatchlist().catch(() => [] as RawJob[]));
+  }
+
+  if (sources.remotive) {
+    fetches.push(
+      ...keywords.map(kw => fetchRemotiveJobs(kw).catch(() => [] as RawJob[]))
+    );
+  }
+
+  if (sources.remoteok) {
+    // RemoteOK accepts one tag at a time; use first keyword only to avoid spam
+    fetches.push(fetchRemoteOKJobs(keywords[0] ?? "engineering").catch(() => [] as RawJob[]));
+  }
+
+  const results = await Promise.allSettled(fetches);
+  const allJobs = results.flatMap(r => (r.status === "fulfilled" ? r.value : []));
+
+  console.log(`[discover] raw jobs fetched: ${allJobs.length}`);
+
+  const fresh = await dedupeJobs(allJobs);
+  console.log(`[discover] after dedup: ${fresh.length}`);
+
+  return fresh;
+}
