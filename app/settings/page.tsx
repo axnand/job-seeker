@@ -22,6 +22,7 @@ export default function SettingsPage() {
   const [tab, setTab]       = useState<Tab>("sources");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved]   = useState(false);
+  const [saveError, setSaveError] = useState(false);
   const [kw, setKw]         = useState("");
   const [co, setCo]         = useState("");
   const [tcForm, setTcForm] = useState<{ name: string; ats: "greenhouse" | "lever" | "ashby"; boardToken: string }>({ name: "", ats: "greenhouse", boardToken: "" });
@@ -31,14 +32,22 @@ export default function SettingsPage() {
   }, []);
 
   const save = useCallback(async (next: AppSettingsData) => {
-    setS(next); setSaving(true); setSaved(false);
-    await fetch("/api/settings", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(next),
-    });
-    setSaving(false); setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    setS(next); setSaving(true); setSaved(false); setSaveError(false);
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(next),
+      });
+      if (!res.ok) throw new Error(`${res.status}`);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch {
+      setSaveError(true);
+      setTimeout(() => setSaveError(false), 4000);
+    } finally {
+      setSaving(false);
+    }
   }, []);
 
   if (!s) return (
@@ -228,8 +237,12 @@ export default function SettingsPage() {
       {/* ── Outreach ────────────────────────────────────────────────── */}
       {tab === "outreach" && (
         <div className="space-y-4">
-          {/* Kill switch */}
-          <div className={`rounded-xl border px-5 py-4 flex items-center justify-between transition-colors ${s.outreach.globalPause ? "bg-red-50 border-red-200" : "bg-white border-zinc-200"}`}>
+          {/* Kill switch — entire card is clickable */}
+          <button
+            type="button"
+            onClick={() => out({ globalPause: !s.outreach.globalPause })}
+            className={`w-full rounded-xl border px-5 py-4 flex items-center justify-between transition-colors text-left cursor-pointer ${s.outreach.globalPause ? "bg-red-50 border-red-200 hover:bg-red-100" : "bg-white border-zinc-200 hover:bg-zinc-50"}`}
+          >
             <div className="flex items-center gap-3">
               <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${s.outreach.globalPause ? "bg-red-100" : "bg-zinc-100"}`}>
                 {s.outreach.globalPause
@@ -239,7 +252,7 @@ export default function SettingsPage() {
               </div>
               <div>
                 <p className={`text-sm font-semibold ${s.outreach.globalPause ? "text-red-900" : "text-zinc-900"}`}>
-                  Pause all outreach
+                  {s.outreach.globalPause ? "Outreach paused — click to resume" : "Pause all outreach"}
                 </p>
                 <p className={`text-xs mt-0.5 ${s.outreach.globalPause ? "text-red-400" : "text-zinc-400"}`}>
                   No messages will be sent across any source while active.
@@ -249,9 +262,9 @@ export default function SettingsPage() {
             <Switch
               checked={s.outreach.globalPause}
               onCheckedChange={v => out({ globalPause: v })}
-              className="data-[state=checked]:bg-red-500"
+              className="data-[state=checked]:bg-red-500 pointer-events-none"
             />
-          </div>
+          </button>
 
           {/* Rate limits + Send window side by side */}
           <div className="grid grid-cols-2 gap-4 items-start">
@@ -356,10 +369,11 @@ export default function SettingsPage() {
       )}
 
       {/* Save toast */}
-      {(saving || saved) && (
-        <div className={`fixed bottom-6 right-6 flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium shadow-lg z-50 transition-all ${saved ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-600"}`}>
+      {(saving || saved || saveError) && (
+        <div className={`fixed bottom-6 right-6 flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium shadow-lg z-50 transition-all ${saveError ? "bg-red-600 text-white" : saved ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-600"}`}>
           {saving
             ? <><div className="w-3.5 h-3.5 rounded-full border-2 border-zinc-300 border-t-zinc-600 animate-spin" /> Saving…</>
+            : saveError ? "✗ Save failed — check your connection"
             : "✓ Saved"
           }
         </div>

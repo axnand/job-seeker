@@ -55,7 +55,7 @@ export function roleKeywords(role: string): string {
     .replace(/\(.*?\)/g, " ")          // strip parentheticals
     .replace(/\bsdet\b/g, "software engineer in test")
     .replace(/\bsde\b/g, "software engineer")
-    .replace(/[-–—|/,_]+/g, " ")
+    .replace(/[-–—|/,;_]+/g, " ")
     .replace(ROLE_NOISE, " ")
     .replace(/\s+/g, " ")
     .trim();

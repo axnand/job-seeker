@@ -97,6 +97,7 @@ export default function BoardPage() {
   const [acting, setActing]     = useState(false);
   const [uploadingResume, setUploadingResume] = useState(false);
   const resumeFileRef = useRef<HTMLInputElement>(null);
+  const [paused, setPaused]  = useState(false);
   const [sel, setSel]       = useState<Set<string>>(new Set());
   const [sending, setSending] = useState(false);
   const [askNote, setAskNote] = useState(false);
@@ -135,6 +136,9 @@ export default function BoardPage() {
     fetch("/api/jobs?limit=200").then(r => r.json())
       .then(d => { setJobs(d.jobs ?? []); setLoading(false); })
       .catch(() => setLoading(false));
+    fetch("/api/settings").then(r => r.json())
+      .then(d => setPaused(!!d?.outreach?.globalPause))
+      .catch(() => {});
   }, []);
 
   const openJob = useCallback(async (job: Job) => {
@@ -250,6 +254,19 @@ export default function BoardPage() {
             </div>
           ))}
         </div>
+
+        {/* Pause banner */}
+        {paused && (
+          <div className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-red-50 border border-red-200 text-red-700">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <span className="text-base">⏸</span>
+              Outreach is paused — no invites or DMs will be sent until you turn it back on.
+            </div>
+            <a href="/settings" className="text-xs font-semibold underline underline-offset-2 whitespace-nowrap hover:text-red-900">
+              Settings → Outreach
+            </a>
+          </div>
+        )}
 
         {/* Filter bar */}
         <div className="flex items-center gap-2">
