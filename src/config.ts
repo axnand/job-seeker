@@ -16,18 +16,31 @@ export const config = {
   },
 
   search: {
-    keywords: (process.env.SEARCH_KEYWORDS ?? "software engineer,backend engineer,platform engineer").split(",").map(k => k.trim()),
-    location: process.env.SEARCH_LOCATION ?? "Remote, India",
+    keywords: (process.env.SEARCH_KEYWORDS ?? [
+      "software engineer",
+      "backend engineer",
+      "software development engineer",
+      "java backend developer",
+      "associate software engineer",
+      "full stack engineer",
+    ].join(",")).split(",").map(k => k.trim()),
+    location: process.env.SEARCH_LOCATION ?? "India",
     dailyDigestHour: 8,         // 08:00 IST = 02:30 UTC
-    relevanceThreshold: 60,
+    relevanceThreshold: 65,
     minSalary: {
-      amount: Number(process.env.MIN_SALARY_AMOUNT ?? 2500000),
+      // Hard floor: must beat the owner's current 14.5 LPA base.
+      amount: Number(process.env.MIN_SALARY_AMOUNT ?? 1450000),
       currency: process.env.MIN_SALARY_CURRENCY ?? "INR",
       period: "year" as const,
     },
     baseCurrency: process.env.BASE_CURRENCY ?? "INR",
-    strictSalary: false,        // keep uncertain estimates rather than dropping
+    strictSalary: false,
     blacklistedCompanies: [] as string[],
+    // LinkedIn jobs search filters (Unipile native filters)
+    linkedinSeniority: ["entry", "associate"] as const,  // new-grad band only
+    linkedinPresence: ["remote", "hybrid", "on_site"] as const,
+    linkedinJobType: ["full_time"] as const,
+    linkedinDatePostedDays: 14,
   },
 
   sources: {
@@ -48,9 +61,24 @@ export const config = {
 
   resume: {
     masterTexPath: "resume/master.tex",
-    targetRoles: ["backend", "infra", "platform engineering"],
-    preferredIndustries: ["SaaS", "B2B", "fintech"],
-    seniorityLevel: "mid to senior",
+    targetRoles: ["software engineer", "backend engineer", "SDE / SDE-1", "java backend developer", "full stack engineer"],
+    preferredIndustries: ["SaaS", "B2B", "fintech", "AI/ML", "product companies", "well-funded startups"],
+    seniorityLevel: "entry-level / new grad (SDE-1, associate, junior — NOT senior/staff/lead)",
+    // Hard constraints the scorer must enforce — see ai-scorer.ts rubric.
+    constraints: {
+      gradYear: 2026,
+      yearsExperience: 1,
+      currentBaseLPA: 14.5,
+      // Only roles that beat the current base. Below this = a pay cut → reject.
+      minBaseLPA: 14.5,
+      acceptableSeniority: ["intern-converting", "new grad", "entry", "associate", "SDE-1", "junior", "software engineer I/II"],
+      rejectSeniority: ["senior", "staff", "principal", "lead", "manager", "director", "architect", "5+ years", "8+ years"],
+    },
+    summary: `2026 B.Tech graduate (AI & Data Science, BPIT New Delhi), currently a Software Engineer at Salescode.ai with ~1 year of experience. Currently earning 14.5 LPA base.
+Core stack: Java, Spring Boot, Spring WebFlux, Kafka, Node.js, TypeScript, Next.js, PostgreSQL, Docker, AWS.
+Shipped high-throughput backend systems: 10,000+ candidate profiles/hour, 500,000+ record Kafka migrations, reactive microservices for enterprise clients (Coke Thailand/Sri Lanka).
+Strong in LLM integration, microservices, distributed systems, full-stack dev. LeetCode peak 1710, 600+ DSA solved, hackathon winner.
+Targeting: entry-level / SDE-1 / junior software engineering roles at strong product companies and well-funded startups that pay ABOVE 14.5 LPA base. NOT looking for senior/staff roles (insufficient YOE) or roles paying at/below 14.5 LPA (a lateral move or pay cut).`,
   },
 
   outreach: {
@@ -107,4 +135,5 @@ export const config = {
     bucket: process.env.AWS_S3_BUCKET ?? "",
     region: process.env.AWS_S3_REGION ?? "ap-south-1",
   },
-} as const;
+};
+

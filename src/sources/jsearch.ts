@@ -67,11 +67,12 @@ export async function fetchJSearchJobs(keyword: string): Promise<RawJob[]> {
   if (!rapidApiKey) return [];
 
   const url = new URL("https://jsearch.p.rapidapi.com/search");
-  url.searchParams.set("query",           `${keyword} ${config.search.location}`);
+  url.searchParams.set("query",           `${keyword} in India`);
   url.searchParams.set("page",            "1");
-  url.searchParams.set("num_pages",       "3");
+  url.searchParams.set("num_pages",       "1");          // 1 page keeps it under timeout
   url.searchParams.set("date_posted",     "week");
   url.searchParams.set("employment_types","FULLTIME");
+  url.searchParams.set("job_requirements","under_3_years_experience,no_experience"); // entry-level
 
   let res: Response;
   try {
@@ -81,7 +82,7 @@ export async function fetchJSearchJobs(keyword: string): Promise<RawJob[]> {
         "x-rapidapi-host": "jsearch.p.rapidapi.com",
         "x-rapidapi-key":  rapidApiKey,
       },
-      signal: AbortSignal.timeout(20_000),
+      signal: AbortSignal.timeout(30_000),
     });
   } catch (err) {
     console.error("[jsearch] network error:", err);

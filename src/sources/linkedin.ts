@@ -1,94 +1,95 @@
 /**
  * LinkedIn job-board search via Unipile.
- * POST /api/v1/linkedin/search  { api:"classic", category:"jobs" }
+ * POST /api/v1/linkedin/search?account_id=...  { api:"classic", category:"jobs" }
  *
- * NOTE: LinkedIn search takes IDs for location, industry, etc. — not raw text.
- * resolveLinkedinParams() caches these lookups once per run.
+ * Notes (learned from the live API):
+ *  - account_id is a QUERY param, not body.
+ *  - Use `region` (string location id) NOT `location` (array) — the array form
+ *    returns 0 results. The account proxies through India so results are
+ *    India-centric by default anyway.
+ *  - Search results do NOT include the JD; fetch it per-job via getJobDetail.
  */
 
-import { linkedinSearch, resolveSearchParam } from "@/unipile/client";
+import { linkedinSearch, getJobDetail, resolveSearchParam } from "@/unipile/client";
 import { config } from "@/config";
 import type { RawJob } from "./types";
 
 interface LinkedinJobItem {
-  job_id?: string;
-  title?: string;
-  company_name?: string;
-  description?: string;
-  apply_url?: string;
+  id: string;
+  title: string;
   location?: string;
-  salary?: { min?: number; max?: number; currency?: string };
-  listed_at?: number;
+  url?: string;
+  company?: { name?: string };
+  posted_at?: string;
+  easy_apply?: boolean;
 }
 
-let cachedLocationId: string | null = null;
+let cachedRegionId: string | null | undefined;
 
-async function resolveLocationId(location: string): Promise<string | null> {
-  if (cachedLocationId) return cachedLocationId;
+async function regionId(): Promise<string | null> {
+  if (cachedRegionId !== undefined) return cachedRegionId;
   try {
-    const items = await resolveSearchParam(
-      config.owner.linkedinAccountId,
-      "LOCATION",
-      location
-    );
-    cachedLocationId = items[0]?.id ?? null;
-    return cachedLocationId;
+    const items = await resolveSearchParam(config.owner.linkedinAccountId, "LOCATION", "India");
+    cachedRegionId = items[0]?.id ?? null;
   } catch {
-    return null;
+    cachedRegionId = null;
   }
+  return cachedRegionId;
 }
+
+const MAX_DETAILS_PER_KEYWORD = 8; // cap detail fetches (each is an API call)
 
 export async function fetchLinkedinJobs(keyword: string): Promise<RawJob[]> {
   const accountId = config.owner.linkedinAccountId;
   if (!accountId) return [];
 
-  const locationId = await resolveLocationId(config.search.location);
+  const region = await regionId();
 
-  const searchParams: Record<string, unknown> = {
+  const params: Record<string, unknown> = {
     api: "classic",
     category: "jobs",
     keywords: keyword,
+    seniority: [...config.search.linkedinSeniority],
+    job_type: [...config.search.linkedinJobType],
+    date_posted: config.search.linkedinDatePostedDays,
+    sort_by: "date",
   };
-  if (locationId) searchParams.location = [{ id: locationId }];
+  if (region) params.region = region;
 
-  const jobs: RawJob[] = [];
-  let cursor: string | undefined;
-
-  for (let page = 0; page < 3; page++) {
+  let items: LinkedinJobItem[] = [];
+  try {
     const res = await linkedinSearch<LinkedinJobItem>(
       accountId,
-      searchParams as Parameters<typeof linkedinSearch>[1],
-      cursor
+      params as Parameters<typeof linkedinSearch>[1]
     );
-
-    for (const item of res.items) {
-      if (!item.title || !item.company_name) continue;
-      jobs.push({
-        source: "LINKEDIN_JOB",
-        company: item.company_name,
-        role: item.title,
-        jdText: item.description ?? "",
-        applyUrl: item.apply_url ?? "",
-        location: item.location,
-        jobProviderId: item.job_id,
-        applyType: "REFERRAL_FIRST",
-        postedAt: item.listed_at ? new Date(item.listed_at * 1000) : undefined,
-        sourceSalary: item.salary?.min
-          ? {
-              min: item.salary.min,
-              max: item.salary.max,
-              currency: item.salary.currency ?? "USD",
-              period: "year",
-              basis: "stated",
-              confidence: "high",
-            }
-          : undefined,
-      });
-    }
-
-    if (!res.cursor || res.items.length === 0) break;
-    cursor = String(res.cursor);
+    items = res.items ?? [];
+  } catch (err) {
+    console.error(`[linkedin] search failed for "${keyword}":`, err);
+    return [];
   }
 
-  return jobs;
+  // Fetch JD detail for the top N results (results lack description).
+  const top = items.slice(0, MAX_DETAILS_PER_KEYWORD);
+  const detailed = await Promise.allSettled(
+    top.map(async (item) => {
+      const detail = await getJobDetail(accountId, item.id).catch(() => null);
+      const company = item.company?.name ?? detail?.company ?? "Unknown";
+      const job: RawJob = {
+        source: "LINKEDIN_JOB",
+        company,
+        role: item.title,
+        jdText: detail?.description ?? item.title,
+        applyUrl: detail?.apply_url ?? item.url ?? `https://www.linkedin.com/jobs/view/${item.id}`,
+        location: item.location,
+        jobProviderId: item.id,
+        applyType: "REFERRAL_FIRST",
+        postedAt: item.posted_at ? new Date(item.posted_at) : undefined,
+      };
+      return job;
+    })
+  );
+
+  return detailed
+    .filter((r): r is PromiseFulfilledResult<RawJob> => r.status === "fulfilled")
+    .map(r => r.value);
 }

@@ -21,7 +21,10 @@ import { getSettings } from "@/lib/settings";
 import { config } from "@/config";
 import type { AppStage, SalaryBasis, SalaryConfidence, SalaryPeriod } from "@prisma/client";
 
-const BATCH_SIZE = 10; // LLM calls per invocation — keep under Vercel timeout
+const BATCH_SIZE = 35; // LLM calls per invocation — gpt-4o-mini is cheap; stays under Vercel 60s
+
+// Obvious non-engineering titles — dropped before the LLM to save calls + budget.
+const NON_ENG = /\b(sales|account executive|recruiter|talent|copywriter|content writer|freelance writer|marketing|seo|designer|data (entry|analyst)|customer (support|success)|virtual assistant|teacher|tutor|nurse|driver|accountant|hr\b|business development|bdr|sdr)\b/i;
 
 export async function POST() {
   try {
@@ -31,11 +34,18 @@ export async function POST() {
     const now = new Date();
     const maxPostedAge = config.staleness.noNewOutreachAfterDays * 24 * 60 * 60 * 1000;
 
-    // Filter stale postings before scoring
+    // Drop stale postings + obvious non-engineering roles before scoring
     const eligible = rawJobs.filter(job => {
-      if (!job.postedAt) return true; // unknown age — keep
+      if (NON_ENG.test(job.role)) return false;
+      if (!job.postedAt) return true;
       return now.getTime() - job.postedAt.getTime() < maxPostedAge;
     });
+
+    // Prioritise India-native sources (LinkedIn/Adzuna) over generic remote boards
+    const SOURCE_PRIORITY: Record<string, number> = {
+      LINKEDIN_JOB: 0, ATS_WATCHLIST: 1, ADZUNA: 2, JSEARCH: 3, REMOTIVE: 4, REMOTEOK: 5, MANUAL: 0, LINKEDIN_POST: 1,
+    };
+    eligible.sort((a, b) => (SOURCE_PRIORITY[a.source] ?? 9) - (SOURCE_PRIORITY[b.source] ?? 9));
 
     const batch = eligible.slice(0, BATCH_SIZE);
     const scored = [];

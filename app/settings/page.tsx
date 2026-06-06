@@ -7,6 +7,7 @@ import { Slider } from "@/components/ui/slider";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Pause, Play, Clock, Lock } from "lucide-react";
 import type { AppSettingsData } from "@/lib/settings";
 
 type Tab = "sources" | "search" | "outreach" | "ai";
@@ -18,8 +19,8 @@ const TABS: { key: Tab; label: string }[] = [
 ];
 
 export default function SettingsPage() {
-  const [s, setS]         = useState<AppSettingsData | null>(null);
-  const [tab, setTab]     = useState<Tab>("sources");
+  const [s, setS]           = useState<AppSettingsData | null>(null);
+  const [tab, setTab]       = useState<Tab>("sources");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved]   = useState(false);
   const [kw, setKw]         = useState("");
@@ -41,7 +42,9 @@ export default function SettingsPage() {
   }, []);
 
   if (!s) return (
-    <div className="flex items-center justify-center h-64 text-sm text-zinc-400">Loading settings…</div>
+    <div className="flex items-center justify-center h-64">
+      <div className="w-6 h-6 rounded-full border-2 border-zinc-200 border-t-zinc-800 animate-spin" />
+    </div>
   );
 
   const src = (v: Partial<typeof s.sources>)  => save({ ...s, sources:  { ...s.sources,  ...v } });
@@ -49,16 +52,13 @@ export default function SettingsPage() {
   const out = (v: Partial<typeof s.outreach>) => save({ ...s, outreach: { ...s.outreach, ...v } });
   const ai  = (v: Partial<typeof s.ai>)       => save({ ...s, ai:       { ...s.ai,       ...v } });
 
-  const sv = (raw: number | readonly number[], fb: number) =>
-    Array.isArray(raw) ? (raw[0] ?? fb) : ((raw as number) ?? fb);
-
   return (
     <div className="max-w-3xl mx-auto px-6 py-8 space-y-6">
 
       {/* Title */}
       <div>
         <h1 className="text-xl font-bold text-zinc-900">Settings</h1>
-        <p className="text-sm text-zinc-500 mt-0.5">Changes save instantly.</p>
+        <p className="text-sm text-zinc-400 mt-0.5">Changes save instantly.</p>
       </div>
 
       {/* Tab bar */}
@@ -70,7 +70,7 @@ export default function SettingsPage() {
             className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
               tab === t.key
                 ? "border-zinc-900 text-zinc-900"
-                : "border-transparent text-zinc-500 hover:text-zinc-700"
+                : "border-transparent text-zinc-400 hover:text-zinc-700"
             }`}
           >
             {t.label}
@@ -80,7 +80,7 @@ export default function SettingsPage() {
 
       {/* ── Sources ─────────────────────────────────────────────────── */}
       {tab === "sources" && (
-        <div className="bg-white rounded-xl border border-zinc-200 divide-y divide-zinc-100">
+        <div className="rounded-xl border border-zinc-200 divide-y divide-zinc-100 overflow-hidden">
           {(
             [
               { key: "linkedin"     as const, label: "LinkedIn",      desc: "Job board + hiring posts via Unipile" },
@@ -91,10 +91,10 @@ export default function SettingsPage() {
               { key: "jsearch"      as const, label: "JSearch",       desc: "Google for Jobs aggregator (RapidAPI — paid)" },
             ]
           ).map(({ key, label, desc }) => (
-            <div key={key} className="flex items-center justify-between px-5 py-4">
+            <div key={key} className="flex items-center justify-between px-5 py-4 bg-white">
               <div>
                 <p className="text-sm font-medium text-zinc-900">{label}</p>
-                <p className="text-xs text-zinc-500 mt-0.5">{desc}</p>
+                <p className="text-xs text-zinc-400 mt-0.5">{desc}</p>
               </div>
               <Switch checked={s.sources[key]} onCheckedChange={v => src({ [key]: v })} />
             </div>
@@ -105,8 +105,6 @@ export default function SettingsPage() {
       {/* ── Search ──────────────────────────────────────────────────── */}
       {tab === "search" && (
         <div className="space-y-4">
-
-          {/* Keywords */}
           <Section title="Keywords" desc="Each keyword runs as a separate search query.">
             <div className="flex flex-wrap gap-2 mb-3">
               {s.search.keywords.map(k => (
@@ -126,7 +124,6 @@ export default function SettingsPage() {
             </div>
           </Section>
 
-          {/* Location + thresholds */}
           <Section title="Filters">
             <div className="space-y-5">
               <Field label="Location">
@@ -138,6 +135,7 @@ export default function SettingsPage() {
                 label="Relevance threshold" value={s.search.relevanceThreshold}
                 min={0} max={100} step={5}
                 hint="Jobs below this score are auto-skipped."
+                displayValue={`${s.search.relevanceThreshold}%`}
                 onChange={v => setS(prev => prev ? { ...prev, search: { ...prev.search, relevanceThreshold: v } } : prev)}
                 onCommit={v => sch({ relevanceThreshold: v })}
               />
@@ -158,8 +156,8 @@ export default function SettingsPage() {
                 onChange={v => sch({ strictSalary: v })}
               />
 
-              <div className="pt-1 border-t border-zinc-100">
-                <Label className="text-sm font-medium text-zinc-700 block mb-2">Company blacklist</Label>
+              <div className="pt-4 border-t border-zinc-100">
+                <Label className="text-sm font-medium text-zinc-700 block mb-3">Company blacklist</Label>
                 <div className="flex flex-wrap gap-2 mb-3">
                   {s.search.blacklistedCompanies.map(c => (
                     <span key={c} className="inline-flex items-center gap-1 text-xs bg-red-50 text-red-700 border border-red-200 rounded-lg px-2.5 py-1.5">
@@ -189,14 +187,17 @@ export default function SettingsPage() {
           {/* Kill switch */}
           <div className={`rounded-xl border px-5 py-4 flex items-center justify-between transition-colors ${s.outreach.globalPause ? "bg-red-50 border-red-200" : "bg-white border-zinc-200"}`}>
             <div className="flex items-center gap-3">
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-base ${s.outreach.globalPause ? "bg-red-100" : "bg-zinc-100"}`}>
-                {s.outreach.globalPause ? "⏸" : "▶"}
+              <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${s.outreach.globalPause ? "bg-red-100" : "bg-zinc-100"}`}>
+                {s.outreach.globalPause
+                  ? <Pause className="w-4 h-4 text-red-500" />
+                  : <Play className="w-4 h-4 text-zinc-500" />
+                }
               </div>
               <div>
                 <p className={`text-sm font-semibold ${s.outreach.globalPause ? "text-red-900" : "text-zinc-900"}`}>
                   Pause all outreach
                 </p>
-                <p className={`text-xs mt-0.5 ${s.outreach.globalPause ? "text-red-500" : "text-zinc-500"}`}>
+                <p className={`text-xs mt-0.5 ${s.outreach.globalPause ? "text-red-400" : "text-zinc-400"}`}>
                   No messages will be sent across any source while active.
                 </p>
               </div>
@@ -209,18 +210,19 @@ export default function SettingsPage() {
           </div>
 
           {/* Rate limits + Send window side by side */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-4 items-start">
             <Section title="Rate Limits">
-              <div className="space-y-4">
+              <div className="space-y-5">
                 {([
-                  { key: "dailyInviteCap"           as const, label: "Daily invite cap",    min:1,  max:20  },
-                  { key: "weeklyInviteCap"           as const, label: "Weekly invite cap",   min:1,  max:100 },
-                  { key: "dailyDmCap"                as const, label: "Daily DM cap",        min:1,  max:10  },
-                  { key: "maxReferralTargetsPerJob"  as const, label: "Max targets / job",   min:1,  max:5   },
-                  { key: "maxFollowups"              as const, label: "Max follow-ups",      min:0,  max:3   },
-                  { key: "recontactCooldownDays"     as const, label: "Recontact cooldown",  min:7,  max:90  },
-                ]).map(({ key, label, min, max }) => (
+                  { key: "dailyInviteCap"          as const, label: "Daily invite cap",   min: 1,  max: 20,  fmt: (v: number) => String(v) },
+                  { key: "weeklyInviteCap"          as const, label: "Weekly invite cap",  min: 1,  max: 100, fmt: (v: number) => String(v) },
+                  { key: "dailyDmCap"               as const, label: "Daily DM cap",       min: 1,  max: 10,  fmt: (v: number) => String(v) },
+                  { key: "maxReferralTargetsPerJob" as const, label: "Max targets / job",  min: 1,  max: 5,   fmt: (v: number) => String(v) },
+                  { key: "maxFollowups"             as const, label: "Max follow-ups",     min: 0,  max: 3,   fmt: (v: number) => String(v) },
+                  { key: "recontactCooldownDays"    as const, label: "Recontact cooldown", min: 7,  max: 90,  fmt: (v: number) => `${v}d` },
+                ]).map(({ key, label, min, max, fmt }) => (
                   <SliderField key={key} label={label} value={s.outreach[key]} min={min} max={max} step={1}
+                    displayValue={fmt(s.outreach[key])}
                     onChange={v => setS(prev => prev ? { ...prev, outreach: { ...prev.outreach, [key]: v } } : prev)}
                     onCommit={v => out({ [key]: v })}
                   />
@@ -229,15 +231,17 @@ export default function SettingsPage() {
             </Section>
 
             <div className="space-y-4">
-              <Section title="Send Window (IST)">
-                <div className="space-y-4">
+              <Section title="Send Window (IST)" icon={<Clock className="w-3.5 h-3.5 text-zinc-400" />}>
+                <div className="space-y-5">
                   {([
-                    { key: "sendWindowStart"   as const, label: "Start hour", fmt: (v: number) => `${v.toString().padStart(2,"0")}:00` },
-                    { key: "sendWindowEnd"     as const, label: "End hour",   fmt: (v: number) => `${v.toString().padStart(2,"0")}:00` },
+                    { key: "sendWindowStart"   as const, label: "Start hour",     fmt: (v: number) => `${String(v).padStart(2, "0")}:00` },
+                    { key: "sendWindowEnd"     as const, label: "End hour",       fmt: (v: number) => `${String(v).padStart(2, "0")}:00` },
                     { key: "followupAfterDays" as const, label: "Follow-up after", fmt: (v: number) => `${v}d` },
                   ]).map(({ key, label, fmt }) => (
                     <SliderField key={key} label={label} value={s.outreach[key]}
-                      min={key === "followupAfterDays" ? 1 : 0} max={key === "followupAfterDays" ? 14 : 23} step={1}
+                      min={key === "followupAfterDays" ? 1 : 0}
+                      max={key === "followupAfterDays" ? 14 : 23}
+                      step={1}
                       displayValue={fmt(s.outreach[key])}
                       onChange={v => setS(prev => prev ? { ...prev, outreach: { ...prev.outreach, [key]: v } } : prev)}
                       onCommit={v => out({ [key]: v })}
@@ -246,13 +250,15 @@ export default function SettingsPage() {
                 </div>
               </Section>
 
-              <Section title="Message Templates">
-                {["Invite Note", "First DM", "Follow-up"].map(t => (
-                  <div key={t} className="flex items-center justify-between py-2 border-b border-zinc-100 last:border-0">
-                    <span className="text-sm text-zinc-700">{t}</span>
-                    <Badge variant="outline" className="text-[10px] text-zinc-400">Phase 2</Badge>
-                  </div>
-                ))}
+              <Section title="Message Templates" icon={<Lock className="w-3.5 h-3.5 text-zinc-400" />}>
+                <div className="space-y-1">
+                  {["Invite Note", "First DM", "Follow-up"].map(t => (
+                    <div key={t} className="flex items-center justify-between py-2.5 border-b border-zinc-100 last:border-0">
+                      <span className="text-sm text-zinc-600">{t}</span>
+                      <Badge variant="secondary" className="text-[10px] text-zinc-400 bg-zinc-100 border-0">Phase 2</Badge>
+                    </div>
+                  ))}
+                </div>
               </Section>
             </div>
           </div>
@@ -279,10 +285,13 @@ export default function SettingsPage() {
         </Section>
       )}
 
-      {/* Toast */}
+      {/* Save toast */}
       {(saving || saved) && (
-        <div className={`fixed bottom-6 right-6 flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium shadow-lg transition-all z-50 ${saved ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-700"}`}>
-          {saving ? "Saving…" : "✓ Saved"}
+        <div className={`fixed bottom-6 right-6 flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium shadow-lg z-50 transition-all ${saved ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-600"}`}>
+          {saving
+            ? <><div className="w-3.5 h-3.5 rounded-full border-2 border-zinc-300 border-t-zinc-600 animate-spin" /> Saving…</>
+            : "✓ Saved"
+          }
         </div>
       )}
     </div>
@@ -291,12 +300,15 @@ export default function SettingsPage() {
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function Section({ title, desc, children }: { title: string; desc?: string; children: React.ReactNode }) {
+function Section({ title, desc, icon, children }: {
+  title: string; desc?: string; icon?: React.ReactNode; children: React.ReactNode;
+}) {
   return (
     <div className="bg-white rounded-xl border border-zinc-200 p-5">
-      <div className="mb-4">
+      <div className="flex items-center gap-1.5 mb-4">
+        {icon}
         <p className="text-sm font-semibold text-zinc-900">{title}</p>
-        {desc && <p className="text-xs text-zinc-500 mt-0.5">{desc}</p>}
+        {desc && <p className="text-xs text-zinc-400 mt-0.5">{desc}</p>}
       </div>
       {children}
     </div>
@@ -333,14 +345,18 @@ function SliderField({ label, value, min, max, step, hint, displayValue, onChang
   onChange: (v: number) => void; onCommit: (v: number) => void;
 }) {
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <span className="text-xs text-zinc-600">{label}</span>
-        <span className="text-xs font-semibold text-zinc-900 tabular-nums">{displayValue ?? value}</span>
+        <span className="text-xs text-zinc-500">{label}</span>
+        <span className="text-sm font-bold text-zinc-900 tabular-nums min-w-[2.5rem] text-right">
+          {displayValue ?? value}
+        </span>
       </div>
-      <Slider min={min} max={max} step={step} value={[value]}
-        onValueChange={r => { const v = Array.isArray(r) ? (r[0]??min) : (r??min); onChange(v); }}
-        onValueCommitted={r => { const v = Array.isArray(r) ? (r[0]??min) : (r??min); onCommit(v); }}
+      <Slider
+        min={min} max={max} step={step} value={[value]}
+        onValueChange={r => { const v = Array.isArray(r) ? (r[0] ?? min) : (r ?? min); onChange(v); }}
+        onValueCommitted={r => { const v = Array.isArray(r) ? (r[0] ?? min) : (r ?? min); onCommit(v); }}
+        className="[&_.slider-track]:h-1.5 [&_.slider-thumb]:h-4 [&_.slider-thumb]:w-4"
       />
       {hint && <p className="text-xs text-zinc-400">{hint}</p>}
     </div>

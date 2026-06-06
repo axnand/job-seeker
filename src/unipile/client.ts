@@ -18,8 +18,10 @@ export class UnipileError extends Error {
 }
 
 function baseUrl() {
-  const dsn = config.unipile.dsn;
-  if (!dsn) throw new Error("UNIPILE_DSN is not set");
+  const raw = config.unipile.dsn;
+  if (!raw) throw new Error("UNIPILE_DSN is not set");
+  // Accept both "api21.unipile.com:15157" and "https://api21.unipile.com:15157"
+  const dsn = raw.replace(/^https?:\/\//, "");
   return `https://${dsn}/api/v1`;
 }
 
@@ -56,6 +58,13 @@ async function request<T>(
   return res.json() as Promise<T>;
 }
 
+// ─── Accounts ────────────────────────────────────────────────────────────────
+
+export async function listAccounts(): Promise<Array<{ id: string; type: string; name?: string; connection_params?: Record<string, unknown> }>> {
+  const data = await request<{ items: Array<{ id: string; type: string; name?: string }> }>("GET", "/accounts");
+  return data.items ?? [];
+}
+
 // ─── Search ──────────────────────────────────────────────────────────────────
 
 export interface SearchParams {
@@ -70,9 +79,22 @@ export async function linkedinSearch<T>(
   params: SearchParams,
   cursor?: string
 ): Promise<{ items: T[]; cursor?: string }> {
-  const body: Record<string, unknown> = { ...params, account_id: accountId };
-  if (cursor) body.cursor = cursor;
-  return request<{ items: T[]; cursor?: string }>("POST", "/linkedin/search", body);
+  // account_id MUST be a query param, not in the body.
+  const query: Record<string, string> = { account_id: accountId };
+  if (cursor) query.cursor = cursor;
+  return request<{ items: T[]; cursor?: string }>("POST", "/linkedin/search", params, query);
+}
+
+/** Fetch full job detail (description, apply_url, hiring_team) for a job id. */
+export async function getJobDetail(
+  accountId: string,
+  jobId: string
+): Promise<{
+  id: string; title: string; description?: string; apply_url?: string;
+  location?: string; company?: string; published_at?: number;
+  hiring_team?: Array<{ name: string; profile_url: string; provider_id?: string }>;
+}> {
+  return request("GET", `/linkedin/jobs/${jobId}`, undefined, { account_id: accountId });
 }
 
 /** Resolve text (location, company, etc.) to LinkedIn IDs. */
