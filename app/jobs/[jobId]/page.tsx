@@ -24,7 +24,7 @@ async function updateStage(formData: FormData) {
   const note   = (formData.get("note") as string) || null;
   if (!jobId || !action) return;
   await fetch(
-    `${process.env.APP_BASE_URL ?? "http://localhost:3000"}/api/jobs/action`,
+    `${process.env.APP_BASE_URL}/api/jobs/action`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -41,7 +41,7 @@ async function confirmOutreach(formData: FormData) {
   const action = formData.get("action") as string; // "send" | "cancel"
   const jobId = formData.get("jobId") as string;
   if (!threadId || !action) return;
-  await fetch(`${process.env.APP_BASE_URL ?? "http://localhost:3000"}/api/outreach/confirm`, {
+  await fetch(`${process.env.APP_BASE_URL}/api/outreach/confirm`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
