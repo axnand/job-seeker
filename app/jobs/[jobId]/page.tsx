@@ -1,24 +1,32 @@
-/**
- * Job detail page — opened from digest email Approve/Skip links and from board cards.
- * Server component with inline action form for appStage transitions.
- */
-
 import { prisma } from "@/lib/prisma";
 import { notFound } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
-const SALARY_PERIOD_LABEL: Record<string, string> = {
+const PERIOD_LABEL: Record<string, string> = {
   YEAR: "/yr", MONTH: "/mo", HOUR: "/hr",
+};
+
+const APP_STAGE_COLORS: Record<string, string> = {
+  NEW:          "bg-slate-100 text-slate-700",
+  APPROVED:     "bg-blue-100 text-blue-700",
+  SKIPPED:      "bg-slate-100 text-slate-500",
+  APPLIED:      "bg-violet-100 text-violet-700",
+  INTERVIEWING: "bg-amber-100 text-amber-700",
+  OFFER:        "bg-emerald-100 text-emerald-700",
+  CLOSED:       "bg-red-100 text-red-700",
 };
 
 async function updateStage(formData: FormData) {
   "use server";
-  const jobId = formData.get("jobId") as string;
+  const jobId  = formData.get("jobId")  as string;
   const action = formData.get("action") as string;
-  const note = (formData.get("note") as string) || null;
-
+  const note   = (formData.get("note") as string) || null;
   if (!jobId || !action) return;
-
   await fetch(
     `${process.env.APP_BASE_URL ?? "http://localhost:3000"}/api/jobs/action`,
     {
@@ -45,7 +53,6 @@ export default async function JobDetailPage({
     where: { id: jobId },
     include: { outreaches: { include: { contact: true } } },
   });
-
   if (!job) notFound();
 
   const salary = job.salaryAnnualBase
@@ -54,159 +61,183 @@ export default async function JobDetailPage({
         currency: job.salaryCurrency ?? "INR",
         maximumFractionDigits: 0,
       }).format(job.salaryAnnualBase) +
-      (SALARY_PERIOD_LABEL[job.salaryPeriod ?? "YEAR"] ?? "/yr") +
-      (job.salaryBasis === "ESTIMATED" ? ` (est. ${job.salaryConfidence?.toLowerCase() ?? ""})` : " (stated)")
-    : null;
-
-  const actionPrompt = action === "approve"
-    ? "Review the outreach message below, then confirm to queue it."
-    : action === "skip"
-    ? "Confirm to skip this job."
+      (PERIOD_LABEL[job.salaryPeriod ?? "YEAR"] ?? "/yr") +
+      (job.salaryBasis === "ESTIMATED"
+        ? ` (est. ${job.salaryConfidence?.toLowerCase() ?? ""})`
+        : " (stated)")
     : null;
 
   return (
-    <div className="max-w-3xl mx-auto">
-      <a href="/" className="text-sm text-blue-600 hover:underline mb-4 inline-block">← Back to board</a>
+    <div className="max-w-3xl mx-auto space-y-5">
+      {/* Back */}
+      <a href="/" className="text-sm text-muted-foreground hover:text-foreground transition-colors inline-flex items-center gap-1">
+        ← Board
+      </a>
 
-      <div className="bg-white border border-gray-200 rounded-xl p-6 mb-4">
-        <div className="flex items-start justify-between mb-2">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">{job.company}</h1>
-            <p className="text-lg text-gray-600">{job.role}</p>
+      {/* Hero card */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <CardTitle className="text-2xl">{job.company}</CardTitle>
+              <p className="text-muted-foreground mt-1">{job.role}</p>
+            </div>
+            {job.aiScore !== null && (
+              <div className="text-right shrink-0">
+                <div className="text-3xl font-bold text-primary">{job.aiScore}</div>
+                <div className="text-xs text-muted-foreground">/ 100</div>
+              </div>
+            )}
           </div>
-          {job.aiScore !== null && (
-            <span className="text-xl font-bold text-blue-600 bg-blue-50 rounded-lg px-3 py-1">
-              {job.aiScore}/100
+
+          {/* Badges row */}
+          <div className="flex flex-wrap gap-2 mt-3">
+            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${APP_STAGE_COLORS[job.appStage] ?? ""}`}>
+              {job.appStage}
             </span>
-          )}
-        </div>
-
-        <div className="flex flex-wrap gap-2 mb-4 text-sm">
-          <span className="bg-gray-100 text-gray-600 px-2 py-1 rounded">{job.source.replace(/_/g, " ")}</span>
-          <span className="bg-purple-50 text-purple-700 px-2 py-1 rounded">{job.applyType.replace(/_/g, " ")}</span>
-          <span className="bg-gray-100 text-gray-600 px-2 py-1 rounded">{job.appStage}</span>
-          {job.outreachState !== "NONE" && (
-            <span className="bg-amber-50 text-amber-700 px-2 py-1 rounded">{job.outreachState.replace(/_/g, " ")}</span>
-          )}
-        </div>
-
-        {job.aiReason && (
-          <p className="text-gray-700 mb-3 text-sm">{job.aiReason}</p>
-        )}
-
-        {salary && (
-          <p className="text-emerald-700 font-medium mb-3">{salary}</p>
-        )}
-        {job.salaryFlagReason && (
-          <p className="text-amber-600 text-sm mb-3">⚠️ {job.salaryFlagReason.replace(/_/g, " ")}</p>
-        )}
-
-        {job.tailoredPitch && (
-          <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 mb-4">
-            <p className="text-xs font-semibold text-blue-600 mb-1">AI Pitch</p>
-            <p className="text-sm text-blue-900 whitespace-pre-line">{job.tailoredPitch}</p>
+            <Badge variant="outline" className="text-xs">{job.source.replace(/_/g, " ")}</Badge>
+            <Badge variant="outline" className="text-xs text-violet-600 border-violet-200">
+              {job.applyType.replace(/_/g, " ")}
+            </Badge>
+            {job.outreachState !== "NONE" && (
+              <Badge variant="secondary" className="text-xs">{job.outreachState.replace(/_/g, " ")}</Badge>
+            )}
           </div>
-        )}
+        </CardHeader>
 
-        {job.applyUrl && (
-          <a
-            href={job.applyUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-600 hover:underline text-sm"
-          >
-            Apply URL →
-          </a>
-        )}
-      </div>
+        <Separator />
+
+        <CardContent className="pt-4 space-y-3">
+          {/* AI reason */}
+          {job.aiReason && (
+            <p className="text-sm text-muted-foreground leading-relaxed">{job.aiReason}</p>
+          )}
+
+          {/* Salary */}
+          {salary && (
+            <p className="text-sm font-semibold text-emerald-700">{salary}</p>
+          )}
+          {job.salaryFlagReason && (
+            <p className="text-xs text-amber-600">⚠ {job.salaryFlagReason.replace(/_/g, " ")}</p>
+          )}
+
+          {/* Tailored pitch */}
+          {job.tailoredPitch && (
+            <div className="bg-blue-50 border border-blue-100 rounded-lg p-4">
+              <p className="text-xs font-semibold text-blue-500 mb-1 uppercase tracking-wide">AI Pitch</p>
+              <p className="text-sm text-blue-900 whitespace-pre-line leading-relaxed">{job.tailoredPitch}</p>
+            </div>
+          )}
+
+          {/* Apply URL */}
+          {job.applyUrl && (
+            <a
+              href={job.applyUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm text-blue-600 hover:underline inline-flex items-center gap-1"
+            >
+              Open application →
+            </a>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Action banner from email link */}
-      {actionPrompt && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4 text-sm text-amber-800">
-          {actionPrompt}
+      {action && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          {action === "approve"
+            ? "Review the job and outreach message above, then confirm to queue outreach."
+            : "Confirm below to skip this job."}
         </div>
       )}
 
-      {/* Stage controls */}
+      {/* Stage actions */}
       {job.appStage === "NEW" && (
-        <div className="bg-white border border-gray-200 rounded-xl p-6 mb-4">
-          <h2 className="font-semibold text-gray-900 mb-3">Take action</h2>
-          <form action={updateStage} className="flex gap-3 items-end flex-wrap">
-            <input type="hidden" name="jobId" value={job.id} />
-            <input
-              type="text"
-              name="note"
-              placeholder="Optional note"
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm flex-1 min-w-48"
-            />
-            <button
-              type="submit"
-              name="action"
-              value="approve"
-              className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
-            >
-              ✓ Approve & queue outreach
-            </button>
-            <button
-              type="submit"
-              name="action"
-              value="skip"
-              className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm"
-            >
-              ✗ Skip
-            </button>
-          </form>
-        </div>
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Take action</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form action={updateStage} className="flex flex-wrap gap-3 items-end">
+              <input type="hidden" name="jobId" value={job.id} />
+              <input
+                type="text"
+                name="note"
+                placeholder="Optional note…"
+                className="border border-input rounded-md px-3 py-2 text-sm flex-1 min-w-48 bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+              <Button type="submit" name="action" value="approve" className="bg-emerald-600 hover:bg-emerald-700 text-white">
+                ✓ Approve & queue outreach
+              </Button>
+              <Button type="submit" name="action" value="skip" variant="outline">
+                ✗ Skip
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
       )}
 
       {["APPROVED", "APPLIED"].includes(job.appStage) && (
-        <div className="bg-white border border-gray-200 rounded-xl p-6 mb-4">
-          <h2 className="font-semibold text-gray-900 mb-3">Update stage</h2>
-          <form action={updateStage} className="flex gap-3 flex-wrap">
-            <input type="hidden" name="jobId" value={job.id} />
-            {["applied", "interviewing", "offer", "closed"].map(a => (
-              <button
-                key={a}
-                type="submit"
-                name="action"
-                value={a}
-                className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg text-sm capitalize"
-              >
-                {a}
-              </button>
-            ))}
-          </form>
-        </div>
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Update stage</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form action={updateStage} className="flex flex-wrap gap-2">
+              <input type="hidden" name="jobId" value={job.id} />
+              {["applied", "interviewing", "offer", "closed"].map(a => (
+                <Button key={a} type="submit" name="action" value={a} variant="secondary" size="sm" className="capitalize">
+                  {a}
+                </Button>
+              ))}
+            </form>
+          </CardContent>
+        </Card>
       )}
 
       {/* Outreach history */}
       {job.outreaches.length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-xl p-6 mb-4">
-          <h2 className="font-semibold text-gray-900 mb-3">Outreach</h2>
-          {job.outreaches.map(o => (
-            <div key={o.id} className="border-l-2 border-gray-200 pl-3 mb-3 text-sm">
-              <p className="font-medium text-gray-900">{o.contact.name}</p>
-              <p className="text-gray-500">{o.contact.title} · {o.role}</p>
-              <a
-                href={o.contact.linkedinUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-600 hover:underline text-xs"
-              >
-                LinkedIn →
-              </a>
-            </div>
-          ))}
-        </div>
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Outreach</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {job.outreaches.map(o => (
+              <div key={o.id} className="flex items-start gap-3">
+                <div className="mt-0.5 w-2 h-2 rounded-full bg-primary shrink-0" />
+                <div>
+                  <p className="text-sm font-medium">{o.contact.name}</p>
+                  <p className="text-xs text-muted-foreground">{o.contact.title} · {o.role}</p>
+                  <a
+                    href={o.contact.linkedinUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-blue-600 hover:underline"
+                  >
+                    LinkedIn →
+                  </a>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
       )}
 
       {/* Full JD */}
-      <div className="bg-white border border-gray-200 rounded-xl p-6">
-        <h2 className="font-semibold text-gray-900 mb-3">Job Description</h2>
-        <pre className="text-sm text-gray-700 whitespace-pre-wrap font-sans leading-relaxed">
-          {job.jdText}
-        </pre>
-      </div>
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Job Description</CardTitle>
+        </CardHeader>
+        <Separator />
+        <CardContent className="pt-4">
+          <ScrollArea className="h-[500px]">
+            <pre className="text-sm text-muted-foreground whitespace-pre-wrap font-sans leading-relaxed pr-4">
+              {job.jdText}
+            </pre>
+          </ScrollArea>
+        </CardContent>
+      </Card>
     </div>
   );
 }

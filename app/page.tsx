@@ -1,14 +1,33 @@
+"use client";
+
 /**
  * Jobs board — columns by appStage, outreachState badge on each card.
- * Server component: fetches directly from DB.
+ * Client component so we can fetch via API (avoids direct DB import in RSC for now).
  */
 
-import { prisma } from "@/lib/prisma";
+import { useEffect, useState } from "react";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
 import type { AppStage } from "@prisma/client";
 
-const STAGE_ORDER: AppStage[] = [
-  "NEW", "APPROVED", "APPLIED", "INTERVIEWING", "OFFER", "CLOSED",
-];
+type Job = {
+  id: string;
+  company: string;
+  role: string;
+  source: string;
+  applyType: string;
+  appStage: AppStage;
+  outreachState: string;
+  aiScore: number | null;
+  salaryAnnualBase: number | null;
+  salaryCurrency: string | null;
+  salaryBasis: string | null;
+  createdAt: string;
+};
+
+const STAGE_ORDER: AppStage[] = ["NEW", "APPROVED", "APPLIED", "INTERVIEWING", "OFFER", "CLOSED"];
 
 const STAGE_LABELS: Record<AppStage, string> = {
   NEW: "New",
@@ -20,13 +39,14 @@ const STAGE_LABELS: Record<AppStage, string> = {
   CLOSED: "Closed",
 };
 
-const OUTREACH_BADGE: Record<string, string> = {
-  NONE: "",
-  INVITE_SENT: "📨 Invite sent",
-  CONNECTED: "🔗 Connected",
-  MESSAGED: "💬 Messaged",
-  REPLIED: "✉️ Replied",
-  NO_REPLY_ARCHIVED: "🗃 Archived",
+const STAGE_COLORS: Record<AppStage, string> = {
+  NEW: "bg-slate-100",
+  APPROVED: "bg-blue-50",
+  SKIPPED: "bg-slate-50",
+  APPLIED: "bg-violet-50",
+  INTERVIEWING: "bg-amber-50",
+  OFFER: "bg-emerald-50",
+  CLOSED: "bg-red-50",
 };
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -40,101 +60,149 @@ const SOURCE_LABELS: Record<string, string> = {
   MANUAL: "Manual",
 };
 
-function formatSalary(annualBase: number | null, currency: string | null): string {
-  if (!annualBase) return "";
+const OUTREACH_BADGE: Record<string, { label: string; variant: "default" | "secondary" | "outline" } > = {
+  NONE:               { label: "", variant: "outline" },
+  INVITE_SENT:        { label: "Invite sent", variant: "secondary" },
+  CONNECTED:          { label: "Connected", variant: "secondary" },
+  MESSAGED:           { label: "Messaged", variant: "default" },
+  REPLIED:            { label: "Replied ✓", variant: "default" },
+  NO_REPLY_ARCHIVED:  { label: "No reply", variant: "outline" },
+};
+
+function fmt(amount: number, currency: string | null) {
   return new Intl.NumberFormat("en-IN", {
     style: "currency",
     currency: currency ?? "INR",
     maximumFractionDigits: 0,
     notation: "compact",
-  }).format(annualBase);
+  }).format(amount);
 }
 
-export default async function BoardPage() {
-  const jobs = await prisma.job.findMany({
-    where: { appStage: { not: "SKIPPED" } },
-    orderBy: [{ aiScore: "desc" }, { createdAt: "desc" }],
-    take: 500,
-  });
+export default function BoardPage() {
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const byStage = STAGE_ORDER.reduce<Record<AppStage, typeof jobs>>(
-    (acc, s) => { acc[s] = []; return acc; },
-    {} as Record<AppStage, typeof jobs>
+  useEffect(() => {
+    fetch("/api/jobs?limit=200")
+      .then(r => r.json())
+      .then(d => { setJobs(d.jobs ?? []); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+
+  const byStage = STAGE_ORDER.reduce<Record<string, Job[]>>(
+    (acc, s) => { acc[s] = []; return acc; }, {}
   );
-  for (const job of jobs) {
-    if (byStage[job.appStage]) byStage[job.appStage].push(job);
+  for (const j of jobs) {
+    if (j.appStage !== "SKIPPED" && byStage[j.appStage]) byStage[j.appStage].push(j);
   }
 
-  // Stats
-  const thisWeek = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-  const weekJobs = jobs.filter(j => j.createdAt >= thisWeek);
-  const replied = jobs.filter(j => j.outreachState === "REPLIED").length;
-  const outreachSent = jobs.filter(j => !["NONE"].includes(j.outreachState)).length;
-  const responseRate = outreachSent > 0 ? Math.round((replied / outreachSent) * 100) : 0;
+  const thisWeek = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const weekCount = jobs.filter(j => new Date(j.createdAt).getTime() > thisWeek).length;
+  const replied    = jobs.filter(j => j.outreachState === "REPLIED").length;
+  const outreached = jobs.filter(j => j.outreachState !== "NONE").length;
+  const rr         = outreached > 0 ? Math.round((replied / outreached) * 100) : 0;
+
+  const stats = [
+    { label: "Found this week", value: weekCount },
+    { label: "Approved",        value: jobs.filter(j => j.appStage === "APPROVED").length },
+    { label: "Outreach sent",   value: outreached },
+    { label: "Replies",         value: replied },
+    { label: "Applied",         value: jobs.filter(j => j.appStage === "APPLIED").length },
+    { label: "Interviews",      value: jobs.filter(j => j.appStage === "INTERVIEWING").length },
+    { label: "Response rate",   value: `${rr}%` },
+  ];
 
   return (
-    <div>
+    <div className="space-y-6">
       {/* Stats bar */}
-      <div className="flex flex-wrap gap-4 mb-6 text-sm">
-        {[
-          ["Found this week", weekJobs.length],
-          ["Approved", jobs.filter(j => j.appStage === "APPROVED").length],
-          ["Outreach sent", outreachSent],
-          ["Replies", replied],
-          ["Applied", jobs.filter(j => j.appStage === "APPLIED").length],
-          ["Interviews", jobs.filter(j => j.appStage === "INTERVIEWING").length],
-          ["Response rate", `${responseRate}%`],
-        ].map(([label, val]) => (
-          <div key={String(label)} className="bg-white border border-gray-200 rounded-lg px-4 py-2">
-            <p className="text-gray-500 text-xs">{label}</p>
-            <p className="font-semibold text-gray-900">{val}</p>
-          </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+        {stats.map(s => (
+          <Card key={s.label} className="py-3">
+            <CardContent className="px-4 py-0">
+              <p className="text-xs text-muted-foreground">{s.label}</p>
+              <p className="text-xl font-bold mt-0.5">{loading ? "—" : s.value}</p>
+            </CardContent>
+          </Card>
         ))}
       </div>
 
+      <Separator />
+
       {/* Kanban */}
-      <div className="flex gap-4 overflow-x-auto pb-4">
-        {STAGE_ORDER.filter(s => s !== "SKIPPED").map(stage => (
-          <div key={stage} className="flex-shrink-0 w-64">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="font-medium text-gray-700 text-sm">{STAGE_LABELS[stage]}</h3>
-              <span className="text-xs text-gray-400 bg-gray-100 rounded-full px-2 py-0.5">
-                {byStage[stage].length}
-              </span>
-            </div>
-            <div className="flex flex-col gap-2">
-              {byStage[stage].map(job => (
-                <a
-                  key={job.id}
-                  href={`/jobs/${job.id}`}
-                  className="block bg-white border border-gray-200 rounded-lg p-3 hover:border-blue-300 hover:shadow-sm transition-all"
-                >
-                  <p className="font-medium text-gray-900 text-sm truncate">{job.company}</p>
-                  <p className="text-gray-600 text-xs truncate mb-1">{job.role}</p>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs bg-blue-50 text-blue-700 rounded px-1.5 py-0.5 font-medium">
-                      {job.aiScore ?? "—"}/100
-                    </span>
-                    <span className="text-xs text-gray-400">{SOURCE_LABELS[job.source] ?? job.source}</span>
+      <ScrollArea className="w-full">
+        <div className="flex gap-4 pb-4 min-w-max">
+          {STAGE_ORDER.map(stage => (
+            <div key={stage} className="w-64 flex-shrink-0 flex flex-col gap-2">
+              {/* Column header */}
+              <div className="flex items-center justify-between px-1">
+                <span className="text-sm font-semibold text-foreground">{STAGE_LABELS[stage]}</span>
+                <Badge variant="secondary" className="text-xs rounded-full px-2">
+                  {byStage[stage].length}
+                </Badge>
+              </div>
+
+              {/* Cards */}
+              <div className={`rounded-xl p-2 min-h-32 flex flex-col gap-2 ${STAGE_COLORS[stage]}`}>
+                {loading && (
+                  <div className="flex-1 flex items-center justify-center">
+                    <span className="text-xs text-muted-foreground">Loading…</span>
                   </div>
-                  {job.salaryAnnualBase && (
-                    <p className="text-xs text-emerald-600 mt-1">
-                      {formatSalary(job.salaryAnnualBase, job.salaryCurrency)}
-                      {job.salaryBasis === "ESTIMATED" && " (est.)"}
-                    </p>
-                  )}
-                  {job.outreachState !== "NONE" && (
-                    <p className="text-xs text-gray-400 mt-1">{OUTREACH_BADGE[job.outreachState]}</p>
-                  )}
-                  {job.applyType === "REFERRAL_FIRST" && (
-                    <span className="inline-block mt-1 text-xs bg-purple-50 text-purple-700 rounded px-1.5 py-0.5">Referral First</span>
-                  )}
-                </a>
-              ))}
+                )}
+                {!loading && byStage[stage].length === 0 && (
+                  <div className="flex-1 flex items-center justify-center">
+                    <span className="text-xs text-muted-foreground">Empty</span>
+                  </div>
+                )}
+                {byStage[stage].map(job => (
+                  <a key={job.id} href={`/jobs/${job.id}`}>
+                    <Card className="hover:shadow-md transition-shadow cursor-pointer border-border/60">
+                      <CardHeader className="px-3 pt-3 pb-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="font-semibold text-sm truncate leading-tight">{job.company}</p>
+                            <p className="text-xs text-muted-foreground truncate mt-0.5">{job.role}</p>
+                          </div>
+                          {job.aiScore !== null && (
+                            <Badge variant="secondary" className="text-xs shrink-0 font-bold">
+                              {job.aiScore}
+                            </Badge>
+                          )}
+                        </div>
+                      </CardHeader>
+                      <CardContent className="px-3 pb-3 pt-1 space-y-1.5">
+                        <div className="flex flex-wrap gap-1">
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                            {SOURCE_LABELS[job.source] ?? job.source}
+                          </Badge>
+                          {job.applyType === "REFERRAL_FIRST" && (
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-violet-600 border-violet-200">
+                              Referral
+                            </Badge>
+                          )}
+                        </div>
+                        {job.salaryAnnualBase && (
+                          <p className="text-xs text-emerald-700 font-medium">
+                            {fmt(job.salaryAnnualBase, job.salaryCurrency)}
+                            {job.salaryBasis === "ESTIMATED" && <span className="text-muted-foreground font-normal"> est.</span>}
+                          </p>
+                        )}
+                        {job.outreachState !== "NONE" && OUTREACH_BADGE[job.outreachState] && (
+                          <Badge
+                            variant={OUTREACH_BADGE[job.outreachState].variant}
+                            className="text-[10px] px-1.5 py-0"
+                          >
+                            {OUTREACH_BADGE[job.outreachState].label}
+                          </Badge>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </a>
+                ))}
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      </ScrollArea>
     </div>
   );
 }
