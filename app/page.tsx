@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Sheet, SheetContent, SheetHeader } from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
@@ -27,14 +27,14 @@ type Job = {
 
 const STAGES: AppStage[] = ["NEW","APPROVED","APPLIED","INTERVIEWING","OFFER","CLOSED"];
 
-const STAGE_META: Record<AppStage, { label: string; dot: string; lane: string }> = {
-  NEW:          { label: "New",          dot: "bg-zinc-400",    lane: "bg-zinc-50 border-zinc-200"     },
-  APPROVED:     { label: "Approved",     dot: "bg-blue-500",    lane: "bg-blue-50 border-blue-100"     },
-  SKIPPED:      { label: "Skipped",      dot: "bg-zinc-300",    lane: "bg-zinc-50 border-zinc-200"     },
-  APPLIED:      { label: "Applied",      dot: "bg-violet-500",  lane: "bg-violet-50 border-violet-100" },
-  INTERVIEWING: { label: "Interviewing", dot: "bg-amber-500",   lane: "bg-amber-50 border-amber-100"   },
-  OFFER:        { label: "Offer",        dot: "bg-emerald-500", lane: "bg-emerald-50 border-emerald-100"},
-  CLOSED:       { label: "Closed",       dot: "bg-red-400",     lane: "bg-red-50 border-red-100"       },
+const STAGE_META: Record<AppStage, { label: string; accent: string; headerBorder: string; lane: string }> = {
+  NEW:          { label:"New",          accent:"bg-zinc-400",    headerBorder:"border-l-zinc-300",    lane:"bg-white"         },
+  APPROVED:     { label:"Approved",     accent:"bg-blue-500",    headerBorder:"border-l-blue-400",    lane:"bg-blue-50/40"    },
+  SKIPPED:      { label:"Skipped",      accent:"bg-zinc-300",    headerBorder:"border-l-zinc-200",    lane:"bg-white"         },
+  APPLIED:      { label:"Applied",      accent:"bg-violet-500",  headerBorder:"border-l-violet-400",  lane:"bg-violet-50/40"  },
+  INTERVIEWING: { label:"Interviewing", accent:"bg-amber-500",   headerBorder:"border-l-amber-400",   lane:"bg-amber-50/40"   },
+  OFFER:        { label:"Offer",        accent:"bg-emerald-500", headerBorder:"border-l-emerald-400", lane:"bg-emerald-50/40" },
+  CLOSED:       { label:"Closed",       accent:"bg-red-400",     headerBorder:"border-l-red-300",     lane:"bg-red-50/30"     },
 };
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -44,12 +44,12 @@ const SOURCE_LABEL: Record<string, string> = {
 };
 
 const OUTREACH_META: Record<string, { text: string; cls: string }> = {
-  NONE:              { text: "",           cls: "" },
-  INVITE_SENT:       { text: "Invite sent",cls: "text-blue-600 bg-blue-50 border-blue-200" },
-  CONNECTED:         { text: "Connected",  cls: "text-blue-600 bg-blue-50 border-blue-200" },
-  MESSAGED:          { text: "Messaged",   cls: "text-indigo-600 bg-indigo-50 border-indigo-200" },
-  REPLIED:           { text: "Replied ✓",  cls: "text-emerald-700 bg-emerald-50 border-emerald-200" },
-  NO_REPLY_ARCHIVED: { text: "No reply",   cls: "text-zinc-500 bg-zinc-100 border-zinc-200" },
+  NONE:              { text:"",          cls:"" },
+  INVITE_SENT:       { text:"Invite sent", cls:"text-blue-600 bg-blue-50 border-blue-200" },
+  CONNECTED:         { text:"Connected",   cls:"text-blue-600 bg-blue-50 border-blue-200" },
+  MESSAGED:          { text:"Messaged",    cls:"text-indigo-600 bg-indigo-50 border-indigo-200" },
+  REPLIED:           { text:"Replied ✓",   cls:"text-emerald-700 bg-emerald-50 border-emerald-200" },
+  NO_REPLY_ARCHIVED: { text:"No reply",    cls:"text-zinc-500 bg-zinc-100 border-zinc-200" },
 };
 
 // ─── Utils ────────────────────────────────────────────────────────────────────
@@ -57,8 +57,7 @@ const OUTREACH_META: Record<string, { text: string; cls: string }> = {
 const scoreClr = (n: number | null) =>
   n === null ? "bg-zinc-100 text-zinc-400" :
   n >= 80 ? "bg-green-100 text-green-800" :
-  n >= 60 ? "bg-amber-100 text-amber-800" :
-  "bg-red-100 text-red-700";
+  n >= 60 ? "bg-amber-100 text-amber-800" : "bg-red-100 text-red-700";
 
 const AVATAR_COLORS = [
   "bg-blue-100 text-blue-700","bg-violet-100 text-violet-700",
@@ -70,11 +69,10 @@ const avatarClr = (name: string) => AVATAR_COLORS[name.charCodeAt(0) % 8];
 
 const fmtSalary = (base: number | null, cur: string | null) =>
   !base ? null : new Intl.NumberFormat("en-IN", {
-    style: "currency", currency: cur ?? "INR",
-    maximumFractionDigits: 0, notation: "compact",
+    style:"currency", currency: cur ?? "INR", maximumFractionDigits:0, notation:"compact",
   }).format(base);
 
-// ─── Board ────────────────────────────────────────────────────────────────────
+// ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function BoardPage() {
   const [jobs, setJobs]         = useState<Job[]>([]);
@@ -83,11 +81,9 @@ export default function BoardPage() {
   const [detail, setDetail]     = useState<Job | null>(null);
   const [copied, setCopied]     = useState(false);
   const [acting, setActing]     = useState(false);
-  const scrollRef               = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    fetch("/api/jobs?limit=200")
-      .then(r => r.json())
+    fetch("/api/jobs?limit=200").then(r => r.json())
       .then(d => { setJobs(d.jobs ?? []); setLoading(false); })
       .catch(() => setLoading(false));
   }, []);
@@ -100,160 +96,154 @@ export default function BoardPage() {
 
   const act = useCallback(async (jobId: string, action: string) => {
     setActing(true);
-    await fetch("/api/jobs/action", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ jobId, action }),
-    });
+    await fetch("/api/jobs/action", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ jobId, action }) });
     const updated = await fetch(`/api/jobs/${jobId}`).then(r => r.json()) as Job;
     setDetail(updated);
     setJobs(prev => prev.map(j => j.id === jobId ? { ...j, appStage: updated.appStage } : j));
     setActing(false);
   }, []);
 
-  const byStage = STAGES.reduce<Record<string, Job[]>>((a, s) => { a[s] = []; return a; }, {});
-  for (const j of jobs) {
-    if (j.appStage !== "SKIPPED" && byStage[j.appStage]) byStage[j.appStage].push(j);
-  }
+  const byStage = STAGES.reduce<Record<string, Job[]>>((a,s) => { a[s]=[]; return a; }, {});
+  for (const j of jobs) if (j.appStage !== "SKIPPED" && byStage[j.appStage]) byStage[j.appStage].push(j);
 
-  const tw       = Date.now() - 7 * 24 * 60 * 60 * 1000;
-  const replied  = jobs.filter(j => j.outreachState === "REPLIED").length;
-  const sent     = jobs.filter(j => j.outreachState !== "NONE").length;
-  const rr       = sent > 0 ? `${Math.round(replied / sent * 100)}%` : "—";
+  const tw      = Date.now() - 7*24*60*60*1000;
+  const replied = jobs.filter(j => j.outreachState === "REPLIED").length;
+  const sent    = jobs.filter(j => j.outreachState !== "NONE").length;
 
   const stats = [
-    { label: "Found this week", value: loading ? "—" : jobs.filter(j => new Date(j.createdAt).getTime() > tw).length },
-    { label: "Approved",        value: loading ? "—" : jobs.filter(j => j.appStage === "APPROVED").length },
-    { label: "Outreach sent",   value: loading ? "—" : sent },
-    { label: "Replies",         value: loading ? "—" : replied },
-    { label: "Applied",         value: loading ? "—" : jobs.filter(j => j.appStage === "APPLIED").length },
-    { label: "Interviews",      value: loading ? "—" : jobs.filter(j => j.appStage === "INTERVIEWING").length },
-    { label: "Response rate",   value: loading ? "—" : rr },
+    { label:"Found this week", value: jobs.filter(j => new Date(j.createdAt).getTime() > tw).length, color:"text-zinc-900" },
+    { label:"Approved",        value: jobs.filter(j => j.appStage === "APPROVED").length,             color:"text-blue-600" },
+    { label:"Outreach sent",   value: sent,                                                            color:"text-indigo-600" },
+    { label:"Replies",         value: replied,                                                         color:"text-emerald-600" },
+    { label:"Applied",         value: jobs.filter(j => j.appStage === "APPLIED").length,              color:"text-violet-600" },
+    { label:"Interviews",      value: jobs.filter(j => j.appStage === "INTERVIEWING").length,         color:"text-amber-600" },
+    { label:"Response rate",   value: sent > 0 ? `${Math.round(replied/sent*100)}%` : "—",            color:"text-zinc-900" },
   ];
 
   const job = detail ?? selected;
 
   return (
-    <div className="flex flex-col h-[calc(100vh-44px)] overflow-hidden">
+    <div className="flex flex-col h-[calc(100vh-48px)] bg-zinc-100 overflow-hidden">
 
-      {/* ── Top bar: stats + filters ───────────────────────────────── */}
-      <div className="flex-shrink-0 border-b border-zinc-200 bg-white px-8 py-5 space-y-4">
+      {/* ── Stats + Controls ──────────────────────────────────────────── */}
+      <div className="flex-shrink-0 px-8 pt-6 pb-4 space-y-4">
 
-        {/* Stats row */}
-        <div className="flex items-center gap-8">
-          {stats.map(({ label, value }) => (
-            <div key={label} className="flex items-baseline gap-2">
-              <span className="text-2xl font-bold text-zinc-900 tabular-nums">{value}</span>
-              <span className="text-xs text-zinc-400 whitespace-nowrap">{label}</span>
+        {/* Stat cards */}
+        <div className="grid grid-cols-7 gap-3">
+          {stats.map(({ label, value, color }) => (
+            <div key={label} className="bg-white rounded-xl border border-zinc-200 shadow-sm px-4 py-3.5">
+              <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest mb-1">{label}</p>
+              <p className={`text-2xl font-bold tabular-nums ${loading ? "text-zinc-200 animate-pulse" : color}`}>
+                {loading ? "0" : value}
+              </p>
             </div>
           ))}
-          <a href="/add"
-            className="ml-auto shrink-0 bg-zinc-900 hover:bg-zinc-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors">
-            + Add Job
-          </a>
         </div>
 
-        {/* Filter row */}
+        {/* Filter bar */}
         <div className="flex items-center gap-2">
-          {(["Source: All", "Apply type: All", "Score: All"] as const).map(label => (
-            <select key={label} className="text-xs border border-zinc-200 rounded-lg px-2.5 py-1.5 bg-white text-zinc-600 focus:outline-none focus:border-zinc-400">
+          {["Source: All","Apply type: All","Score: All"].map(label => (
+            <select key={label} className="text-xs border border-zinc-200 rounded-lg px-3 py-2 bg-white text-zinc-600 shadow-sm focus:outline-none focus:border-zinc-400 cursor-pointer">
               <option>{label}</option>
             </select>
           ))}
-          <div className="ml-auto flex items-center gap-0.5 text-xs text-zinc-400">
-            <span className="mr-1">Sort:</span>
-            {["Score", "Salary", "Date"].map(s => (
-              <button key={s} className="px-2 py-1 rounded hover:bg-zinc-100 hover:text-zinc-700 transition-colors">{s}</button>
+          <div className="ml-auto flex items-center gap-1 text-xs text-zinc-400">
+            <span className="mr-1 font-medium">Sort:</span>
+            {["Score","Salary","Date"].map(s => (
+              <button key={s} className="px-2.5 py-1.5 rounded-lg hover:bg-white hover:text-zinc-700 hover:shadow-sm transition-all">{s}</button>
             ))}
           </div>
+          <a href="/add"
+            className="ml-2 bg-zinc-900 hover:bg-zinc-700 text-white text-xs font-semibold px-4 py-2 rounded-lg shadow-sm transition-colors">
+            + Add Job
+          </a>
         </div>
       </div>
 
       {/* ── Kanban ────────────────────────────────────────────────────── */}
-      <div ref={scrollRef} className="flex-1 overflow-x-auto overflow-y-hidden">
-        <div className="flex h-full gap-0 min-w-max">
-          {STAGES.map(stage => {
-            const meta = STAGE_META[stage];
+      <div className="flex-1 overflow-x-auto overflow-y-hidden px-8 pb-8">
+        {/* White board container */}
+        <div className="flex h-full rounded-2xl border border-zinc-200 shadow-sm bg-white overflow-hidden min-w-max">
+          {STAGES.map((stage, i) => {
+            const meta  = STAGE_META[stage];
             const cards = byStage[stage];
+            const isLast = i === STAGES.length - 1;
             return (
-              <div key={stage} className="w-[272px] flex-shrink-0 flex flex-col border-r border-zinc-200 last:border-r-0">
+              <div key={stage} className={`w-[272px] flex-shrink-0 flex flex-col ${!isLast ? "border-r border-zinc-100" : ""}`}>
 
                 {/* Column header */}
-                <div className="flex-shrink-0 flex items-center gap-2 px-5 py-4 border-b border-zinc-200 bg-white">
-                  <div className={`w-2 h-2 rounded-full shrink-0 ${meta.dot}`} />
+                <div className={`flex-shrink-0 flex items-center gap-2.5 px-5 py-4 border-b border-zinc-100 border-l-[3px] ${meta.headerBorder} bg-white`}>
+                  <div className={`w-2 h-2 rounded-full shrink-0 ${meta.accent}`} />
                   <span className="text-sm font-semibold text-zinc-800">{meta.label}</span>
-                  <span className="ml-auto text-xs font-medium text-zinc-400 tabular-nums bg-zinc-100 rounded-full px-2 py-0.5">
+                  <span className="ml-auto text-xs font-semibold text-zinc-400 tabular-nums bg-zinc-100 rounded-full px-2 py-0.5 min-w-[24px] text-center">
                     {cards.length}
                   </span>
                 </div>
 
-                {/* Cards lane */}
-                <div className={`flex-1 overflow-y-auto p-4 space-y-3 ${meta.lane} border-0`}>
-                  {loading ? (
-                    <div className="flex flex-col gap-2">
-                      {[1,2].map(i => (
-                        <div key={i} className="bg-white/60 rounded-lg h-20 animate-pulse border border-zinc-200/60" />
-                      ))}
-                    </div>
-                  ) : cards.length === 0 ? (
-                    <div className="h-16 flex items-center justify-center">
-                      <p className="text-xs text-zinc-400/70">No jobs</p>
-                    </div>
-                  ) : (
-                    cards.map(job => {
-                      const sal = fmtSalary(job.salaryAnnualBase, job.salaryCurrency);
-                      const outreach = OUTREACH_META[job.outreachState];
-                      return (
-                        <button
-                          key={job.id}
-                          onClick={() => openJob(job)}
-                          className="w-full text-left bg-white rounded-xl p-4 border border-zinc-200/80 hover:border-zinc-300 hover:shadow-sm active:scale-[0.98] transition-all block"
-                        >
-                          {/* Header */}
-                          <div className="flex items-start gap-2 mb-2">
-                            <Avatar className={`h-7 w-7 rounded-lg shrink-0 ${avatarClr(job.company)}`}>
-                              <AvatarFallback className={`rounded-lg text-xs font-bold ${avatarClr(job.company)}`}>
-                                {job.company.charAt(0).toUpperCase()}
-                              </AvatarFallback>
-                            </Avatar>
-                            <div className="min-w-0 flex-1">
-                              <p className="text-xs font-semibold text-zinc-900 truncate">{job.company}</p>
-                              <p className="text-xs text-zinc-500 truncate leading-tight mt-0.5">{job.role}</p>
-                            </div>
-                            {job.aiScore !== null && (
-                              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md shrink-0 ${scoreClr(job.aiScore)}`}>
-                                {job.aiScore}
-                              </span>
-                            )}
-                          </div>
-
-                          {/* Salary */}
-                          {sal && (
-                            <p className={`text-[10px] font-medium mb-1.5 ${job.salaryBasis === "ESTIMATED" ? "text-amber-600" : "text-emerald-600"}`}>
-                              {sal}/yr · <span className="text-zinc-400 font-normal">{job.salaryBasis === "STATED" ? "stated" : "est."}</span>
-                            </p>
-                          )}
-
-                          {/* Chips */}
-                          <div className="flex flex-wrap gap-1">
-                            <span className="text-[9px] text-zinc-500 border border-zinc-200 rounded px-1.5 py-0.5">
-                              {SOURCE_LABEL[job.source] ?? job.source}
-                            </span>
-                            {job.applyType === "REFERRAL_FIRST" && (
-                              <span className="text-[9px] text-violet-600 border border-violet-200 bg-violet-50/60 rounded px-1.5 py-0.5">
-                                Referral
-                              </span>
-                            )}
-                            {outreach.text && (
-                              <span className={`text-[9px] border rounded px-1.5 py-0.5 ${outreach.cls}`}>
-                                {outreach.text}
-                              </span>
-                            )}
-                          </div>
-                        </button>
-                      );
-                    })
+                {/* Cards */}
+                <div className={`flex-1 overflow-y-auto p-4 space-y-3 ${meta.lane}`}>
+                  {loading && (
+                    <>
+                      <div className="bg-zinc-100 rounded-xl h-24 animate-pulse" />
+                      <div className="bg-zinc-100 rounded-xl h-20 animate-pulse opacity-60" />
+                    </>
                   )}
+                  {!loading && cards.length === 0 && (
+                    <div className="flex flex-col items-center justify-center h-20 rounded-xl border-2 border-dashed border-zinc-200">
+                      <p className="text-xs text-zinc-300 font-medium">No jobs</p>
+                    </div>
+                  )}
+                  {cards.map(job => {
+                    const sal     = fmtSalary(job.salaryAnnualBase, job.salaryCurrency);
+                    const outreach = OUTREACH_META[job.outreachState];
+                    return (
+                      <button key={job.id} onClick={() => openJob(job)}
+                        className="w-full text-left bg-white rounded-xl p-4 border border-zinc-200 hover:border-zinc-300 hover:shadow-md active:scale-[0.99] transition-all shadow-sm">
+
+                        <div className="flex items-start gap-3 mb-3">
+                          <Avatar className={`h-8 w-8 rounded-xl shrink-0 ${avatarClr(job.company)}`}>
+                            <AvatarFallback className={`rounded-xl text-xs font-bold ${avatarClr(job.company)}`}>
+                              {job.company.charAt(0).toUpperCase()}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-semibold text-zinc-900 truncate leading-tight">{job.company}</p>
+                            <p className="text-xs text-zinc-500 truncate mt-0.5 leading-tight">{job.role}</p>
+                          </div>
+                          {job.aiScore !== null && (
+                            <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-lg shrink-0 ${scoreClr(job.aiScore)}`}>
+                              {job.aiScore}
+                            </span>
+                          )}
+                        </div>
+
+                        {sal && (
+                          <p className={`text-xs font-semibold mb-2.5 ${job.salaryBasis === "ESTIMATED" ? "text-amber-600" : "text-emerald-600"}`}>
+                            {sal}/yr
+                            <span className="text-zinc-400 font-normal ml-1.5">
+                              {job.salaryBasis === "STATED" ? "· stated" : "· est."}
+                            </span>
+                          </p>
+                        )}
+
+                        <div className="flex flex-wrap gap-1.5">
+                          <span className="text-[10px] text-zinc-500 bg-zinc-100 rounded-md px-2 py-1 font-medium">
+                            {SOURCE_LABEL[job.source] ?? job.source}
+                          </span>
+                          {job.applyType === "REFERRAL_FIRST" && (
+                            <span className="text-[10px] text-violet-700 bg-violet-100 rounded-md px-2 py-1 font-medium">
+                              Referral
+                            </span>
+                          )}
+                          {outreach.text && (
+                            <span className={`text-[10px] border rounded-md px-2 py-1 font-medium ${outreach.cls}`}>
+                              {outreach.text}
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             );
@@ -263,45 +253,44 @@ export default function BoardPage() {
 
       {/* ── Job Drawer ────────────────────────────────────────────────── */}
       <Sheet open={!!selected} onOpenChange={v => { if (!v) { setSelected(null); setDetail(null); } }}>
-        <SheetContent className="!w-[480px] !max-w-[480px] p-0 flex flex-col" showCloseButton>
-          {/* Header */}
-          <SheetHeader className="px-6 pt-6 pb-5 border-b border-zinc-200 flex-shrink-0">
-            <div className="flex items-start gap-3 pr-6">
+        <SheetContent className="!w-[500px] !max-w-[500px] p-0 flex flex-col bg-white" showCloseButton>
+
+          <SheetHeader className="px-6 pt-6 pb-5 border-b border-zinc-100 flex-shrink-0">
+            <div className="flex items-start gap-3 pr-8">
               {job && (
-                <Avatar className={`h-9 w-9 rounded-xl shrink-0 ${avatarClr(job.company)}`}>
+                <Avatar className={`h-10 w-10 rounded-xl shrink-0 ${avatarClr(job.company)}`}>
                   <AvatarFallback className={`rounded-xl font-bold text-sm ${avatarClr(job.company)}`}>
                     {job.company.charAt(0).toUpperCase()}
                   </AvatarFallback>
                 </Avatar>
               )}
               <div className="flex-1 min-w-0">
-                <div className="flex items-start justify-between gap-2">
+                <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="font-bold text-sm leading-tight">{job?.company}</p>
-                    <p className="text-xs text-zinc-500 mt-0.5 leading-tight">{job?.role}</p>
-                    {job?.location && <p className="text-[10px] text-zinc-400 mt-0.5">{job.location}</p>}
+                    <p className="font-bold text-base text-zinc-900 leading-tight">{job?.company}</p>
+                    <p className="text-sm text-zinc-500 mt-0.5">{job?.role}</p>
+                    {job?.location && <p className="text-xs text-zinc-400 mt-0.5">{job.location}</p>}
                   </div>
                   {job?.aiScore !== null && job?.aiScore !== undefined && (
-                    <div className={`shrink-0 text-center px-2.5 py-1 rounded-lg ${scoreClr(job.aiScore)}`}>
-                      <p className="text-lg font-bold leading-none">{job.aiScore}</p>
-                      <p className="text-[8px] font-semibold uppercase tracking-widest mt-0.5 opacity-60">score</p>
+                    <div className={`shrink-0 text-center px-3 py-1.5 rounded-xl ${scoreClr(job.aiScore)}`}>
+                      <p className="text-xl font-bold leading-none">{job.aiScore}</p>
+                      <p className="text-[9px] font-semibold uppercase tracking-widest mt-0.5 opacity-50">score</p>
                     </div>
                   )}
                 </div>
-
                 {job && (
-                  <div className="flex flex-wrap gap-1 mt-2">
-                    <span className="text-[10px] border border-zinc-200 rounded px-1.5 py-0.5 text-zinc-500">
+                  <div className="flex flex-wrap gap-1.5 mt-3">
+                    <span className="text-[10px] bg-zinc-100 text-zinc-600 rounded-md px-2 py-1 font-medium">
                       {STAGE_META[job.appStage].label}
                     </span>
-                    <span className="text-[10px] border border-zinc-200 rounded px-1.5 py-0.5 text-zinc-400">
+                    <span className="text-[10px] bg-zinc-100 text-zinc-500 rounded-md px-2 py-1">
                       {SOURCE_LABEL[job.source] ?? job.source}
                     </span>
                     {job.applyType === "REFERRAL_FIRST" && (
-                      <span className="text-[10px] border border-violet-200 bg-violet-50 text-violet-700 rounded px-1.5 py-0.5">Referral First</span>
+                      <span className="text-[10px] bg-violet-100 text-violet-700 rounded-md px-2 py-1 font-medium">Referral First</span>
                     )}
                     {job.outreachState !== "NONE" && OUTREACH_META[job.outreachState].text && (
-                      <span className={`text-[10px] border rounded px-1.5 py-0.5 ${OUTREACH_META[job.outreachState].cls}`}>
+                      <span className={`text-[10px] border rounded-md px-2 py-1 font-medium ${OUTREACH_META[job.outreachState].cls}`}>
                         {OUTREACH_META[job.outreachState].text}
                       </span>
                     )}
@@ -311,71 +300,69 @@ export default function BoardPage() {
             </div>
           </SheetHeader>
 
-          {/* Body */}
           {job && (
             <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
 
-              {/* AI reason */}
               {job.aiReason && (
                 <div>
-                  <p className="text-[9px] font-semibold text-zinc-400 uppercase tracking-widest mb-1.5">✦ AI Analysis</p>
+                  <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest mb-2">✦ AI Analysis</p>
                   <p className="text-sm text-zinc-700 leading-relaxed">{job.aiReason}</p>
                 </div>
               )}
 
-              {/* Pitch */}
               {job.tailoredPitch && (
                 <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="text-[9px] font-semibold text-zinc-400 uppercase tracking-widest">Generated Pitch</p>
+                  <div className="flex items-center justify-between mb-2.5">
+                    <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest">Generated Pitch</p>
                     <button
                       onClick={() => { navigator.clipboard.writeText(job.tailoredPitch!); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
-                      className="text-xs text-zinc-400 hover:text-zinc-700 transition-colors"
-                    >
+                      className="text-xs font-medium text-zinc-400 hover:text-zinc-700 transition-colors">
                       {copied ? "Copied ✓" : "Copy"}
                     </button>
                   </div>
-                  <p className="text-sm text-zinc-700 leading-relaxed italic whitespace-pre-line">&ldquo;{job.tailoredPitch}&rdquo;</p>
+                  <p className="text-sm text-zinc-700 leading-relaxed italic whitespace-pre-line">
+                    &ldquo;{job.tailoredPitch}&rdquo;
+                  </p>
                 </div>
               )}
 
-              <Separator />
+              <Separator className="bg-zinc-100" />
 
               {/* Salary + Apply */}
-              <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center justify-between">
                 <div>
                   {job.salaryAnnualBase ? (
                     <>
-                      <p className={`text-lg font-bold ${job.salaryBasis === "ESTIMATED" ? "text-amber-700" : "text-zinc-900"}`}>
+                      <p className={`text-xl font-bold ${job.salaryBasis === "ESTIMATED" ? "text-amber-700" : "text-zinc-900"}`}>
                         {fmtSalary(job.salaryAnnualBase, job.salaryCurrency)}/yr
                       </p>
                       <p className="text-xs text-zinc-400 mt-0.5">
                         {job.salaryBasis === "STATED" ? "Stated salary" : `Estimated · ${job.salaryConfidence?.toLowerCase() ?? "low"} confidence`}
                       </p>
-                      {job.salaryFlagReason && <p className="text-xs text-amber-600 mt-0.5">⚠ {job.salaryFlagReason.replace(/_/g," ")}</p>}
                     </>
-                  ) : <p className="text-sm text-zinc-400">Salary unknown</p>}
+                  ) : (
+                    <p className="text-sm text-zinc-400">Salary unknown</p>
+                  )}
                 </div>
                 {job.applyUrl && (
                   <a href={job.applyUrl} target="_blank" rel="noopener noreferrer"
-                    className="shrink-0 inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-4 py-2 rounded-lg transition-colors">
+                    className="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold px-4 py-2 rounded-xl shadow-sm transition-colors">
                     ↗ Apply
                   </a>
                 )}
               </div>
 
-              <Separator />
+              <Separator className="bg-zinc-100" />
 
-              {/* Stage actions */}
               {job.appStage === "NEW" && (
                 <div className="space-y-2">
-                  <p className="text-[9px] font-semibold text-zinc-400 uppercase tracking-widest">Actions</p>
+                  <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest">Actions</p>
                   <div className="flex gap-2">
-                    <Button onClick={() => act(job.id, "approve")} disabled={acting} size="sm"
-                      className="flex-1 bg-zinc-900 hover:bg-zinc-800 text-white text-xs">
+                    <Button onClick={() => act(job.id,"approve")} disabled={acting} size="sm"
+                      className="flex-1 bg-zinc-900 hover:bg-zinc-800 text-white text-xs h-9">
                       ✓ Approve &amp; Queue Outreach
                     </Button>
-                    <Button onClick={() => act(job.id, "skip")} disabled={acting} variant="outline" size="sm" className="text-xs">
+                    <Button onClick={() => act(job.id,"skip")} disabled={acting} variant="outline" size="sm" className="text-xs h-9">
                       Skip
                     </Button>
                   </div>
@@ -384,11 +371,11 @@ export default function BoardPage() {
 
               {["APPROVED","APPLIED"].includes(job.appStage) && (
                 <div className="space-y-2">
-                  <p className="text-[9px] font-semibold text-zinc-400 uppercase tracking-widest">Move to</p>
-                  <div className="flex flex-wrap gap-1.5">
+                  <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest">Move to stage</p>
+                  <div className="flex flex-wrap gap-2">
                     {["applied","interviewing","offer","closed"].map(a => (
                       <Button key={a} onClick={() => act(job.id, a)} disabled={acting}
-                        variant="outline" size="sm" className="capitalize text-xs">
+                        variant="outline" size="sm" className="capitalize text-xs h-9">
                         {a}
                       </Button>
                     ))}
@@ -396,24 +383,22 @@ export default function BoardPage() {
                 </div>
               )}
 
-              {/* Outreach history */}
               {(job.outreaches?.length ?? 0) > 0 && (
                 <>
-                  <Separator />
+                  <Separator className="bg-zinc-100" />
                   <div>
-                    <p className="text-[9px] font-semibold text-zinc-400 uppercase tracking-widest mb-3">Outreach History</p>
+                    <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest mb-3">Outreach History</p>
                     <div className="space-y-3">
                       {job.outreaches!.map(o => (
-                        <div key={o.id} className="flex gap-3 items-start">
-                          <div className="w-1.5 h-1.5 rounded-full bg-zinc-300 mt-1.5 shrink-0" />
+                        <div key={o.id} className="flex gap-3 items-start p-3 bg-zinc-50 rounded-xl border border-zinc-100">
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center justify-between gap-2">
-                              <p className="text-xs font-medium text-zinc-900 truncate">
+                              <p className="text-xs font-semibold text-zinc-900 truncate">
                                 {o.contact.name}
                                 {o.contact.title && <span className="font-normal text-zinc-500"> · {o.contact.title}</span>}
                               </p>
                               <a href={o.contact.linkedinUrl} target="_blank" rel="noopener noreferrer"
-                                className="text-[10px] text-blue-600 hover:underline shrink-0">LinkedIn →</a>
+                                className="text-[10px] font-medium text-blue-600 hover:underline shrink-0">LinkedIn →</a>
                             </div>
                             <p className="text-[10px] text-zinc-400 capitalize mt-0.5">{o.role.toLowerCase()}</p>
                           </div>
@@ -424,11 +409,10 @@ export default function BoardPage() {
                 </>
               )}
 
-              {/* JD */}
-              <Separator />
+              <Separator className="bg-zinc-100" />
               <div>
-                <p className="text-[9px] font-semibold text-zinc-400 uppercase tracking-widest mb-2">Job Description</p>
-                <pre className="text-xs text-zinc-500 whitespace-pre-wrap font-sans leading-relaxed max-h-64 overflow-y-auto">
+                <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest mb-3">Job Description</p>
+                <pre className="text-xs text-zinc-500 whitespace-pre-wrap font-sans leading-relaxed max-h-72 overflow-y-auto bg-zinc-50 rounded-xl p-4 border border-zinc-100">
                   {job.jdText}
                 </pre>
               </div>
