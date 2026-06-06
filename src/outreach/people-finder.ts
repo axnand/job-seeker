@@ -21,6 +21,7 @@ import {
 } from "@/unipile/client";
 import { prisma } from "@/lib/prisma";
 import { getSettings } from "@/lib/settings";
+import { getCachedCompanyId, setCachedCompanyId } from "@/lib/id-cache";
 import { config } from "@/config";
 
 export interface OutreachTarget {
@@ -147,9 +148,16 @@ function matchesCompany(p: OutreachTarget, token: string): boolean {
 async function targetsFromSearch(job: Job, accountId: string): Promise<OutreachTarget[]> {
   try {
     const token = brandToken(job.company);
-    // Resolve the cleaned name (full legal names like "X Private Limited" don't match).
-    const resolved = await resolveSearchParam(accountId, "COMPANY", cleanCompany(job.company)).catch(() => []);
-    const companyId = resolved[0]?.id;
+    const cleanedName = cleanCompany(job.company);
+
+    // DB-cached company ID (7-day TTL) — avoids one Unipile API call per approval.
+    let companyId = await getCachedCompanyId(cleanedName).catch(() => null);
+    if (!companyId) {
+      const resolved = await resolveSearchParam(accountId, "COMPANY", cleanedName).catch(() => []);
+      companyId = resolved[0]?.id ?? null;
+      if (companyId) await setCachedCompanyId(cleanedName, companyId).catch(() => {});
+    }
+
     if (!companyId) {
       console.log(`[people-finder] could not resolve company "${job.company}" — skipping search`);
       return [];

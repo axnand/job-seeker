@@ -12,6 +12,7 @@
 
 import { linkedinSearch, getJobDetail, resolveSearchParam } from "@/unipile/client";
 import { config } from "@/config";
+import { getCachedLocationId, setCachedLocationId } from "@/lib/id-cache";
 import type { AppSettingsData } from "@/lib/settings";
 import type { RawJob } from "./types";
 
@@ -27,17 +28,23 @@ interface LinkedinJobItem {
   easy_apply?: boolean;
 }
 
-let cachedRegionId: string | null | undefined;
-
+/**
+ * Resolve the LinkedIn region ID for a location string.
+ * DB-cached (survives Vercel cold starts) — location IDs never change so TTL
+ * is effectively permanent. Falls back to null (searches still work without it).
+ */
 async function regionId(locationText: string): Promise<string | null> {
-  if (cachedRegionId !== undefined) return cachedRegionId;
+  const text = locationText || "India";
+  const cached = await getCachedLocationId(text).catch(() => null);
+  if (cached) return cached;
   try {
-    const items = await resolveSearchParam(config.owner.linkedinAccountId, "LOCATION", locationText || "India");
-    cachedRegionId = items[0]?.id ?? null;
+    const items = await resolveSearchParam(config.owner.linkedinAccountId, "LOCATION", text);
+    const id = items[0]?.id ?? null;
+    if (id) await setCachedLocationId(text, id).catch(() => {});
+    return id;
   } catch {
-    cachedRegionId = null;
+    return null;
   }
-  return cachedRegionId;
 }
 
 const MAX_DETAILS_PER_KEYWORD = 8; // cap detail fetches (each is an API call)
