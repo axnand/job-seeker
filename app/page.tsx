@@ -137,13 +137,13 @@ export default function BoardPage() {
     <div className="flex flex-col h-[calc(100vh-44px)] overflow-hidden">
 
       {/* ── Top bar: stats + filters ───────────────────────────────── */}
-      <div className="flex-shrink-0 border-b border-zinc-200 bg-white px-6 py-4 space-y-3">
+      <div className="flex-shrink-0 border-b border-zinc-200 bg-white px-8 py-5 space-y-4">
 
         {/* Stats row */}
-        <div className="flex items-center gap-6">
+        <div className="flex items-center gap-8">
           {stats.map(({ label, value }) => (
             <div key={label} className="flex items-baseline gap-2">
-              <span className="text-xl font-bold text-zinc-900 tabular-nums">{value}</span>
+              <span className="text-2xl font-bold text-zinc-900 tabular-nums">{value}</span>
               <span className="text-xs text-zinc-400 whitespace-nowrap">{label}</span>
             </div>
           ))}
@@ -176,10 +176,10 @@ export default function BoardPage() {
             const meta = STAGE_META[stage];
             const cards = byStage[stage];
             return (
-              <div key={stage} className="w-[240px] flex-shrink-0 flex flex-col border-r border-zinc-200 last:border-r-0">
+              <div key={stage} className="w-[272px] flex-shrink-0 flex flex-col border-r border-zinc-200 last:border-r-0">
 
                 {/* Column header */}
-                <div className="flex-shrink-0 flex items-center gap-2 px-4 py-3 border-b border-zinc-200 bg-white">
+                <div className="flex-shrink-0 flex items-center gap-2 px-5 py-4 border-b border-zinc-200 bg-white">
                   <div className={`w-2 h-2 rounded-full shrink-0 ${meta.dot}`} />
                   <span className="text-sm font-semibold text-zinc-800">{meta.label}</span>
                   <span className="ml-auto text-xs font-medium text-zinc-400 tabular-nums bg-zinc-100 rounded-full px-2 py-0.5">
@@ -188,7 +188,7 @@ export default function BoardPage() {
                 </div>
 
                 {/* Cards lane */}
-                <div className={`flex-1 overflow-y-auto p-3 space-y-2 ${meta.lane} border-0`}>
+                <div className={`flex-1 overflow-y-auto p-4 space-y-3 ${meta.lane} border-0`}>
                   {loading ? (
                     <div className="flex flex-col gap-2">
                       {[1,2].map(i => (
@@ -207,7 +207,7 @@ export default function BoardPage() {
                         <button
                           key={job.id}
                           onClick={() => openJob(job)}
-                          className="w-full text-left bg-white rounded-xl p-3 border border-zinc-200/80 hover:border-zinc-300 hover:shadow-sm active:scale-[0.98] transition-all block"
+                          className="w-full text-left bg-white rounded-xl p-4 border border-zinc-200/80 hover:border-zinc-300 hover:shadow-sm active:scale-[0.98] transition-all block"
                         >
                           {/* Header */}
                           <div className="flex items-start gap-2 mb-2">
@@ -265,7 +265,7 @@ export default function BoardPage() {
       <Sheet open={!!selected} onOpenChange={v => { if (!v) { setSelected(null); setDetail(null); } }}>
         <SheetContent className="!w-[480px] !max-w-[480px] p-0 flex flex-col" showCloseButton>
           {/* Header */}
-          <SheetHeader className="px-5 pt-5 pb-4 border-b border-zinc-200 flex-shrink-0">
+          <SheetHeader className="px-6 pt-6 pb-5 border-b border-zinc-200 flex-shrink-0">
             <div className="flex items-start gap-3 pr-6">
               {job && (
                 <Avatar className={`h-9 w-9 rounded-xl shrink-0 ${avatarClr(job.company)}`}>
@@ -313,7 +313,7 @@ export default function BoardPage() {
 
           {/* Body */}
           {job && (
-            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
 
               {/* AI reason */}
               {job.aiReason && (

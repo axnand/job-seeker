@@ -14,8 +14,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={cn("font-sans antialiased", geist.variable)}>
       <body className="min-h-screen bg-zinc-100">
-        <header className="sticky top-0 z-40 h-11 bg-white border-b border-zinc-200 flex items-center px-6 gap-8">
-          <span className="font-bold text-sm">Job Seeker</span>
+        <header className="sticky top-0 z-40 h-12 bg-white border-b border-zinc-200 flex items-center px-8 gap-8">
+          <span className="font-bold text-sm tracking-tight">Job Seeker</span>
           <nav className="flex items-center gap-0.5">
             {[
               { href: "/",         label: "Board"    },
