@@ -1,14 +1,26 @@
 /**
  * POST /api/cron/tick
- * Triggered by Vercel Cron every 30 min between 03:30–16:00 UTC (09:00–21:30 IST).
- * Advances ChannelThread outreach sequences: poll invite acceptances, send DMs, follow-ups.
- * Full outreach engine lives in Phase 2 (src/outreach/). This stub returns a no-op
- * until that phase is built, so the cron endpoint exists and is reachable.
+ * Triggered by Vercel Cron every 30 min between 03:30–16:00 UTC (09:00–21:30 IST),
+ * and/or by an external cron (cron-job.org / GitHub Actions) on the free tier.
+ * Protected by Bearer CRON_SECRET (enforced in middleware.ts).
+ *
+ * Advances the outreach engine: poll invite acceptances + replies (missed-webhook
+ * fallback), then claim due ChannelThreads and run the state machine within the
+ * send window + rate budget.
  */
 
 import { NextResponse } from "next/server";
+import { runOutreachTick } from "@/outreach/outreach-tick";
+
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 export async function POST() {
-  // Phase 2: import and call runOutreachTick() here
-  return NextResponse.json({ ok: true, message: "tick — outreach engine pending Phase 2" });
+  try {
+    const result = await runOutreachTick();
+    return NextResponse.json({ ok: true, ...result });
+  } catch (err) {
+    console.error("[cron/tick] fatal:", err);
+    return NextResponse.json({ ok: false, error: String(err) }, { status: 500 });
+  }
 }

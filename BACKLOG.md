@@ -18,20 +18,22 @@ Status of the original v2 plan. ✅ = done & tested, 🔨 = in progress, ⬜ = n
 
 ---
 
-## ⬜ THE BIG GAP — "Approve does nothing" (Phase 2: Outreach engine)
+## ✅ Phase 2 — Outreach engine (DONE — "Approve" now drives the whole machine)
 
-This is why nothing happens on approve. Approve currently only flips `appStage = APPROVED`. It needs to kick off the whole outreach machine:
+Adapted from Hirro's hardened thread-worker. All crash/race/edge-case machinery ported.
 
-1. **Wire Approve → outreach** — on approve, enqueue outreach for the job (instead of just changing stage).
-2. **People finder** (`src/outreach/people-finder.ts`) — Unipile people search by company + role; also use the job's `hiring_team` (LinkedIn returns it); pick 1–2 targets; dedup against `Contact.lastContactedAt`.
-3. **Message writer** (`src/outreach/message-writer.ts`) — AI fills the connection note + first DM from `tailoredPitch` + target profile.
-4. **Create rows** — `Contact` + `Outreach` + `ChannelThread` per target.
-5. **Outreach tick** (`/api/cron/tick`, currently a no-op) — claim ready threads (`FOR UPDATE SKIP LOCKED`), run the state machine: send invite → wait accept → send DM → follow-up → archive. Enforce rate limits (daily 10 / weekly 60 invites, 3 DMs/day), send window, warmup ramp, global pause.
-6. **Outreach message review UI** — editable message in the job drawer + "Confirm & Send" (the "never blind-send" promise). Right now there's no review step.
-7. **Unipile reply webhook** (`/api/webhooks/unipile`, currently only dedups) — handle `message_received` → mark thread REPLIED → fire reply-alert email; handle `new_relation` (invite accepted) → advance thread to send the DM.
-8. **Reply-alert email** — function exists (`sendReplyAlert`), just not wired to the webhook.
-9. **Negative-reply classification** — detect "not hiring / no" and stop the sequence (so status doesn't get stuck at REPLIED).
-10. **Account safety** — auto-trip `globalPause` on Unipile `429` / `account_restricted` and email the owner.
+1. ✅ **Wire Approve → outreach** — `enqueueOutreach()` runs on approve (`app/api/jobs/action`).
+2. ✅ **People finder** (`src/outreach/people-finder.ts`) — hiring_team → people search; `dm_author` short-circuit; dedup vs `Contact` cooldown; recruiters prioritized.
+3. ✅ **Message writer** (`src/outreach/message-writer.ts`) — AI note + first DM + follow-up, with deterministic template fallback.
+4. ✅ **Create rows** — `Contact` (upsert) + `Outreach` + `ChannelThread` in DRAFT phase.
+5. ✅ **Outreach tick** (`src/outreach/outreach-tick.ts` ← `/api/cron/tick`) — `FOR UPDATE SKIP LOCKED` claim (nulls nextActionAt), state machine (invite→accept→DM→follow-up→archive), retry-on-fail, circuit breaker, pending-send marker, status-guarded commit, poll fallbacks for missed webhooks (acceptances + replies), silent-accept recheck on invite timeout. Rate limits in `src/outreach/limits.ts` (rolling 24h/7d invite caps, DM cap, send window IST, warmup ramp).
+6. ✅ **Outreach review UI** — editable note/DM/follow-up in the job drawer + Confirm & Send / Cancel ("never blind-send"). DRAFT threads are never claimed until confirmed. `app/api/outreach/confirm`.
+7. ✅ **Unipile webhook** (`app/api/webhooks/unipile`) — `new_relation`→CONNECTED, `message_received`→REPLIED (with out-of-order backfill), shared-secret + HMAC auth.
+8. ✅ **Reply-alert email** — wired via `handleInboundReply`.
+9. ✅ **Negative-reply classification** (`src/outreach/classify-reply.ts`) — stops the sequence on "no".
+10. ✅ **Account safety** (`src/outreach/safety.ts`) — auto-trip `globalPause` on Unipile 429 / restricted, emails the owner.
+
+Also fixed: Unipile client now uses the verified endpoints (`/users/invite`, multipart `/chats`, `fetchProfile?linkedin_sections=*`, `cancelInvitation`, `listChatMessages`).
 
 ---
 
@@ -39,7 +41,7 @@ This is why nothing happens on approve. Approve currently only flips `appStage =
 11. **Functional filters/sort** — the Source/Apply/Score dropdowns + Sort buttons are currently decorative.
 12. **AI Providers page** — add/test/delete LLM providers in the UI (currently env-only).
 13. **ATS watchlist UI** — add/remove target companies (currently config-only).
-14. **manual-notify email** — for `MANUAL_NOTIFY` jobs, email the owner the apply link + tailored resume when approved.
+14. ✅ **manual-notify email** — `MANUAL_NOTIFY` jobs email the owner the apply link + pitch on approve (`src/email/alerts.ts` → wired in `enqueueOutreach`).
 
 ---
 

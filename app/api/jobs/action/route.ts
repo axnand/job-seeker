@@ -6,7 +6,11 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { enqueueOutreach } from "@/outreach/enqueue";
 import type { AppStage } from "@prisma/client";
+
+// Approve runs people-search + AI message drafting inline — give it room.
+export const maxDuration = 60;
 
 const VALID_ACTIONS: AppStage[] = [
   "APPROVED", "SKIPPED", "APPLIED", "INTERVIEWING", "OFFER", "CLOSED",
@@ -34,7 +38,17 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  // Phase 2: if newStage === "APPROVED", queue outreach (people finder → message writer → thread)
+  // On approve, kick off the outreach machine: manual-notify email for
+  // MANUAL_NOTIFY jobs, or draft referral outreach (people finder → message
+  // writer → DRAFT threads the owner confirms before anything sends).
+  let enqueue = null;
+  if (newStage === "APPROVED") {
+    try {
+      enqueue = await enqueueOutreach(job);
+    } catch (err) {
+      console.error(`[jobs/action] enqueueOutreach failed for ${job.id}:`, err);
+    }
+  }
 
-  return NextResponse.json({ ok: true, job });
+  return NextResponse.json({ ok: true, job, enqueue });
 }

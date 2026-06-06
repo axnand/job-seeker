@@ -132,6 +132,7 @@ model Outreach {
 
   job     Job     @relation(fields: [jobId], references: [id])
   contact Contact @relation(fields: [contactId], references: [id])
+  thread  ChannelThread?  // back-relation; FK (outreachId) lives on ChannelThread
 
   @@index([jobId])
   @@index([contactId])
@@ -143,6 +144,7 @@ model ChannelThread {
   id                   String        @id @default(cuid())
   // Link to the outreach join row (replaces Hirro's taskId)
   outreachId           String?       @unique
+  outreach             Outreach?     @relation(fields: [outreachId], references: [id])
 
   status               ThreadStatus  @default(PENDING)
   channel              String        // "linkedin"

@@ -37,6 +37,36 @@ async function updateStage(formData: FormData) {
   revalidatePath("/");
 }
 
+async function confirmOutreach(formData: FormData) {
+  "use server";
+  const threadId = formData.get("threadId") as string;
+  const action = formData.get("action") as string; // "send" | "cancel"
+  const jobId = formData.get("jobId") as string;
+  if (!threadId || !action) return;
+  await fetch(`${process.env.APP_BASE_URL ?? "http://localhost:3000"}/api/outreach/confirm`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      threadId,
+      action,
+      connectionNote: formData.get("connectionNote") as string,
+      firstDm: formData.get("firstDm") as string,
+      followup: formData.get("followup") as string,
+    }),
+  });
+  if (jobId) revalidatePath(`/jobs/${jobId}`);
+  revalidatePath("/");
+}
+
+const THREAD_PHASE_LABEL: Record<string, string> = {
+  DRAFT: "Draft — awaiting your review",
+  QUEUED: "Queued — invite sends next tick",
+  INVITE_PENDING: "Invite sent — awaiting acceptance",
+  CONNECTED: "Connected — DM sends next tick",
+  MESSAGED: "Messaged — awaiting reply",
+  REPLIED: "Replied 🎉",
+};
+
 export default async function JobDetailPage({
   params,
   searchParams,
@@ -52,6 +82,15 @@ export default async function JobDetailPage({
     include: { outreaches: { include: { contact: true } } },
   });
   if (!job) notFound();
+
+  // ChannelThread isn't a Prisma relation on Outreach (just FK columns), so
+  // fetch the threads for this job's outreaches and key them by outreachId.
+  const threads = job.outreaches.length
+    ? await prisma.channelThread.findMany({
+        where: { outreachId: { in: job.outreaches.map((o) => o.id) } },
+      })
+    : [];
+  const threadByOutreach = new Map(threads.map((t) => [t.outreachId, t]));
 
   const salary = job.salaryAnnualBase
     ? new Intl.NumberFormat("en-IN", {
@@ -227,32 +266,88 @@ export default async function JobDetailPage({
           </div>
         )}
 
-        {/* Outreach history */}
+        {/* Outreach — review drafts + track threads */}
         {job.outreaches.length > 0 && (
           <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm p-6">
             <h2 className="text-sm font-semibold text-zinc-700 mb-3">Outreach</h2>
-            <div className="space-y-3">
-              {job.outreaches.map(o => (
-                <div key={o.id} className="flex items-center gap-3 p-3 rounded-xl bg-zinc-50 border border-zinc-100">
-                  <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center shrink-0 text-xs font-bold text-indigo-600">
-                    {o.contact.name?.[0]?.toUpperCase() ?? "?"}
+            <div className="space-y-4">
+              {job.outreaches.map(o => {
+                const thread = threadByOutreach.get(o.id);
+                const ps = (thread?.providerState as { phase?: string; connectionNote?: string; firstDm?: string; followup?: string } | null) ?? {};
+                const phase = ps.phase ?? "DRAFT";
+                const isDraft = phase === "DRAFT" && thread?.status === "PENDING";
+                const phaseLabel = thread?.status === "ARCHIVED"
+                  ? (thread.archivedReason ?? "Archived")
+                  : (THREAD_PHASE_LABEL[phase] ?? phase);
+
+                return (
+                  <div key={o.id} className="rounded-xl bg-zinc-50 border border-zinc-100 overflow-hidden">
+                    <div className="flex items-center gap-3 p-3">
+                      <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center shrink-0 text-xs font-bold text-indigo-600">
+                        {o.contact.name?.[0]?.toUpperCase() ?? "?"}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-zinc-800 truncate">{o.contact.name}</p>
+                        <p className="text-xs text-zinc-400 truncate">{o.contact.title} · {o.role.toLowerCase()}</p>
+                      </div>
+                      <a
+                        href={o.contact.linkedinUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="ml-auto shrink-0 text-xs text-indigo-500 hover:text-indigo-700 font-medium flex items-center gap-1 transition-colors"
+                      >
+                        LinkedIn
+                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M1.5 8.5L8.5 1.5M8.5 1.5H4M8.5 1.5V6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                      </a>
+                    </div>
+
+                    <div className={`px-3 pb-3 ${isDraft ? "" : "pt-0"}`}>
+                      <span className="text-[11px] font-medium text-zinc-500">{phaseLabel}</span>
+                    </div>
+
+                    {isDraft && thread && (
+                      <form action={confirmOutreach} className="border-t border-zinc-200 bg-white p-4 space-y-3">
+                        <input type="hidden" name="threadId" value={thread.id} />
+                        <input type="hidden" name="jobId" value={job.id} />
+                        <p className="text-[11px] text-amber-600 font-medium">Review &amp; edit before anything sends. Nothing goes out until you confirm.</p>
+                        <div>
+                          <label className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wide">Connection note (≤300)</label>
+                          <textarea name="connectionNote" rows={3} defaultValue={ps.connectionNote ?? ""} maxLength={300}
+                            className="mt-1 w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-transparent" />
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wide">First DM (after they accept)</label>
+                          <textarea name="firstDm" rows={6} defaultValue={ps.firstDm ?? ""}
+                            className="mt-1 w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-transparent" />
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wide">Follow-up (if no reply)</label>
+                          <textarea name="followup" rows={3} defaultValue={ps.followup ?? ""}
+                            className="mt-1 w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-transparent" />
+                        </div>
+                        <div className="flex gap-2">
+                          <button type="submit" name="action" value="send"
+                            className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold transition-colors shadow-sm">
+                            Confirm &amp; Send
+                          </button>
+                          <button type="submit" name="action" value="cancel"
+                            className="inline-flex items-center justify-center px-4 py-2 rounded-lg border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-500 text-sm font-medium transition-colors">
+                            Cancel
+                          </button>
+                        </div>
+                      </form>
+                    )}
                   </div>
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-zinc-800 truncate">{o.contact.name}</p>
-                    <p className="text-xs text-zinc-400 truncate">{o.contact.title} · {o.role}</p>
-                  </div>
-                  <a
-                    href={o.contact.linkedinUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="ml-auto shrink-0 text-xs text-indigo-500 hover:text-indigo-700 font-medium flex items-center gap-1 transition-colors"
-                  >
-                    LinkedIn
-                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M1.5 8.5L8.5 1.5M8.5 1.5H4M8.5 1.5V6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                  </a>
-                </div>
-              ))}
+                );
+              })}
             </div>
+          </div>
+        )}
+
+        {/* No-targets hint */}
+        {job.appStage === "APPROVED" && job.applyType === "REFERRAL_FIRST" && job.outreaches.length === 0 && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+            Approved, but no LinkedIn outreach targets were found for this role yet. You can apply directly via the link above.
           </div>
         )}
 
