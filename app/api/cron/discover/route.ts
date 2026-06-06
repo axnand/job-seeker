@@ -17,7 +17,10 @@ import { scoreJob } from "@/scoring/ai-scorer";
 import { normalizeSalary } from "@/salary/normalize";
 import { dedupeKey } from "@/sources/normalize";
 import { sendDailyDigest } from "@/email/digest";
+import { enqueueOutreach } from "@/outreach/enqueue";
 import { getSettings } from "@/lib/settings";
+import { withCronLock } from "@/lib/cron-lock";
+import { sweepStaleJobs } from "@/status/staleness";
 import type { AppStage, SalaryBasis, SalaryConfidence, SalaryPeriod } from "@prisma/client";
 
 const SCORE_CONCURRENCY = 6; // parallel LLM calls — fast without hammering rate limits
@@ -29,6 +32,20 @@ export const maxDuration = 300; // allow long runs on Vercel Pro; hobby caps at 
 
 export async function POST() {
   try {
+    // Advisory lock — skip if a previous run is still in flight (backlog #24).
+    const locked = await withCronLock("discover", () => runDiscover());
+    if (!locked.ran) {
+      return NextResponse.json({ ok: true, skipped: "already running" });
+    }
+    return NextResponse.json(locked.result);
+  } catch (err) {
+    console.error("[discover] fatal error:", err);
+    return NextResponse.json({ ok: false, error: String(err) }, { status: 500 });
+  }
+}
+
+async function runDiscover() {
+  {
     const [rawJobs, settings] = await Promise.all([discoverJobs(), getSettings()]);
     console.log(`[discover] ${rawJobs.length} fresh jobs after dedup`);
 
@@ -114,7 +131,13 @@ export async function POST() {
         },
       });
 
-      if (appStage === "NEW") toEmail.push(job);
+      if (appStage === "NEW") {
+        toEmail.push(job);
+        // FULLY AUTOMATIC: auto-approve and kick off outreach immediately.
+        await prisma.job.update({ where: { id: job.id }, data: { appStage: "APPROVED", approvedAt: new Date() } });
+        await enqueueOutreach({ ...job, appStage: "APPROVED" }).catch(e =>
+          console.error(`[discover] auto-enqueue failed for ${job.id}:`, e));
+      }
     }
 
     console.log(`[discover] persisted ${scored.length} jobs, ${toEmail.length} for digest`);
@@ -125,18 +148,16 @@ export async function POST() {
       console.log(`[discover] digest sent with ${toEmail.length} jobs`);
     }
 
-    return NextResponse.json({
+    // Staleness sweep — soft-close jobs that went nowhere (backlog #23).
+    const swept = await sweepStaleJobs().catch(() => ({ closedNew: 0, closedApproved: 0 }));
+
+    return {
       ok: true,
       fetched: rawJobs.length,
       eligible: eligible.length,
       scored: scored.length,
       emailed: toEmail.length,
-    });
-  } catch (err) {
-    console.error("[discover] fatal error:", err);
-    return NextResponse.json(
-      { ok: false, error: String(err) },
-      { status: 500 }
-    );
+      staleClosed: swept.closedNew + swept.closedApproved,
+    };
   }
 }

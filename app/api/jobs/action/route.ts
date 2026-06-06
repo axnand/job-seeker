@@ -13,7 +13,7 @@ import type { AppStage } from "@prisma/client";
 export const maxDuration = 60;
 
 const VALID_ACTIONS: AppStage[] = [
-  "APPROVED", "SKIPPED", "APPLIED", "INTERVIEWING", "OFFER", "CLOSED",
+  "APPROVED", "OUTREACH", "REPLIED", "SKIPPED",
 ];
 
 export async function POST(req: NextRequest) {
@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
       appStage: newStage,
       appStageNote: body.note ?? null,
       ...(newStage === "APPROVED" ? { approvedAt: new Date() } : {}),
-      ...(newStage === "APPLIED" ? { appliedAt: new Date() } : {}),
+      
     },
   });
 

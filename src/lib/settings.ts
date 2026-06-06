@@ -12,7 +12,7 @@ import { config } from "@/config";
 
 export interface AppSettingsData {
   sources: {
-    linkedin: boolean; adzuna: boolean; atsWatchlist: boolean;
+    linkedin: boolean; linkedinPosts: boolean; adzuna: boolean; atsWatchlist: boolean;
     remotive: boolean; remoteok: boolean; jsearch: boolean;
   };
   search: {
@@ -51,6 +51,7 @@ export interface AppSettingsData {
     noNewOutreachAfterDays: number;
   };
   targetCompanies: Array<{ name: string; ats: "greenhouse" | "lever" | "ashby"; boardToken: string }>;
+  templates: { connectionNote: string; firstDm: string; followup: string };
   ai: {
     enableResumeTailoring: boolean;
     defaultModel:          string;
@@ -101,6 +102,7 @@ function defaults(): AppSettingsData {
       noNewOutreachAfterDays: c.staleness.noNewOutreachAfterDays,
     },
     targetCompanies: [...c.targetCompanies],
+    templates: { ...c.templates },
     ai: {
       enableResumeTailoring: c.ai.enableResumeTailoring,
       defaultModel:          c.ai.defaultModel,
@@ -117,6 +119,7 @@ function merge(base: AppSettingsData, db: Partial<AppSettingsData>): AppSettings
     outreach:        { ...base.outreach,  ...(db.outreach  ?? {}) },
     staleness:       { ...base.staleness, ...(db.staleness ?? {}) },
     targetCompanies: db.targetCompanies ?? base.targetCompanies,
+    templates:       { ...base.templates,  ...(db.templates ?? {}) },
     ai:              { ...base.ai,        ...(db.ai        ?? {}) },
   };
 }

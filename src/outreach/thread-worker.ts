@@ -78,7 +78,7 @@ async function verifyStillSendable(threadId: string): Promise<boolean> {
   if (cur.status !== "PENDING" && cur.status !== "ACTIVE") return false;
   // If the owner skipped/closed the job after approving, stop.
   const stage = cur.outreach?.job?.appStage;
-  if (stage === "SKIPPED" || stage === "CLOSED") return false;
+  if (stage === "SKIPPED") return false;
   return true;
 }
 
@@ -209,7 +209,7 @@ export async function processThread(
     await archiveThread(threadId, "Orphan thread — no job");
     return;
   }
-  if (job.appStage === "SKIPPED" || job.appStage === "CLOSED") {
+  if (job.appStage === "SKIPPED") {
     await archiveThread(threadId, `Job ${job.appStage.toLowerCase()} by owner`);
     return;
   }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Sheet, SheetContent, SheetHeader } from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
@@ -21,21 +21,34 @@ type Job = {
   outreaches?: Array<{
     id: string; role: string;
     contact: { name: string; title: string | null; linkedinUrl: string };
+    thread?: {
+      id: string; status: string;
+      providerState: { phase?: string; connectionNote?: string; firstDm?: string; followup?: string } | null;
+      archivedReason: string | null;
+    } | null;
   }>;
+};
+
+type DraftEdit = { connectionNote: string; firstDm: string; followup: string };
+
+const THREAD_PHASE_LABEL: Record<string, string> = {
+  QUEUED:         "Queued — invite sends next tick",
+  INVITE_PENDING: "Invite sent — awaiting acceptance",
+  CONNECTED:      "Connected — DM sends next tick",
+  MESSAGED:       "Messaged — awaiting reply",
+  REPLIED:        "Replied 🎉",
 };
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
-const STAGES: AppStage[] = ["NEW","APPROVED","APPLIED","INTERVIEWING","OFFER","CLOSED"];
+const STAGES: AppStage[] = ["NEW","APPROVED","OUTREACH","REPLIED"];
 
 const STAGE_META: Record<AppStage, { label: string; accent: string; headerBorder: string; lane: string }> = {
-  NEW:          { label:"New",          accent:"bg-zinc-400",    headerBorder:"border-l-zinc-300",    lane:"bg-white"         },
-  APPROVED:     { label:"Approved",     accent:"bg-blue-500",    headerBorder:"border-l-blue-400",    lane:"bg-blue-50/40"    },
-  SKIPPED:      { label:"Skipped",      accent:"bg-zinc-300",    headerBorder:"border-l-zinc-200",    lane:"bg-white"         },
-  APPLIED:      { label:"Applied",      accent:"bg-violet-500",  headerBorder:"border-l-violet-400",  lane:"bg-violet-50/40"  },
-  INTERVIEWING: { label:"Interviewing", accent:"bg-amber-500",   headerBorder:"border-l-amber-400",   lane:"bg-amber-50/40"   },
-  OFFER:        { label:"Offer",        accent:"bg-emerald-500", headerBorder:"border-l-emerald-400", lane:"bg-emerald-50/40" },
-  CLOSED:       { label:"Closed",       accent:"bg-red-400",     headerBorder:"border-l-red-300",     lane:"bg-red-50/30"     },
+  NEW:      { label:"New",      accent:"bg-zinc-400",    headerBorder:"border-l-zinc-300",    lane:"bg-white"         },
+  APPROVED: { label:"Approved", accent:"bg-blue-500",    headerBorder:"border-l-blue-400",    lane:"bg-blue-50/40"    },
+  OUTREACH: { label:"Outreach", accent:"bg-indigo-500",  headerBorder:"border-l-indigo-400",  lane:"bg-indigo-50/40"  },
+  REPLIED:  { label:"Replied",  accent:"bg-emerald-500", headerBorder:"border-l-emerald-400", lane:"bg-emerald-50/40" },
+  SKIPPED:  { label:"Skipped",  accent:"bg-zinc-300",    headerBorder:"border-l-zinc-200",    lane:"bg-white"         },
 };
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -85,6 +98,15 @@ export default function BoardPage() {
   const [uploadingResume, setUploadingResume] = useState(false);
   const resumeFileRef = useRef<HTMLInputElement>(null);
 
+  // Filters + sort (client-side over the loaded jobs)
+  const [fSource, setFSource] = useState("All");
+  const [fApply, setFApply]   = useState("All");
+  const [fScore, setFScore]   = useState("All");
+  const [sort, setSort]       = useState<"Score" | "Salary" | "Date">("Date");
+
+  // Editable outreach drafts for the open job, keyed by threadId
+  const [drafts, setDrafts] = useState<Record<string, DraftEdit>>({});
+
   useEffect(() => {
     fetch("/api/jobs?limit=200").then(r => r.json())
       .then(d => { setJobs(d.jobs ?? []); setLoading(false); })
@@ -102,9 +124,37 @@ export default function BoardPage() {
     await fetch("/api/jobs/action", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ jobId, action }) });
     const updated = await fetch(`/api/jobs/${jobId}`).then(r => r.json()) as Job;
     setDetail(updated);
-    setJobs(prev => prev.map(j => j.id === jobId ? { ...j, appStage: updated.appStage } : j));
+    setJobs(prev => prev.map(j => j.id === jobId ? { ...j, appStage: updated.appStage, outreachState: updated.outreachState } : j));
     setActing(false);
   }, []);
+
+  // Initialise editable drafts whenever the open job's detail loads.
+  useEffect(() => {
+    if (!detail?.outreaches) { setDrafts({}); return; }
+    const init: Record<string, DraftEdit> = {};
+    for (const o of detail.outreaches) {
+      const t = o.thread;
+      const ps = t?.providerState;
+      if (t && t.status === "PENDING" && ps?.phase === "DRAFT") {
+        init[t.id] = { connectionNote: ps.connectionNote ?? "", firstDm: ps.firstDm ?? "", followup: ps.followup ?? "" };
+      }
+    }
+    setDrafts(init);
+  }, [detail]);
+
+  const confirmOutreach = useCallback(async (jobId: string, threadId: string, action: "send" | "cancel") => {
+    setActing(true);
+    const edits = drafts[threadId] ?? {};
+    await fetch("/api/outreach/confirm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ threadId, action, ...edits }),
+    });
+    const updated = await fetch(`/api/jobs/${jobId}`).then(r => r.json()) as Job;
+    setDetail(updated);
+    setJobs(prev => prev.map(j => j.id === jobId ? { ...j, outreachState: updated.outreachState } : j));
+    setActing(false);
+  }, [drafts]);
 
   const uploadTailored = useCallback(async (jobId: string, file: File) => {
     setUploadingResume(true);
@@ -116,8 +166,32 @@ export default function BoardPage() {
     setUploadingResume(false);
   }, []);
 
+  // Distinct sources present (for the Source filter options)
+  const sourceOptions = useMemo(
+    () => Array.from(new Set(jobs.map(j => j.source))),
+    [jobs],
+  );
+
+  const visible = useMemo(() => {
+    const v = jobs.filter(j => {
+      if (fSource !== "All" && j.source !== fSource) return false;
+      if (fApply === "Referral" && j.applyType !== "REFERRAL_FIRST") return false;
+      if (fApply === "Manual" && j.applyType !== "MANUAL_NOTIFY") return false;
+      if (fScore === "80+" && (j.aiScore ?? 0) < 80) return false;
+      if (fScore === "60+" && (j.aiScore ?? 0) < 60) return false;
+      if (fScore === "<60" && (j.aiScore ?? 0) >= 60) return false;
+      return true;
+    });
+    v.sort((a, b) => {
+      if (sort === "Score")  return (b.aiScore ?? -1) - (a.aiScore ?? -1);
+      if (sort === "Salary") return (b.salaryAnnualBase ?? -1) - (a.salaryAnnualBase ?? -1);
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+    return v;
+  }, [jobs, fSource, fApply, fScore, sort]);
+
   const byStage = STAGES.reduce<Record<string, Job[]>>((a,s) => { a[s]=[]; return a; }, {});
-  for (const j of jobs) if (j.appStage !== "SKIPPED" && byStage[j.appStage]) byStage[j.appStage].push(j);
+  for (const j of visible) if (j.appStage !== "SKIPPED" && byStage[j.appStage]) byStage[j.appStage].push(j);
 
   const tw      = Date.now() - 7*24*60*60*1000;
   const replied = jobs.filter(j => j.outreachState === "REPLIED").length;
@@ -128,8 +202,8 @@ export default function BoardPage() {
     { label:"Approved",        value: jobs.filter(j => j.appStage === "APPROVED").length,             color:"text-blue-600" },
     { label:"Outreach sent",   value: sent,                                                            color:"text-indigo-600" },
     { label:"Replies",         value: replied,                                                         color:"text-emerald-600" },
-    { label:"Applied",         value: jobs.filter(j => j.appStage === "APPLIED").length,              color:"text-violet-600" },
-    { label:"Interviews",      value: jobs.filter(j => j.appStage === "INTERVIEWING").length,         color:"text-amber-600" },
+    { label:"In outreach",     value: jobs.filter(j => j.appStage === "OUTREACH").length,             color:"text-indigo-600" },
+    { label:"Replied",         value: jobs.filter(j => j.appStage === "REPLIED").length,              color:"text-emerald-600" },
     { label:"Response rate",   value: sent > 0 ? `${Math.round(replied/sent*100)}%` : "—",            color:"text-zinc-900" },
   ];
 
@@ -155,15 +229,35 @@ export default function BoardPage() {
 
         {/* Filter bar */}
         <div className="flex items-center gap-2">
-          {["Source: All","Apply type: All","Score: All"].map(label => (
-            <select key={label} className="text-xs border border-zinc-200 rounded-lg px-3 py-2 bg-white text-zinc-600 shadow-sm focus:outline-none focus:border-zinc-400 cursor-pointer">
-              <option>{label}</option>
-            </select>
-          ))}
+          <select value={fSource} onChange={e => setFSource(e.target.value)}
+            className="text-xs border border-zinc-200 rounded-lg px-3 py-2 bg-white text-zinc-600 shadow-sm focus:outline-none focus:border-zinc-400 cursor-pointer">
+            <option value="All">Source: All</option>
+            {sourceOptions.map(src => <option key={src} value={src}>{SOURCE_LABEL[src] ?? src}</option>)}
+          </select>
+          <select value={fApply} onChange={e => setFApply(e.target.value)}
+            className="text-xs border border-zinc-200 rounded-lg px-3 py-2 bg-white text-zinc-600 shadow-sm focus:outline-none focus:border-zinc-400 cursor-pointer">
+            <option value="All">Apply type: All</option>
+            <option value="Referral">Referral first</option>
+            <option value="Manual">Manual apply</option>
+          </select>
+          <select value={fScore} onChange={e => setFScore(e.target.value)}
+            className="text-xs border border-zinc-200 rounded-lg px-3 py-2 bg-white text-zinc-600 shadow-sm focus:outline-none focus:border-zinc-400 cursor-pointer">
+            <option value="All">Score: All</option>
+            <option value="80+">Score: 80+</option>
+            <option value="60+">Score: 60+</option>
+            <option value="<60">Score: &lt;60</option>
+          </select>
+          {(fSource !== "All" || fApply !== "All" || fScore !== "All") && (
+            <button onClick={() => { setFSource("All"); setFApply("All"); setFScore("All"); }}
+              className="text-xs text-zinc-400 hover:text-zinc-700 px-2 py-1.5 transition-colors">Clear</button>
+          )}
           <div className="ml-auto flex items-center gap-1 text-xs text-zinc-400">
             <span className="mr-1 font-medium">Sort:</span>
-            {["Score","Salary","Date"].map(s => (
-              <button key={s} className="px-2.5 py-1.5 rounded-lg hover:bg-white hover:text-zinc-700 hover:shadow-sm transition-all">{s}</button>
+            {(["Score","Salary","Date"] as const).map(sortKey => (
+              <button key={sortKey} onClick={() => setSort(sortKey)}
+                className={`px-2.5 py-1.5 rounded-lg transition-all ${sort === sortKey ? "bg-white text-zinc-900 shadow-sm font-medium" : "hover:bg-white hover:text-zinc-700 hover:shadow-sm"}`}>
+                {sortKey}
+              </button>
             ))}
           </div>
           <a href="/add"
@@ -415,16 +509,14 @@ export default function BoardPage() {
                 </div>
               )}
 
-              {["APPROVED","APPLIED"].includes(job.appStage) && (
+              {["APPROVED","OUTREACH"].includes(job.appStage) && (
                 <div className="space-y-2">
-                  <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest">Move to stage</p>
+                  <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest">Manual override</p>
                   <div className="flex flex-wrap gap-2">
-                    {["applied","interviewing","offer","closed"].map(a => (
-                      <Button key={a} onClick={() => act(job.id, a)} disabled={acting}
-                        variant="outline" size="sm" className="capitalize text-xs h-9">
-                        {a}
-                      </Button>
-                    ))}
+                    <Button onClick={() => act(job.id, "replied")} disabled={acting}
+                      variant="outline" size="sm" className="text-xs h-9">Mark replied</Button>
+                    <Button onClick={() => act(job.id, "skipped")} disabled={acting}
+                      variant="outline" size="sm" className="text-xs h-9 text-red-600">Skip / stop</Button>
                   </div>
                 </div>
               )}
@@ -433,26 +525,71 @@ export default function BoardPage() {
                 <>
                   <Separator className="bg-zinc-100" />
                   <div>
-                    <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest mb-3">Outreach History</p>
+                    <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest mb-3">Outreach</p>
                     <div className="space-y-3">
-                      {job.outreaches!.map(o => (
-                        <div key={o.id} className="flex gap-3 items-start p-3 bg-zinc-50 rounded-xl border border-zinc-100">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center justify-between gap-2">
-                              <p className="text-xs font-semibold text-zinc-900 truncate">
-                                {o.contact.name}
-                                {o.contact.title && <span className="font-normal text-zinc-500"> · {o.contact.title}</span>}
-                              </p>
-                              <a href={o.contact.linkedinUrl} target="_blank" rel="noopener noreferrer"
-                                className="text-[10px] font-medium text-blue-600 hover:underline shrink-0">LinkedIn →</a>
+                      {job.outreaches!.map(o => {
+                        const t = o.thread;
+                        const ps = t?.providerState ?? {};
+                        const phase = ps.phase ?? "DRAFT";
+                        const isDraft = !!t && t.status === "PENDING" && phase === "DRAFT";
+                        const edit = (t && drafts[t.id]) || { connectionNote: "", firstDm: "", followup: "" };
+                        const label = t?.status === "ARCHIVED"
+                          ? (t.archivedReason ?? "Archived")
+                          : (THREAD_PHASE_LABEL[phase] ?? "");
+
+                        return (
+                          <div key={o.id} className="bg-zinc-50 rounded-xl border border-zinc-100 overflow-hidden">
+                            <div className="flex gap-3 items-start p-3">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="text-xs font-semibold text-zinc-900 truncate">
+                                    {o.contact.name}
+                                    {o.contact.title && <span className="font-normal text-zinc-500"> · {o.contact.title}</span>}
+                                  </p>
+                                  <a href={o.contact.linkedinUrl} target="_blank" rel="noopener noreferrer"
+                                    className="text-[10px] font-medium text-blue-600 hover:underline shrink-0">LinkedIn →</a>
+                                </div>
+                                <p className="text-[10px] text-zinc-400 mt-0.5">
+                                  <span className="capitalize">{o.role.toLowerCase()}</span>
+                                  {label && <span className="text-zinc-500"> · {label}</span>}
+                                </p>
+                              </div>
                             </div>
-                            <p className="text-[10px] text-zinc-400 capitalize mt-0.5">{o.role.toLowerCase()}</p>
+
+                            {isDraft && t && (
+                              <div className="border-t border-zinc-200 bg-white p-3 space-y-2.5">
+                                <p className="text-[10px] text-amber-600 font-medium">Review &amp; edit — nothing sends until you confirm.</p>
+                                <DraftField label="Connection note (≤300)" rows={3} maxLength={300}
+                                  value={edit.connectionNote}
+                                  onChange={v => setDrafts(d => ({ ...d, [t.id]: { ...edit, connectionNote: v } }))} />
+                                <DraftField label="First DM (after they accept)" rows={5}
+                                  value={edit.firstDm}
+                                  onChange={v => setDrafts(d => ({ ...d, [t.id]: { ...edit, firstDm: v } }))} />
+                                <DraftField label="Follow-up (if no reply)" rows={3}
+                                  value={edit.followup}
+                                  onChange={v => setDrafts(d => ({ ...d, [t.id]: { ...edit, followup: v } }))} />
+                                <div className="flex gap-2 pt-0.5">
+                                  <Button onClick={() => confirmOutreach(job.id, t.id, "send")} disabled={acting} size="sm"
+                                    className="flex-1 bg-zinc-900 hover:bg-zinc-800 text-white text-xs h-9">
+                                    ✓ Confirm &amp; Send
+                                  </Button>
+                                  <Button onClick={() => confirmOutreach(job.id, t.id, "cancel")} disabled={acting}
+                                    variant="outline" size="sm" className="text-xs h-9">Cancel</Button>
+                                </div>
+                              </div>
+                            )}
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 </>
+              )}
+
+              {job.appStage === "APPROVED" && job.applyType === "REFERRAL_FIRST" && (job.outreaches?.length ?? 0) === 0 && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-700">
+                  Approved — no LinkedIn targets were found for this role yet. You can still apply directly via the link above.
+                </div>
               )}
 
               <Separator className="bg-zinc-100" />
@@ -466,6 +603,23 @@ export default function BoardPage() {
           )}
         </SheetContent>
       </Sheet>
+    </div>
+  );
+}
+
+function DraftField({ label, value, rows, maxLength, onChange }: {
+  label: string; value: string; rows: number; maxLength?: number; onChange: (v: string) => void;
+}) {
+  return (
+    <div>
+      <label className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wide">{label}</label>
+      <textarea
+        value={value}
+        rows={rows}
+        maxLength={maxLength}
+        onChange={e => onChange(e.target.value)}
+        className="mt-1 w-full border border-zinc-200 rounded-lg px-3 py-2 text-xs bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-300 focus:border-transparent leading-relaxed"
+      />
     </div>
   );
 }

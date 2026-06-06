@@ -8,7 +8,7 @@ export async function GET(
   const { jobId } = await params;
   const job = await prisma.job.findUnique({
     where: { id: jobId },
-    include: { outreaches: { include: { contact: true } } },
+    include: { outreaches: { include: { contact: true, thread: true } } },
   });
   if (!job) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json(job);

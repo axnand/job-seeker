@@ -1,0 +1,48 @@
+# External cron for the free Vercel tier (backlog #22).
+#
+# Vercel's hobby plan runs vercel.json crons only ONCE per day, which is too
+# coarse for the 30-min outreach tick. This workflow pings the cron endpoints on
+# a real schedule instead. (On Vercel Pro you can delete this and rely on
+# vercel.json.)
+#
+# Required repo secrets (Settings → Secrets and variables → Actions):
+#   APP_BASE_URL  e.g. https://job-seeker.vercel.app
+#   CRON_SECRET   same value as the deployment's CRON_SECRET env var
+#
+# Times are UTC. IST = UTC+5:30, so 03:30–16:00 UTC ≈ 09:00–21:30 IST (the
+# outreach send window). GitHub may delay scheduled runs a few minutes under load.
+
+name: cron
+
+on:
+  schedule:
+    - cron: "*/30 3-16 * * *"   # outreach tick — every 30 min during the IST day
+    - cron: "0 2,5,8,11,14 * * *" # discovery — a few times a day
+  workflow_dispatch:             # allow manual runs from the Actions tab
+
+jobs:
+  tick:
+    if: github.event.schedule == '*/30 3-16 * * *' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping outreach tick
+        run: |
+          curl -sS -X POST "$APP_BASE_URL/api/cron/tick" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            --max-time 120 --fail-with-body
+        env:
+          APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+
+  discover:
+    if: github.event.schedule == '0 2,5,8,11,14 * * *' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping discovery
+        run: |
+          curl -sS -X POST "$APP_BASE_URL/api/cron/discover" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            --max-time 300 --fail-with-body
+        env:
+          APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}

@@ -25,6 +25,7 @@ export default function SettingsPage() {
   const [saved, setSaved]   = useState(false);
   const [kw, setKw]         = useState("");
   const [co, setCo]         = useState("");
+  const [tcForm, setTcForm] = useState<{ name: string; ats: "greenhouse" | "lever" | "ashby"; boardToken: string }>({ name: "", ats: "greenhouse", boardToken: "" });
 
   useEffect(() => {
     fetch("/api/settings").then(r => r.json()).then(setS).catch(console.error);
@@ -51,6 +52,7 @@ export default function SettingsPage() {
   const sch = (v: Partial<typeof s.search>)   => save({ ...s, search:   { ...s.search,   ...v } });
   const out = (v: Partial<typeof s.outreach>) => save({ ...s, outreach: { ...s.outreach, ...v } });
   const ai  = (v: Partial<typeof s.ai>)       => save({ ...s, ai:       { ...s.ai,       ...v } });
+  const tc  = (v: typeof s.targetCompanies)   => save({ ...s, targetCompanies: v });
 
   return (
     <div className="max-w-3xl mx-auto px-6 py-8 space-y-6">
@@ -83,7 +85,8 @@ export default function SettingsPage() {
         <div className="rounded-xl border border-zinc-200 divide-y divide-zinc-100 overflow-hidden">
           {(
             [
-              { key: "linkedin"     as const, label: "LinkedIn",      desc: "Job board + hiring posts via Unipile" },
+              { key: "linkedin"     as const, label: "LinkedIn Jobs",  desc: "LinkedIn job board via Unipile" },
+              { key: "linkedinPosts" as const, label: "LinkedIn Posts", desc: "Hiring posts (\"we're hiring\" / \"DM me\") — AI-extracted" },
               { key: "adzuna"       as const, label: "Adzuna",        desc: "India aggregator — free API" },
               { key: "atsWatchlist" as const, label: "ATS Watchlist", desc: "Greenhouse / Lever / Ashby company boards" },
               { key: "remotive"     as const, label: "Remotive",      desc: "Curated remote tech roles" },
@@ -100,6 +103,47 @@ export default function SettingsPage() {
             </div>
           ))}
         </div>
+      )}
+
+      {/* ── ATS watchlist (shown in Sources tab) ────────────────────── */}
+      {tab === "sources" && (
+        <Section title="ATS Watchlist" desc="Companies polled directly on their Greenhouse / Lever / Ashby boards — the highest-signal source.">
+          <div className="space-y-2 mb-4">
+            {s.targetCompanies.length === 0 && (
+              <p className="text-xs text-zinc-400">No companies yet. Add a few you'd love to work at.</p>
+            )}
+            {s.targetCompanies.map((c, i) => (
+              <div key={`${c.ats}:${c.boardToken}:${i}`} className="flex items-center gap-2 text-sm bg-zinc-50 border border-zinc-100 rounded-lg px-3 py-2">
+                <span className="font-medium text-zinc-800">{c.name}</span>
+                <span className="text-[10px] uppercase tracking-wide text-zinc-400 bg-zinc-100 rounded px-1.5 py-0.5">{c.ats}</span>
+                <span className="text-xs text-zinc-400 font-mono truncate">{c.boardToken}</span>
+                <button onClick={() => tc(s.targetCompanies.filter((_, j) => j !== i))}
+                  className="ml-auto text-zinc-400 hover:text-red-600 transition-colors shrink-0">×</button>
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <Input value={tcForm.name} onChange={e => setTcForm(f => ({ ...f, name: e.target.value }))}
+              placeholder="Company" className="text-sm flex-1" />
+            <select value={tcForm.ats} onChange={e => setTcForm(f => ({ ...f, ats: e.target.value as typeof f.ats }))}
+              className="text-sm border border-zinc-200 rounded-md px-2 bg-white text-zinc-600 cursor-pointer">
+              <option value="greenhouse">Greenhouse</option>
+              <option value="lever">Lever</option>
+              <option value="ashby">Ashby</option>
+            </select>
+            <Input value={tcForm.boardToken} onChange={e => setTcForm(f => ({ ...f, boardToken: e.target.value }))}
+              placeholder="board token" className="text-sm w-32 font-mono" />
+            <Button variant="outline" size="sm"
+              onClick={() => {
+                if (!tcForm.name.trim() || !tcForm.boardToken.trim()) return;
+                tc([...s.targetCompanies, { name: tcForm.name.trim(), ats: tcForm.ats, boardToken: tcForm.boardToken.trim() }]);
+                setTcForm({ name: "", ats: "greenhouse", boardToken: "" });
+              }}>
+              Add
+            </Button>
+          </div>
+          <p className="text-[11px] text-zinc-400 mt-2">Board token = the company slug in their careers URL (e.g. <span className="font-mono">stripe</span> for greenhouse.io/stripe). Requires the ATS Watchlist source above to be on.</p>
+        </Section>
       )}
 
       {/* ── Search ──────────────────────────────────────────────────── */}
@@ -250,14 +294,24 @@ export default function SettingsPage() {
                 </div>
               </Section>
 
-              <Section title="Message Templates" icon={<Lock className="w-3.5 h-3.5 text-zinc-400" />}>
-                <div className="space-y-1">
-                  {["Invite Note", "First DM", "Follow-up"].map(t => (
-                    <div key={t} className="flex items-center justify-between py-2.5 border-b border-zinc-100 last:border-0">
-                      <span className="text-sm text-zinc-600">{t}</span>
-                      <Badge variant="secondary" className="text-[10px] text-zinc-400 bg-zinc-100 border-0">Phase 2</Badge>
+              <Section title="Messages" icon={<Lock className="w-3.5 h-3.5 text-zinc-400" />}>
+                <div className="space-y-2">
+                  {[
+                    { t: "Connection note", d: "Sent with the invite (≤300 chars)" },
+                    { t: "First DM", d: "Sent after they accept" },
+                    { t: "Follow-up", d: "If no reply after the delay above" },
+                  ].map(({ t, d }) => (
+                    <div key={t} className="flex items-center justify-between py-1.5">
+                      <div>
+                        <p className="text-sm text-zinc-700">{t}</p>
+                        <p className="text-[11px] text-zinc-400">{d}</p>
+                      </div>
+                      <Badge variant="secondary" className="text-[10px] text-emerald-600 bg-emerald-50 border-0">AI per job</Badge>
                     </div>
                   ))}
+                  <p className="text-[11px] text-zinc-400 pt-1 border-t border-zinc-100">
+                    Messages are drafted per job from its tailored pitch + the target's profile. You review &amp; edit each one in the job drawer before it sends.
+                  </p>
                 </div>
               </Section>
             </div>

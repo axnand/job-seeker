@@ -11,14 +11,20 @@
 
 import { NextResponse } from "next/server";
 import { runOutreachTick } from "@/outreach/outreach-tick";
+import { withCronLock } from "@/lib/cron-lock";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 export async function POST() {
   try {
-    const result = await runOutreachTick();
-    return NextResponse.json({ ok: true, ...result });
+    // Skip if a previous tick is still running (its poll fallbacks aren't
+    // claim-safe to run concurrently).
+    const locked = await withCronLock("tick", () => runOutreachTick());
+    if (!locked.ran) {
+      return NextResponse.json({ ok: true, skipped: "already running" });
+    }
+    return NextResponse.json({ ok: true, ...locked.result });
   } catch (err) {
     console.error("[cron/tick] fatal:", err);
     return NextResponse.json({ ok: false, error: String(err) }, { status: 500 });

@@ -5,6 +5,7 @@
 
 import { getSettings } from "@/lib/settings";
 import { fetchLinkedinJobs } from "./linkedin";
+import { fetchLinkedinPosts } from "./linkedin-posts";
 import { fetchAdzunaJobs } from "./adzuna";
 import { fetchAtsWatchlist } from "./ats-watchlist";
 import { fetchRemotiveJobs } from "./remotive";
@@ -24,6 +25,12 @@ export async function discoverJobs(): Promise<RawJob[]> {
   if (sources.linkedin) {
     fetches.push(
       ...keywords.map(kw => fetchLinkedinJobs(kw, search).catch(() => [] as RawJob[]))
+    );
+  }
+
+  if (sources.linkedinPosts) {
+    fetches.push(
+      ...keywords.map(kw => fetchLinkedinPosts(kw, search).catch(() => [] as RawJob[]))
     );
   }
 

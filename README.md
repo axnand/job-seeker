@@ -28,21 +28,26 @@ Vercel Cron /api/cron/discover  (daily, 08:00 IST)
 Owner clicks Approve → opens /jobs/{id} → reviews AI message → Confirm send
 
 Vercel Cron /api/cron/tick  (every 30 min, 09:00–21:00 IST)
-  → Phase 2: ChannelThread outreach engine (invite → DM → follow-up)
+  → ChannelThread outreach engine (invite → accept → DM → follow-up → archive)
+  → poll fallbacks for missed webhooks; rate limits + send window + account safety
 
 Unipile webhook /api/webhooks/unipile
-  → Phase 2: mark replied, fire reply-alert email
+  → invite accepted → CONNECTED; reply → REPLIED + reply-alert email
 ```
+
+> On the free Vercel tier, crons run only once/day — use the included
+> `.github/workflows/cron.yml` (external cron) to drive the 30-min tick.
 
 ## Phases
 
 | Phase | Status | What's in it |
 |---|---|---|
 | 1 — Core loop | ✅ Built | Discovery, scoring, salary, digest email, board UI |
-| 2 — Outreach | 🔜 Next | People finder, message writer, ChannelThread engine, reply webhooks |
-| 3 — Dashboard polish | 🔜 | Settings UI, AI providers page, stats |
-| 4 — Resume manager | 🔜 | LaTeX upload, AI tailoring, PDF compile |
-| 5 — LinkedIn posts | 🔜 | Feed search, post extraction, dm_author path |
+| 2 — Outreach | ✅ Built | People finder, message writer, ChannelThread state machine, tick, reply/accept webhooks + poll fallbacks, rate limits, account safety |
+| 3 — Dashboard polish | ✅ Built | Functional filters/sort, in-drawer outreach review + Confirm & Send, ATS watchlist UI (AI-providers page skipped by design) |
+| 4 — Resume manager | ✅ Built | Tailoring gate, resume routes, `/resume` page, per-job tailored-PDF upload |
+| 5 — LinkedIn posts | ✅ Built | Feed search, keyword pre-filter, AI extraction, dm_author path |
+| Ops | ✅ Built | External cron (GitHub Actions), staleness auto-archive, cron lock |
 
 ## Key files
 

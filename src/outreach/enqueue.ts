@@ -93,9 +93,11 @@ export async function enqueueOutreach(job: Job): Promise<EnqueueResult> {
           accountId: config.owner.linkedinAccountId || null,
           candidateProviderId: target.providerId,
           followupsTotal,
-          nextActionAt: null, // DRAFT — not claimable until the owner confirms
+          // FULLY AUTOMATIC: queue now so the next tick claims + sends it
+          // (still gated by send window + rate limits + globalPause).
+          nextActionAt: new Date(),
           providerState: {
-            phase: "DRAFT",
+            phase: "QUEUED",
             connectionNote: messages.connectionNote,
             firstDm: messages.firstDm,
             followup: messages.followup,

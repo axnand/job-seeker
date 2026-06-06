@@ -218,6 +218,15 @@ model WebhookEvent {
   @@index([processedAt])
 }
 
+// ─── CronLock (prevents overlapping cron runs — backlog #24) ──────────────────
+// A single row per cron name. `lockedAt` set while a run holds it; cleared on
+// finish. A held lock older than the stale window is reclaimable (crash safety).
+model CronLock {
+  name      String    @id   // "discover" | "tick"
+  lockedAt  DateTime?
+  updatedAt DateTime  @updatedAt
+}
+
 // ─── Enums ───────────────────────────────────────────────────────────────────
 
 enum JobSource {
@@ -237,13 +246,11 @@ enum ApplyType {
 }
 
 enum AppStage {
-  NEW
-  APPROVED
-  SKIPPED
-  APPLIED
-  INTERVIEWING
-  OFFER
-  CLOSED
+  NEW        // discovered + scored, passed the gates
+  APPROVED   // auto-approved, outreach queued
+  OUTREACH   // connection request / DM sent
+  REPLIED    // target replied — the goal of a referral tool
+  SKIPPED    // failed scoring, blacklisted, or stale
 }
 
 enum OutreachState {

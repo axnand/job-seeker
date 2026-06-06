@@ -48,6 +48,7 @@ export const config = {
 
   sources: {
     linkedin: true,
+    linkedinPosts: true,   // hiring posts ("we're hiring", "DM me your resume") via LinkedIn feed
     adzuna: !!(process.env.ADZUNA_APP_ID && process.env.ADZUNA_APP_KEY),
     atsWatchlist: true,
     remotive: true,
@@ -95,6 +96,14 @@ Targeting: entry-level / SDE-1 / junior software engineering roles at strong pro
     sendWindowStart: 9,   // 09:00 IST
     sendWindowEnd: 21,    // 21:00 IST
     globalPause: false,
+  },
+
+  // Outreach message templates (editable from the dashboard).
+  // Placeholders: {firstName} {name} {company} {role} {pitch}
+  templates: {
+    connectionNote: "Hi {firstName}, I came across {company}'s {role} opening and noticed you're on the team. Would love to connect and learn more.",
+    firstDm: "Hey {firstName}, thanks for connecting! I'm exploring {role} opportunities and {company} really stood out to me. {pitch} Would you be open to referring me, or pointing me to the right person? Happy to share my resume — no pressure if it's not a fit.",
+    followup: "Hi {firstName}, just following up in case my note got buried — still very interested in the {role} role at {company}. Totally fine if it's not the right time. Thanks!",
   },
 
   staleness: {
