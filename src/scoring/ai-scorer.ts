@@ -137,6 +137,8 @@ ${input.jdText.slice(0, 6000)}`;
  */
 function sanitizePitch(pitch: string): string {
   return pitch
+    .replace(/\s*—\s*/g, ", ")          // em dash → comma (reads naturally in a DM)
+    .replace(/\s*–\s*/g, "-")           // en dash → plain hyphen
     .replace(/\[([^\]]{1,50})\]/g, (_, inner) => {
       // Keep things like "[BPIT]" that are actual acronyms/names in the candidate's
       // background — only strip phrases that look like template placeholders.

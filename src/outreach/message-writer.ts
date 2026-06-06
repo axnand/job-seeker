@@ -28,6 +28,7 @@ function fill(tpl: string, vars: Record<string, string>): string {
  */
 function cleanRole(role: string): string {
   return role
+    .replace(/\s*[;|–—\-]\s*(?:remote|hybrid|on.?site|full.?time|part.?time|contract|backend|frontend|full.?stack).*/gi, "") // strip noise suffixes
     .replace(/\s*[;|–—]\s*.*/g, "")   // strip everything after ; | – —
     .replace(/\s*\(.*?\)\s*/g, " ")   // strip parentheticals
     .replace(/\s+/g, " ")
