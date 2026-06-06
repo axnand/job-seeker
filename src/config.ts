@@ -86,7 +86,7 @@ Targeting: entry-level / SDE-1 / junior software engineering roles at strong pro
   },
 
   outreach: {
-    maxReferralTargetsPerJob: 2,
+    maxReferralTargetsPerJob: 10,
     followupAfterDays: 4,
     maxFollowups: 1,
     recontactCooldownDays: 30,

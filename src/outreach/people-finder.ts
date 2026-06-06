@@ -117,15 +117,53 @@ async function targetsFromHiringTeam(job: Job, accountId: string): Promise<Outre
   }
 }
 
-/** People search by company + role keywords. */
+/** Strip legal/descriptive suffixes so the name resolves to a LinkedIn company. */
+function cleanCompany(name: string): string {
+  return name
+    .replace(/[.,]/g, " ")
+    .replace(/\b(private limited|pvt\.? ?ltd\.?|p\.?ltd|limited|ltd\.?|llc|inc\.?|incorporated|co\.?|corp\.?|corporation|gmbh|s\.?a\.?|technologies|technology|solutions|systems|global services|services)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** The distinctive brand token used to hard-filter people to this company. */
+function brandToken(name: string): string {
+  const cleaned = cleanCompany(name) || name;
+  return (cleaned.split(/\s+/)[0] ?? "").toLowerCase();
+}
+
+/** Does a person actually look like they work at the target company? */
+function matchesCompany(p: OutreachTarget, token: string): boolean {
+  if (!token || token.length < 3) return false;
+  const hay = `${p.title ?? ""} ${p.company ?? ""}`.toLowerCase();
+  return hay.includes(token);
+}
+
+/**
+ * People search scoped to the target company. LinkedIn's company filter is soft
+ * (it leaks people from other companies), so we ALWAYS hard-filter results by the
+ * company brand token. If nothing matches, return [] — never DM random people.
+ */
 async function targetsFromSearch(job: Job, accountId: string): Promise<OutreachTarget[]> {
   try {
-    const companyMatches = await resolveSearchParam(accountId, "COMPANY", job.company).catch(() => []);
-    const companyId = companyMatches[0]?.id;
-    // Bias toward people who can actually refer/hire: recruiters + the role's team.
-    const keywords = `${job.role} recruiter talent`;
-    const people = await searchPeople(accountId, { keywords, companyId, limit: 10 });
-    return people.map(personToTarget).filter((t): t is OutreachTarget => t !== null);
+    const token = brandToken(job.company);
+    // Resolve the cleaned name (full legal names like "X Private Limited" don't match).
+    const resolved = await resolveSearchParam(accountId, "COMPANY", cleanCompany(job.company)).catch(() => []);
+    const companyId = resolved[0]?.id;
+    if (!companyId) {
+      console.log(`[people-finder] could not resolve company "${job.company}" — skipping search`);
+      return [];
+    }
+
+    const people = await searchPeople(accountId, { keywords: "software engineer recruiter", companyId, limit: 40 });
+    const targets = people.map(personToTarget).filter((t): t is OutreachTarget => t !== null);
+
+    // Hard relevance gate: keep only people whose headline/company mentions the brand.
+    const relevant = targets.filter((t) => matchesCompany(t, token));
+    if (relevant.length === 0) {
+      console.log(`[people-finder] no people matched company "${job.company}" (token "${token}") — skipping`);
+    }
+    return relevant;
   } catch (err) {
     console.warn(`[people-finder] people search failed for job ${job.id}:`, err);
     return [];

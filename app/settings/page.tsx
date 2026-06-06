@@ -6,7 +6,6 @@ import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Pause, Play, Clock, Lock } from "lucide-react";
 import type { AppSettingsData } from "@/lib/settings";
 
@@ -53,6 +52,7 @@ export default function SettingsPage() {
   const out = (v: Partial<typeof s.outreach>) => save({ ...s, outreach: { ...s.outreach, ...v } });
   const ai  = (v: Partial<typeof s.ai>)       => save({ ...s, ai:       { ...s.ai,       ...v } });
   const tc  = (v: typeof s.targetCompanies)   => save({ ...s, targetCompanies: v });
+  const tpl = (v: Partial<typeof s.templates>) => save({ ...s, templates: { ...s.templates, ...v } });
 
   return (
     <div className="max-w-3xl mx-auto px-6 py-8 space-y-6">
@@ -261,7 +261,7 @@ export default function SettingsPage() {
                   { key: "dailyInviteCap"          as const, label: "Daily invite cap",   min: 1,  max: 20,  fmt: (v: number) => String(v) },
                   { key: "weeklyInviteCap"          as const, label: "Weekly invite cap",  min: 1,  max: 100, fmt: (v: number) => String(v) },
                   { key: "dailyDmCap"               as const, label: "Daily DM cap",       min: 1,  max: 10,  fmt: (v: number) => String(v) },
-                  { key: "maxReferralTargetsPerJob" as const, label: "Max targets / job",  min: 1,  max: 5,   fmt: (v: number) => String(v) },
+                  { key: "maxReferralTargetsPerJob" as const, label: "Max targets / job",  min: 1,  max: 25,   fmt: (v: number) => String(v) },
                   { key: "maxFollowups"             as const, label: "Max follow-ups",     min: 0,  max: 3,   fmt: (v: number) => String(v) },
                   { key: "recontactCooldownDays"    as const, label: "Recontact cooldown", min: 7,  max: 90,  fmt: (v: number) => `${v}d` },
                 ]).map(({ key, label, min, max, fmt }) => (
@@ -294,28 +294,36 @@ export default function SettingsPage() {
                 </div>
               </Section>
 
-              <Section title="Messages" icon={<Lock className="w-3.5 h-3.5 text-zinc-400" />}>
-                <div className="space-y-2">
-                  {[
-                    { t: "Connection note", d: "Sent with the invite (≤300 chars)" },
-                    { t: "First DM", d: "Sent after they accept" },
-                    { t: "Follow-up", d: "If no reply after the delay above" },
-                  ].map(({ t, d }) => (
-                    <div key={t} className="flex items-center justify-between py-1.5">
-                      <div>
-                        <p className="text-sm text-zinc-700">{t}</p>
-                        <p className="text-[11px] text-zinc-400">{d}</p>
-                      </div>
-                      <Badge variant="secondary" className="text-[10px] text-emerald-600 bg-emerald-50 border-0">AI per job</Badge>
-                    </div>
-                  ))}
-                  <p className="text-[11px] text-zinc-400 pt-1 border-t border-zinc-100">
-                    Messages are drafted per job from its tailored pitch + the target's profile. You review &amp; edit each one in the job drawer before it sends.
-                  </p>
-                </div>
-              </Section>
             </div>
           </div>
+
+          {/* Message templates — full width */}
+          <Section title="Message Templates" icon={<Lock className="w-3.5 h-3.5 text-zinc-400" />}
+            desc="Drafted per job from these, then you review & edit each one in the job drawer before it sends.">
+            <div className="mb-3 flex flex-wrap gap-1.5">
+              {["{firstName}", "{name}", "{company}", "{role}", "{pitch}", "{ownerName}"].map(v => (
+                <code key={v} className="text-[11px] bg-zinc-100 text-zinc-600 rounded px-1.5 py-0.5 font-mono">{v}</code>
+              ))}
+              <span className="text-[11px] text-zinc-400 ml-1 self-center">— filled in automatically per job</span>
+            </div>
+            <div className="space-y-4">
+              <TemplateField
+                label="Connection note" hint="Sent WITH the invite · ≤300 chars · keep it short, no hard ask"
+                defaultValue={s.templates.connectionNote} maxLength={300}
+                onCommit={v => tpl({ connectionNote: v })}
+              />
+              <TemplateField
+                label="First DM" hint="Sent after they accept the connection"
+                defaultValue={s.templates.firstDm}
+                onCommit={v => tpl({ firstDm: v })}
+              />
+              <TemplateField
+                label="Follow-up" hint="Sent once if there's no reply after the follow-up delay"
+                defaultValue={s.templates.followup}
+                onCommit={v => tpl({ followup: v })}
+              />
+            </div>
+          </Section>
         </div>
       )}
 
@@ -327,14 +335,6 @@ export default function SettingsPage() {
               <Input defaultValue={s.ai.defaultModel} className="text-sm font-mono" placeholder="gpt-4o-mini"
                 onBlur={e => ai({ defaultModel: e.target.value })} />
             </Field>
-            <div className="border-t border-zinc-100 pt-4">
-              <ToggleField
-                label="Resume tailoring"
-                desc={<>AI rewrites LaTeX resume sections per JD. <Badge variant="outline" className="text-[10px] ml-1 align-middle">Phase 4</Badge></>}
-                checked={s.ai.enableResumeTailoring}
-                onChange={v => ai({ enableResumeTailoring: v })}
-              />
-            </div>
           </div>
         </Section>
       )}
@@ -365,6 +365,26 @@ function Section({ title, desc, icon, children }: {
         {desc && <p className="text-xs text-zinc-400 mt-0.5">{desc}</p>}
       </div>
       {children}
+    </div>
+  );
+}
+
+function TemplateField({ label, hint, defaultValue, maxLength, onCommit }: {
+  label: string; hint: string; defaultValue: string; maxLength?: number; onCommit: (v: string) => void;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-baseline justify-between">
+        <Label className="text-sm font-medium text-zinc-700">{label}</Label>
+        <span className="text-[11px] text-zinc-400">{hint}</span>
+      </div>
+      <textarea
+        defaultValue={defaultValue}
+        maxLength={maxLength}
+        rows={label === "Connection note" ? 3 : 5}
+        onBlur={e => { if (e.target.value !== defaultValue) onCommit(e.target.value); }}
+        className="w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-300 focus:border-transparent leading-relaxed font-mono"
+      />
     </div>
   );
 }

@@ -147,6 +147,12 @@ function sanitizeSalary(s: RawSalary): RawSalary {
   return { ...s, min, max, currency, period };
 }
 
+function coerceSuggestions(v: string | string[] | null | undefined): string | null {
+  if (!v) return null;
+  if (Array.isArray(v)) return v.map(String).map(s => s.trim()).filter(Boolean).join("\n• ").replace(/^/, "• ");
+  return String(v).trim() || null;
+}
+
 export async function scoreJob(
   input: ScoringInput,
   providerId?: string
@@ -167,7 +173,7 @@ export async function scoreJob(
     skipReason: string | null;
     salary: RawSalary;
     needsTailoring?: boolean;
-    tailoringSuggestions?: string | null;
+    tailoringSuggestions?: string | string[] | null;
   }>(result.text);
 
   // Merge source salary as override if it was stated (higher trust than LLM estimate)
@@ -198,6 +204,6 @@ export async function scoreJob(
       : undefined,
     salaryAnnualBase: normalized?.annualBase,
     needsTailoring: parsed.needsTailoring === true,
-    tailoringSuggestions: parsed.needsTailoring === true ? (parsed.tailoringSuggestions ?? null) : null,
+    tailoringSuggestions: parsed.needsTailoring === true ? coerceSuggestions(parsed.tailoringSuggestions) : null,
   };
 }
