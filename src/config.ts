@@ -108,11 +108,10 @@ Targeting: entry-level / SDE-1 / junior software engineering roles at strong pro
   },
 
   // Outreach message templates (editable from the dashboard).
-  // Placeholders: {firstName} {name} {company} {role} {pitch} {resumeLink}
-  // {resumeLink} expands to "Resume: <url>" when a resume is uploaded, or disappears when not.
+  // Placeholders: {firstName} {name} {company} {role} {pitch} {ownerName}
   templates: {
     connectionNote: "Hi {firstName}, I came across {company}'s {role} opening and noticed you're on the team. Would love to connect and learn more.",
-    firstDm: "Hey {firstName}, thanks for connecting! I'm exploring {role} opportunities and {company} really stood out to me. {pitch} Would you be open to referring me, or pointing me to the right person? {resumeLink} No pressure if it's not a fit.",
+    firstDm: "Hey {firstName}, thanks for connecting! I'm exploring {role} opportunities and {company} really stood out to me. {pitch} Would you be open to referring me, or pointing me to the right person? No pressure if it's not a fit.",
     followup: "Hi {firstName}, just following up in case my note got buried — still very interested in the {role} role at {company}. Totally fine if it's not the right time. Thanks!",
   },
 
