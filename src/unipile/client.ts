@@ -84,10 +84,17 @@ async function request<T>(
   return res.json() as Promise<T>;
 }
 
-/** POST multipart/form-data — required by Unipile's /chats endpoints. */
-async function requestForm<T>(path: string, fields: Record<string, string>): Promise<T> {
+/** POST multipart/form-data — required by Unipile's /chats endpoints.
+ *  Values can be strings or [Blob, filename] tuples for file attachments. */
+async function requestForm<T>(
+  path: string,
+  fields: Record<string, string | [Blob, string]>
+): Promise<T> {
   const form = new FormData();
-  for (const [k, v] of Object.entries(fields)) form.append(k, v);
+  for (const [k, v] of Object.entries(fields)) {
+    if (Array.isArray(v)) form.append(k, v[0], v[1]);
+    else form.append(k, v);
+  }
 
   const res = await fetch(`${baseUrl()}${path}`, {
     method: "POST",
@@ -279,27 +286,45 @@ export async function cancelInvitation(accountId: string, invitationId: string):
 
 // ─── Messaging ───────────────────────────────────────────────────────────────
 
+export interface MessageAttachment {
+  data: Buffer;
+  filename: string;
+}
+
 export async function startChat(
   accountId: string,
   providerUserId: string,
-  message: string
+  message: string,
+  attachment?: MessageAttachment
 ): Promise<{ chatId: string; messageId: string }> {
-  const res = await requestForm<{ chat_id?: string; id?: string; message_id?: string }>("/chats", {
+  const fields: Record<string, string | [Blob, string]> = {
     account_id: accountId,
     attendees_ids: providerUserId,
     text: message,
-  });
+  };
+  if (attachment) {
+    fields.attachments = [new Blob([new Uint8Array(attachment.data)], { type: "application/pdf" }), attachment.filename];
+  }
+  const res = await requestForm<{ chat_id?: string; id?: string; message_id?: string }>("/chats", fields);
   return { chatId: res.chat_id ?? res.id ?? "", messageId: res.message_id ?? "" };
 }
 
 export async function sendChatMessage(
   accountId: string,
   chatId: string,
-  message: string
+  message: string,
+  attachment?: MessageAttachment
 ): Promise<{ messageId: string }> {
+  const fields: Record<string, string | [Blob, string]> = {
+    account_id: accountId,
+    text: message,
+  };
+  if (attachment) {
+    fields.attachments = [new Blob([new Uint8Array(attachment.data)], { type: "application/pdf" }), attachment.filename];
+  }
   const res = await requestForm<{ id?: string; message_id?: string }>(
     `/chats/${encodeURIComponent(chatId)}/messages`,
-    { account_id: accountId, text: message }
+    fields
   );
   return { messageId: res.message_id ?? res.id ?? "" };
 }

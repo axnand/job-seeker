@@ -3,7 +3,7 @@
  * Uploads PDFs and issues short-lived presigned download URLs.
  */
 
-import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, GetObjectCommand, GetObjectCommandOutput } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { config } from "@/config";
 
@@ -34,6 +34,16 @@ export async function uploadResume(
     ContentType: contentType,
   }));
   return key;
+}
+
+/** Download a resume from S3 and return its raw bytes. */
+export async function downloadResume(key: string): Promise<Buffer> {
+  const res: GetObjectCommandOutput = await client().send(
+    new GetObjectCommand({ Bucket: config.s3.bucket, Key: key })
+  );
+  const chunks: Uint8Array[] = [];
+  for await (const chunk of res.Body as AsyncIterable<Uint8Array>) chunks.push(chunk);
+  return Buffer.concat(chunks);
 }
 
 /** Presigned GET URL, valid for 1 hour. */

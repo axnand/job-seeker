@@ -27,7 +27,9 @@ import {
   cancelInvitation,
   fetchProfile,
   isAlreadyConnected,
+  type MessageAttachment,
 } from "@/unipile/client";
+import { downloadResume } from "@/lib/s3";
 import { recomputeOutreachState } from "@/status/outreach-state";
 import { handleSendError } from "./safety";
 import { nextSendWindowOpen } from "./limits";
@@ -403,10 +405,30 @@ async function doSendFirstDm(
   if (!(await markPendingSend(thread.id))) return;
 
   const text = ps.firstDm ?? "Hi — thanks for connecting!";
+
+  // Attach the resume PDF if one is uploaded (tailored for this job, else base).
+  const jobRow = await prisma.channelThread.findUnique({
+    where: { id: thread.id },
+    select: { outreach: { select: { job: { select: { tailoredResumeKey: true } } } } },
+  });
+  const resumeKey = jobRow?.outreach?.job?.tailoredResumeKey
+    ?? (await prisma.resumeProfile.findUnique({ where: { id: "default" } }))?.baseResumeKey
+    ?? null;
+  let attachment: MessageAttachment | undefined;
+  if (resumeKey) {
+    try {
+      const data = await downloadResume(resumeKey);
+      const filename = resumeKey.split("/").pop() ?? "resume.pdf";
+      attachment = { data, filename };
+    } catch (err) {
+      console.warn(`${tag} could not load resume for attachment — sending without:`, err);
+    }
+  }
+
   let chatId = "";
   let messageId = "";
   try {
-    ({ chatId, messageId } = await startChat(accountId, providerUserId, text));
+    ({ chatId, messageId } = await startChat(accountId, providerUserId, text, attachment));
   } catch (err) {
     const body = String((err as Error).message ?? "").toLowerCase();
     if (body.includes("no_connection_with_recipient")) {
