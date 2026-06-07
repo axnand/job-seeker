@@ -133,12 +133,16 @@ ${input.jdText.slice(0, 6000)}`;
 /**
  * Strips unfilled LLM bracket placeholders like [Name], [Company], [Role],
  * [Hiring Manager's Name], etc. from the pitch before it's embedded in DMs.
- * These go out literally if not removed and read as broken templates.
+ * Also strips leading salutations ("Hi [Hiring Manager's Name],") that the LLM
+ * sometimes generates despite instructions — the DM template already has its own greeting.
  */
-function sanitizePitch(pitch: string): string {
+export function sanitizePitch(pitch: string): string {
   return pitch
     .replace(/\s*—\s*/g, ", ")          // em dash → comma (reads naturally in a DM)
     .replace(/\s*–\s*/g, "-")           // en dash → plain hyphen
+    // Strip leading salutations before bracket removal so "Hi [Hiring Manager's Name],"
+    // gets consumed whole rather than leaving a dangling "Hi ," in the message.
+    .replace(/^(?:Hi|Hey|Dear|Hello)\b[^,\n]*,\s*/i, "")
     .replace(/\[([^\]]{1,50})\]/g, (_, inner) => {
       // Keep things like "[BPIT]" that are actual acronyms/names in the candidate's
       // background — only strip phrases that look like template placeholders.

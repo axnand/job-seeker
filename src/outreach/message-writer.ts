@@ -9,6 +9,7 @@
 
 import { config } from "@/config";
 import { getSettings } from "@/lib/settings";
+import { sanitizePitch } from "@/scoring/ai-scorer";
 import type { OutreachTarget } from "./people-finder";
 
 export interface OutreachMessages {
@@ -51,7 +52,7 @@ export async function writeMessages(opts: {
     name: opts.target.name,
     company: opts.company,
     role,
-    pitch: opts.pitch,
+    pitch: sanitizePitch(opts.pitch),
     ownerName: config.owner.name || "",
     ownerFirstName: (config.owner.name || "").split(" ")[0] || "",
   };
