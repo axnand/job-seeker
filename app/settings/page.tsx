@@ -330,7 +330,7 @@ export default function SettingsPage() {
           <Section title="Message Templates" icon={<Lock className="w-3.5 h-3.5 text-zinc-400" />}
             desc="Drafted per job from these, then you review & edit each one in the job drawer before it sends.">
             <div className="mb-3 flex flex-wrap gap-1.5">
-              {["{firstName}", "{name}", "{company}", "{role}", "{pitch}", "{ownerName}"].map(v => (
+              {["{firstName}", "{name}", "{company}", "{role}", "{pitch}", "{resumeLink}", "{ownerName}"].map(v => (
                 <code key={v} className="text-[11px] bg-zinc-100 text-zinc-600 rounded px-1.5 py-0.5 font-mono">{v}</code>
               ))}
               <span className="text-[11px] text-zinc-400 ml-1 self-center">— filled in automatically per job</span>

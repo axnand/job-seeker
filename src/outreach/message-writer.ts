@@ -41,6 +41,7 @@ export async function writeMessages(opts: {
   company: string;
   role: string;
   pitch: string;
+  resumeUrl?: string;
 }): Promise<OutreachMessages> {
   const settings = await getSettings().catch(() => null);
   const templates = settings?.templates ?? config.templates;
@@ -55,6 +56,7 @@ export async function writeMessages(opts: {
     pitch: sanitizePitch(opts.pitch),
     ownerName: config.owner.name || "",
     ownerFirstName: (config.owner.name || "").split(" ")[0] || "",
+    resumeLink: opts.resumeUrl ? `Resume: ${opts.resumeUrl}` : "",
   };
 
   return {
