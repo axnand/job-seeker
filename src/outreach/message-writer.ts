@@ -58,6 +58,7 @@ export async function writeMessages(opts: {
     name: opts.target.name,
     company: opts.company,
     role,
+    pitch: opts.pitch ? sanitizePitch(opts.pitch) : "",
     ownerName: config.owner.name || "",
     ownerFirstName: (config.owner.name || "").split(" ")[0] || "",
     resumeLink: opts.resumeUrl ? `My resume: ${opts.resumeUrl}` : "",

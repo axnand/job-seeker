@@ -12,7 +12,7 @@ import { config } from "@/config";
 
 export interface AppSettingsData {
   sources: {
-    linkedin: boolean; linkedinPosts: boolean; adzuna: boolean; atsWatchlist: boolean;
+    linkedin: boolean; linkedinPosts: boolean; linkedinFeed: boolean; adzuna: boolean; atsWatchlist: boolean;
     remotive: boolean; remoteok: boolean; jsearch: boolean;
   };
   search: {
@@ -41,7 +41,13 @@ export interface AppSettingsData {
     rejectSeniority:     string[];
   };
   outreach: {
-    globalPause: boolean; maxReferralTargetsPerJob: number;
+    globalPause: boolean;
+    // Auto-pause bookkeeping (set by safety.ts). pauseKind "transient" (429)
+    // auto-resumes after a cooldown; "hard" (account restricted) stays until
+    // manually cleared. Null when not auto-paused.
+    pausedAt?: string | null;
+    pauseKind?: "transient" | "hard" | null;
+    maxReferralTargetsPerJob: number;
     connectTarget: number; maxInvitesPerJob: number;
     replenishIntervalHours: number; inviteTimeoutDays: number;
     followupAfterDays: number; maxFollowups: number; recontactCooldownDays: number;
@@ -53,6 +59,7 @@ export interface AppSettingsData {
     noNewOutreachAfterDays: number;
   };
   targetCompanies: Array<{ name: string; ats: "greenhouse" | "lever" | "ashby"; boardToken: string }>;
+  feedAuthors: Array<{ name: string; publicId: string }>;
   templates: { connectionNote: string; firstDm: string; followup: string };
   ai: {
     enableResumeTailoring: boolean;
@@ -89,6 +96,8 @@ function defaults(): AppSettingsData {
     },
     outreach: {
       globalPause:              c.outreach.globalPause,
+      pausedAt:                 null,
+      pauseKind:                null,
       maxReferralTargetsPerJob: c.outreach.maxReferralTargetsPerJob,
       connectTarget:            c.outreach.connectTarget,
       maxInvitesPerJob:         c.outreach.maxInvitesPerJob,
@@ -108,6 +117,7 @@ function defaults(): AppSettingsData {
       noNewOutreachAfterDays: c.staleness.noNewOutreachAfterDays,
     },
     targetCompanies: [...c.targetCompanies],
+    feedAuthors: [...c.feedAuthors],
     templates: { ...c.templates },
     ai: {
       enableResumeTailoring: c.ai.enableResumeTailoring,
@@ -125,6 +135,7 @@ function merge(base: AppSettingsData, db: Partial<AppSettingsData>): AppSettings
     outreach:        { ...base.outreach,  ...(db.outreach  ?? {}) },
     staleness:       { ...base.staleness, ...(db.staleness ?? {}) },
     targetCompanies: db.targetCompanies ?? base.targetCompanies,
+    feedAuthors:     db.feedAuthors ?? base.feedAuthors,
     templates:       { ...base.templates,  ...(db.templates ?? {}) },
     ai:              { ...base.ai,        ...(db.ai        ?? {}) },
   };

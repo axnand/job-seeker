@@ -20,7 +20,7 @@ import type { RawJob } from "./types";
 
 type SearchCfg = AppSettingsData["search"];
 
-interface LinkedinPostItem {
+export interface LinkedinPostItem {
   id?: string;
   text?: string;
   content?: string;
@@ -49,7 +49,7 @@ const HIRING_SIGNALS = [
   "#hiring", "#opentowork", "actively hiring", "apply now", "job opening",
 ];
 
-function hasHiringSignal(text: string): boolean {
+export function hasHiringSignal(text: string): boolean {
   const t = text.toLowerCase();
   return HIRING_SIGNALS.some((s) => t.includes(s));
 }
@@ -57,7 +57,7 @@ function hasHiringSignal(text: string): boolean {
 const MAX_POSTS_PER_KEYWORD = 6;       // cap LLM extraction cost per keyword
 const EXTRACT_SYSTEM = `You extract structured job data from a LinkedIn post. Many posts are NOT job posts (news, opinions, promotions). Respond with a single JSON object only — no prose.`;
 
-interface Extraction {
+export interface Extraction {
   isJobPost: boolean;
   company: string | null;
   role: string | null;
@@ -83,7 +83,7 @@ Respond with ONLY this JSON:
 { "isJobPost": <bool>, "company": <string|null>, "role": <string|null>, "requirements": <string|null>, "applyMethod": "link|dm_author|comment|unclear", "applyUrl": <string|null>, "extractedJd": <string|null> }`;
 }
 
-async function extractPost(postText: string): Promise<Extraction | null> {
+export async function extractPost(postText: string): Promise<Extraction | null> {
   try {
     const res = await chatCompletion(
       [
@@ -99,7 +99,7 @@ async function extractPost(postText: string): Promise<Extraction | null> {
   }
 }
 
-function postText(p: LinkedinPostItem): string {
+export function postText(p: LinkedinPostItem): string {
   return p.text ?? p.content ?? "";
 }
 function postUrl(p: LinkedinPostItem): string | undefined {

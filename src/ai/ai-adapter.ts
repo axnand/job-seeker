@@ -166,11 +166,22 @@ async function callAnthropic(
   };
 }
 
-/** Parse JSON from LLM output, tolerating markdown code fences. */
+/** Parse JSON from LLM output, tolerating markdown code fences and stray prose. */
 export function parseJsonResponse<T>(text: string): T {
   const cleaned = text
     .replace(/^```(?:json)?\s*/m, "")
     .replace(/\s*```\s*$/m, "")
     .trim();
-  return JSON.parse(cleaned) as T;
+  try {
+    return JSON.parse(cleaned) as T;
+  } catch {
+    // Tolerate prose wrapped around the JSON ("Here's the result: { … }") by
+    // grabbing the outermost object. Does not fix truncated/incomplete JSON.
+    const start = cleaned.indexOf("{");
+    const end = cleaned.lastIndexOf("}");
+    if (start !== -1 && end > start) {
+      return JSON.parse(cleaned.slice(start, end + 1)) as T;
+    }
+    throw new Error("LLM response contained no parseable JSON object");
+  }
 }

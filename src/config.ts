@@ -48,13 +48,19 @@ export const config = {
 
   sources: {
     linkedin: true,
-    linkedinPosts: true,   // hiring posts ("we're hiring", "DM me your resume") via LinkedIn feed
+    linkedinPosts: true,   // hiring posts ("we're hiring", "DM me your resume") via global keyword search
+    linkedinFeed: false,   // hiring posts from a curated author watchlist (feedAuthors). Off until authors are added.
     adzuna: !!(process.env.ADZUNA_APP_ID && process.env.ADZUNA_APP_KEY),
     atsWatchlist: true,
     remotive: true,
     remoteok: true,
     jsearch: !!(process.env.JSEARCH_RAPIDAPI_KEY),
   },
+
+  // Feed watchlist — people whose posts you want monitored for hiring signals.
+  // LinkedIn has no home-feed API, so we poll each author's posts directly.
+  // publicId is the LinkedIn profile slug (the part after /in/). Enable via sources.linkedinFeed.
+  feedAuthors: [] as Array<{ name: string; publicId: string }>,
 
   // ATS watchlist — highest-signal source. Add companies you want to work at.
   targetCompanies: [] as Array<{
@@ -121,7 +127,7 @@ Targeting: entry-level / SDE-1 / junior software engineering roles at strong pro
       "",
       "I'd really appreciate it if you could refer me. No pressure if it's not a fit.",
       "",
-      "{resumeLink}",
+      "Attaching my resume for your reference.",
       "Thanks a lot for your time!",
     ].join("\n"),
 

@@ -193,11 +193,66 @@ function sanitizeSalary(s: RawSalary): RawSalary {
 
 // ─── Main export ──────────────────────────────────────────────────────────────
 
+interface ParsedScoring {
+  score: number;
+  reason: string;
+  tailoredPitch: string;
+  skipReason: string | null;
+  salary: RawSalary;
+  needsTailoring: boolean;
+  tailoringSuggestions: string | string[] | null;
+}
+
+/**
+ * Call the LLM and parse/validate its JSON, retrying once on a bad response.
+ * Returns null only if BOTH attempts produce unparseable or invalid output —
+ * the caller turns that into a recorded "skipped" job rather than throwing,
+ * so a single bad generation never silently drops a job from the run.
+ */
+async function completeScoring(
+  messages: { role: "system" | "user" | "assistant"; content: string }[],
+  providerId?: string
+): Promise<ParsedScoring | null> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const result = await chatCompletion(
+        messages,
+        { temperature: 0.2, response_format: { type: "json_object" } },
+        providerId
+      );
+      const parsed = parseJsonResponse<Partial<ParsedScoring>>(result.text);
+
+      // Validate the one field we cannot recover from: a missing/NaN score makes
+      // every downstream gate meaningless, so treat it as a failed generation.
+      const score = Number(parsed.score);
+      if (!Number.isFinite(score)) throw new Error("missing or non-numeric score");
+
+      return {
+        score,
+        reason:        typeof parsed.reason === "string" ? parsed.reason : "",
+        tailoredPitch: typeof parsed.tailoredPitch === "string" ? parsed.tailoredPitch : "",
+        skipReason:    typeof parsed.skipReason === "string" && parsed.skipReason ? parsed.skipReason : null,
+        // Coerce a null/absent/non-object salary to {} so normalization treats it
+        // as "unknown" instead of throwing.
+        salary:        parsed.salary && typeof parsed.salary === "object" ? parsed.salary as RawSalary : {},
+        needsTailoring: parsed.needsTailoring === true,
+        tailoringSuggestions: parsed.tailoringSuggestions ?? null,
+      };
+    } catch (err) {
+      if (attempt === 1) {
+        console.error("[scoreJob] unparseable LLM response after retry:", (err as Error).message);
+        return null;
+      }
+    }
+  }
+  return null;
+}
+
 export async function scoreJob(
   input: ScoringInput,
   providerId?: string
 ): Promise<ScoringOutput> {
-  const result = await chatCompletion(
+  const parsed = await completeScoring(
     [
       // System = static candidate profile + rubric → cached by OpenAI automatically
       // when the prefix is identical across calls in the same run.
@@ -205,19 +260,22 @@ export async function scoreJob(
       // User = only the dynamic part (company + role + JD).
       { role: "user", content: buildUserPrompt(input) },
     ],
-    { temperature: 0.2, response_format: { type: "json_object" } },
     providerId
   );
 
-  const parsed = parseJsonResponse<{
-    score: number;
-    reason: string;
-    tailoredPitch: string;
-    skipReason: string | null;
-    salary: RawSalary;
-    needsTailoring?: boolean;
-    tailoringSuggestions?: string | string[] | null;
-  }>(result.text);
+  if (!parsed) {
+    // Both attempts failed — surface it as a recorded skip (visible in the
+    // dashboard with a reason) rather than throwing and vanishing from the run.
+    return {
+      score: 0,
+      reason: "Scoring failed — the model returned an unparseable response twice.",
+      tailoredPitch: "",
+      skipReason: "scoring_failed",
+      salary: {},
+      needsTailoring: false,
+      tailoringSuggestions: null,
+    };
+  }
 
   const rawSalary: RawSalary = sanitizeSalary(
     input.sourceSalary?.basis === "stated"

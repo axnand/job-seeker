@@ -79,13 +79,25 @@ function classifyRole(headline?: string): "REFERRAL" | "RECRUITER" {
 function personToTarget(p: LinkedinPersonItem): OutreachTarget | null {
   const providerId = p.provider_id ?? p.id;
   if (!providerId) return null;
-  const name = p.name ?? [p.first_name, p.last_name].filter(Boolean).join(" ") ?? "there";
+
+  const name = (p.name ?? [p.first_name, p.last_name].filter(Boolean).join(" ") ?? "").trim();
+
+  // Anonymized / out-of-network search results — shown as "LinkedIn Member" with
+  // no public handle — carry an ephemeral provider_id that LinkedIn won't let us
+  // invite (/users/invite → "Invalid parameters" / "Recipient cannot be reached",
+  // profile fetch → 422). Drop them at discovery so we never enqueue a thread
+  // that can only burn the circuit breaker and waste an invite slot.
+  const hasHandle = !!p.public_identifier || !!p.profile_url;
+  if (!hasHandle || !name || /^linkedin member$/i.test(name)) {
+    return null;
+  }
+
   const linkedinUrl =
     p.profile_url ??
     (p.public_identifier ? `https://www.linkedin.com/in/${p.public_identifier}` : "https://www.linkedin.com");
   return {
     providerId,
-    name: name || "there",
+    name,
     title: p.headline,
     company: p.current_company,
     linkedinUrl,

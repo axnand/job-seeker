@@ -17,6 +17,7 @@ import { getSettings } from "@/lib/settings";
 import { getSendBudget, isWithinSendWindow } from "./limits";
 import { processThread, markThreadReplied, type SendBudgetMut } from "./thread-worker";
 import { replenishOutreach } from "./replenish";
+import { maybeAutoResume } from "./safety";
 import { isNegativeReply } from "./classify-reply";
 import { recomputeOutreachState } from "@/status/outreach-state";
 import {
@@ -44,6 +45,9 @@ export interface TickResult {
 }
 
 export async function runOutreachTick(): Promise<TickResult> {
+  // Lift a transient (rate-limit) pause once its cooldown elapsed. updateSettings
+  // refreshes the cache, so the getSettings below sees the resumed state.
+  await maybeAutoResume().catch((e) => console.error("[tick] maybeAutoResume failed:", e));
   const settings = await getSettings();
   const base: TickResult = {
     processed: 0, failed: 0, claimed: 0, pollAccepted: 0, pollReplied: 0, staleArchived: 0, replenished: 0,
@@ -257,10 +261,20 @@ async function reconcileInviteAcceptances(): Promise<number> {
     sent.flatMap((i) => [i.invitedUserId, i.invitedUserPublicId].filter((x): x is string => !!x))
   );
 
+  // Cap profile fetches per run so a large pending backlog can't turn the daily
+  // reconcile into a profile-scraping burst. Leftovers get checked tomorrow.
+  const MAX_PROFILE_CHECKS = 15;
+  let checks = 0;
   let accepted = 0;
   for (const t of pending) {
     if (!t.candidateProviderId) continue;
     if (stillPending.has(t.candidateProviderId)) continue; // still awaiting acceptance
+
+    if (checks >= MAX_PROFILE_CHECKS) {
+      console.log(`[tick] reconcileInviteAcceptances: hit ${MAX_PROFILE_CHECKS}-profile cap — rest re-checked tomorrow`);
+      break;
+    }
+    checks++;
 
     // Absent from the sent list ≠ accepted (could be withdrawn/expired/paginated).
     // Confirm a real 1st-degree connection before advancing — otherwise the DM
@@ -296,8 +310,11 @@ async function pollReplies(): Promise<number> {
   const accountId = config.owner.linkedinAccountId;
   if (!accountId) return 0;
 
+  // Include PAUSED — a sibling paused by the one-human rule can still receive a
+  // reply, and that reply should flip it to REPLIED (markThreadReplied handles
+  // PAUSED in its guard).
   const active = await prisma.channelThread.findMany({
-    where: { status: "ACTIVE", providerChatId: { not: null }, lastMessageAt: { not: null } },
+    where: { status: { in: ["ACTIVE", "PAUSED"] }, providerChatId: { not: null }, lastMessageAt: { not: null } },
     select: {
       id: true,
       providerChatId: true,

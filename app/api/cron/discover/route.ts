@@ -28,6 +28,11 @@ const SCORE_CONCURRENCY = 6; // parallel LLM calls — fast without hammering ra
 // Obvious non-engineering titles — dropped before the LLM to save calls + budget.
 const NON_ENG = /\b(sales|account executive|recruiter|talent|copywriter|content writer|freelance writer|marketing|seo|designer|data (entry|analyst)|customer (support|success)|virtual assistant|teacher|tutor|nurse|driver|accountant|hr\b|business development|bdr|sdr)\b/i;
 
+// Strong software-engineering signals. If the title carries one of these, we keep
+// it even when NON_ENG also matches — so "Backend Engineer, Sales Platform" or
+// "Software Engineer (Marketing Tools)" aren't wrongly dropped before scoring.
+const ENG_OVERRIDE = /\b(software|back.?end|front.?end|full.?stack|sde|sdet|developer|programmer|devops|platform engineer|infrastructure|data engineer|ml engineer|machine learning|software development)\b/i;
+
 export const maxDuration = 300; // allow long runs on Vercel Pro; hobby caps at 60s
 
 export async function POST() {
@@ -55,7 +60,7 @@ async function runDiscover() {
 
     // Drop old postings + obvious non-engineering roles before scoring
     const eligible = rawJobs.filter(job => {
-      if (NON_ENG.test(job.role)) return false;
+      if (NON_ENG.test(job.role) && !ENG_OVERRIDE.test(job.role)) return false;
       if (!job.postedAt) return true;                       // unknown age — keep
       return now.getTime() - job.postedAt.getTime() < maxPostedAge;
     });

@@ -27,7 +27,9 @@ import {
   cancelInvitation,
   fetchProfile,
   isAlreadyConnected,
+  type MessageAttachment,
 } from "@/unipile/client";
+import { downloadResume } from "@/lib/s3";
 import { recomputeOutreachState } from "@/status/outreach-state";
 import { handleSendError } from "./safety";
 import { nextSendWindowOpen } from "./limits";
@@ -137,7 +139,7 @@ export async function archiveThread(threadId: string, reason: string): Promise<v
 export async function markThreadReplied(threadId: string, opts?: { negative?: boolean }): Promise<void> {
   await prisma.$transaction(async (tx) => {
     const flip = await tx.channelThread.updateMany({
-      where: { id: threadId, status: { in: ["PENDING", "ACTIVE"] } },
+      where: { id: threadId, status: { in: ["PENDING", "ACTIVE", "PAUSED"] } },
       data: { status: "REPLIED", nextActionAt: null, lastInboundAt: new Date() },
     });
     if (flip.count === 0) return; // already terminal
@@ -319,6 +321,19 @@ async function doSendInvite(
       console.log(`${tag} already connected — queued for first DM`);
       return;
     }
+    // Permanent: the target can't be invited — an anonymized / out-of-network
+    // "LinkedIn Member" whose ephemeral provider_id LinkedIn rejects (invalid
+    // parameters, recipient unreachable, 404/422). Retrying 5× changes nothing,
+    // so archive NOW instead of burning the circuit breaker and an invite slot.
+    if (
+      /invalid_parameters|invalid parameters|cannot be reached|cannot_be_reached|unreachable|not_found|does ?n.?t exist|invalid recipient|invalid provider/.test(text) ||
+      (err as { status?: number }).status === 422 ||
+      (err as { status?: number }).status === 404
+    ) {
+      await archiveThread(thread.id, `Cannot invite — unreachable/invalid profile (${String((err as Error).message).slice(0, 80)})`);
+      console.log(`${tag} invite permanently rejected — archived (${(err as Error).message})`);
+      return;
+    }
     throw err;
   }
 
@@ -404,10 +419,27 @@ async function doSendFirstDm(
 
   const text = ps.firstDm ?? "Hi, thanks for connecting!";
 
+  const resumeKey =
+    (await prisma.channelThread.findUnique({
+      where: { id: thread.id },
+      select: { outreach: { select: { job: { select: { tailoredResumeKey: true } } } } },
+    }))?.outreach?.job?.tailoredResumeKey ??
+    (await prisma.resumeProfile.findUnique({ where: { id: "default" } }))?.baseResumeKey ??
+    null;
+  let attachment: MessageAttachment | undefined;
+  if (resumeKey) {
+    try {
+      const data = await downloadResume(resumeKey);
+      attachment = { data, filename: resumeKey.split("/").pop() ?? "resume.pdf" };
+    } catch (err) {
+      console.warn(`${tag} could not load resume — sending without:`, err);
+    }
+  }
+
   let chatId = "";
   let messageId = "";
   try {
-    ({ chatId, messageId } = await startChat(accountId, providerUserId, text));
+    ({ chatId, messageId } = await startChat(accountId, providerUserId, text, attachment));
   } catch (err) {
     const body = String((err as Error).message ?? "").toLowerCase();
     const code = String((err as { code?: string }).code ?? "").toLowerCase();

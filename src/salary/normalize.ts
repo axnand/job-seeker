@@ -33,7 +33,7 @@ export async function normalizeSalary(
   raw: RawSalary,
   overrideBaseCurrency?: string
 ): Promise<NormalizedSalary | null> {
-  if (!raw.min && !raw.max) return null;
+  if (!raw || (!raw.min && !raw.max)) return null;
 
   const currency = raw.currency ?? config.search.baseCurrency;
   const period = raw.period ?? "year";

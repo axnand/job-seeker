@@ -179,6 +179,29 @@ export async function getJobDetail(
   return request("GET", `/linkedin/jobs/${jobId}`, undefined, { account_id: accountId });
 }
 
+/**
+ * List the posts authored by a specific LinkedIn user (or company).
+ * GET /users/{identifier}/posts — `identifier` is a public_identifier or
+ * provider_id. Newest-first. Used by the feed-watchlist source to monitor a
+ * curated set of authors (LinkedIn exposes no home-timeline endpoint).
+ */
+export async function listUserPosts<T>(
+  accountId: string,
+  identifier: string,
+  limit = 20,
+  cursor?: string
+): Promise<{ items: T[]; cursor?: string }> {
+  const query: Record<string, string> = { account_id: accountId, limit: String(limit) };
+  if (cursor) query.cursor = cursor;
+  const data = await request<{ items?: T[]; cursor?: string } | T[]>(
+    "GET",
+    `/users/${encodeURIComponent(identifier)}/posts`,
+    undefined,
+    query
+  );
+  return Array.isArray(data) ? { items: data } : { items: data.items ?? [], cursor: data.cursor };
+}
+
 /** Resolve text (location, company, etc.) to LinkedIn IDs. */
 export async function resolveSearchParam(
   accountId: string,

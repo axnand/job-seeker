@@ -30,14 +30,17 @@ export interface SendBudget {
  * very first invite ever sent (proxy for "account warmth").
  */
 async function effectiveDailyInviteCap(configuredCap: number): Promise<{ cap: number; inWarmup: boolean }> {
-  const firstInvite = await prisma.threadMessage.findFirst({
-    where: { kind: "INVITE" },
-    orderBy: { sentAt: "asc" },
-    select: { sentAt: true },
+  // Count by ChannelThread.inviteSentAt, not ThreadMessage — the "already
+  // pending" branch in doSendInvite advances an invite without recording a
+  // ThreadMessage, so a message-based count silently undercounts real invites.
+  const firstInvite = await prisma.channelThread.findFirst({
+    where: { inviteSentAt: { not: null } },
+    orderBy: { inviteSentAt: "asc" },
+    select: { inviteSentAt: true },
   });
-  if (!firstInvite) return { cap: Math.min(configuredCap, 5), inWarmup: true };
+  if (!firstInvite?.inviteSentAt) return { cap: Math.min(configuredCap, 5), inWarmup: true };
 
-  const ageDays = (Date.now() - firstInvite.sentAt.getTime()) / DAY_MS;
+  const ageDays = (Date.now() - firstInvite.inviteSentAt.getTime()) / DAY_MS;
   if (ageDays < 2) return { cap: Math.min(configuredCap, 5), inWarmup: true };
   if (ageDays < 5) return { cap: Math.min(configuredCap, 8), inWarmup: true };
   return { cap: configuredCap, inWarmup: false };
@@ -50,8 +53,10 @@ export async function getSendBudget(settings?: AppSettingsData): Promise<SendBud
   const since7d = new Date(now - WEEK_MS);
 
   const [invites24h, invites7d, dms24h] = await Promise.all([
-    prisma.threadMessage.count({ where: { kind: "INVITE", sentAt: { gte: since24h } } }),
-    prisma.threadMessage.count({ where: { kind: "INVITE", sentAt: { gte: since7d } } }),
+    // Invites counted by inviteSentAt (one per thread) so the "already pending"
+    // branch — which sets inviteSentAt but writes no ThreadMessage — still counts.
+    prisma.channelThread.count({ where: { inviteSentAt: { gte: since24h } } }),
+    prisma.channelThread.count({ where: { inviteSentAt: { gte: since7d } } }),
     prisma.threadMessage.count({ where: { kind: { in: ["FIRST_DM", "FOLLOWUP"] }, sentAt: { gte: since24h } } }),
   ]);
 

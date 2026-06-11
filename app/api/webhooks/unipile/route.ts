@@ -103,6 +103,13 @@ export async function POST(req: NextRequest) {
     data = parsed;
   }
 
+  // Raw payload trace — Unipile occasionally shifts field names (is_sender,
+  // timestamp, etc.); without a record they're near-impossible to diagnose.
+  // Truncated to keep logs bounded.
+  console.log(
+    `[webhook/unipile] event=${eventType} keys=[${Object.keys(data).join(",")}] raw=${raw.slice(0, 1200)}`
+  );
+
   const dedupeId = extractDedupeId(eventType, data);
   if (dedupeId) {
     try {
@@ -179,10 +186,17 @@ async function handleInviteAccepted(data: Record<string, unknown>) {
 async function handleMessageReceived(data: Record<string, unknown>) {
   const chatId = (data.chat_id as string) ?? (data.chatId as string) ?? ((data.chat as Record<string, unknown>)?.id as string);
 
-  // Outbound echo detection (Unipile flat format).
+  // Outbound echo detection (Unipile flat format). Unipile messages carry
+  // `is_sender` (1 = us). Without this guard our own sent DM echoes back through
+  // the webhook and gets recorded as an inbound reply → false REPLIED.
   const accountUserId = (data.account_info as Record<string, unknown>)?.user_id as string | undefined;
   const senderProviderId = (data.sender as Record<string, unknown>)?.attendee_provider_id as string | undefined;
-  const fromMe = data.is_from_me === true || data.from_me === true || (!!accountUserId && accountUserId === senderProviderId);
+  const fromMe =
+    data.is_sender === 1 ||
+    data.is_sender === true ||
+    data.is_from_me === true ||
+    data.from_me === true ||
+    (!!accountUserId && accountUserId === senderProviderId);
   if (fromMe) return;
   if (data.is_group === true) return;
 
