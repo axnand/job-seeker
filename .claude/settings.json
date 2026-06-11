@@ -8,7 +8,18 @@
       "Bash(echo \"TC: $?\")",
       "Bash(sed -n '59,140p' prisma/schema.prisma)",
       "Bash(sed -n '243,310p' prisma/schema.prisma)",
-      "Bash(node -e ' *)"
+      "Bash(node -e ' *)",
+      "Bash(git commit -m ' *)",
+      "Bash(node -e \"console.log\\(process.version\\)\")",
+      "Bash(node diag.mjs)",
+      "Bash(node repair.mjs)",
+      "Bash(node repair.mjs --apply)",
+      "Bash(sed -n '66,86p' app/api/cron/discover/route.ts)",
+      "Bash(sed -n '30,45p' prisma/schema.prisma)",
+      "Bash(node -e 'const{PrismaClient}=require\\('\\\\''@prisma/client'\\\\''\\);const p=new PrismaClient\\(\\);p.aiProvider.findMany\\(\\).then\\(r=>{console.log\\('\\\\''AiProvider rows:'\\\\'',JSON.stringify\\(r.map\\(x=>\\({id:x.id,type:x.providerType,model:x.model,isDefault:x.isDefault,baseUrl:x.baseUrl}\\)\\),null,2\\)\\);return p.appSettings.findUnique\\({where:{id:'\\\\''default'\\\\''}}\\)}\\).then\\(s=>{console.log\\('\\\\''AppSettings.ai:'\\\\'',JSON.stringify\\(s&&s.data&&s.data.ai\\)\\);}\\).catch\\(e=>console.log\\('\\\\''DB err:'\\\\'',e.message\\)\\).finally\\(\\(\\)=>p.$disconnect\\(\\)\\)')",
+      "Bash(ls MEMORY.md)",
+      "Bash(tail -3 MEMORY.md)",
+      "Bash(node -e 'const{PrismaClient}=require\\('\\\\''@prisma/client'\\\\''\\);const p=new PrismaClient\\(\\);\\(async\\(\\)=>{const row=await p.appSettings.findUnique\\({where:{id:'\\\\''default'\\\\''}}\\);const data=row?.data||{};data.ai={...\\(data.ai||{}\\),defaultModel:'\\\\''gpt-4.1'\\\\''};await p.appSettings.upsert\\({where:{id:'\\\\''default'\\\\''},create:{id:'\\\\''default'\\\\'',data},update:{data}}\\);const v=await p.appSettings.findUnique\\({where:{id:'\\\\''default'\\\\''}}\\);console.log\\('\\\\''Updated AppSettings.ai:'\\\\'',JSON.stringify\\(v.data.ai\\)\\);}\\)\\(\\).catch\\(e=>console.log\\('\\\\''err'\\\\'',e.message\\)\\).finally\\(\\(\\)=>p.$disconnect\\(\\)\\)')"
     ]
   }
 }

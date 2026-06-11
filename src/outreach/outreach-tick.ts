@@ -20,9 +20,10 @@ import { replenishOutreach } from "./replenish";
 import { isNegativeReply } from "./classify-reply";
 import { recomputeOutreachState } from "@/status/outreach-state";
 import {
-  listSentInvitations,
   listChatMessages,
-  type SentInvitation,
+  listSentInvitations,
+  fetchProfile,
+  isAlreadyConnected,
 } from "@/unipile/client";
 import { sendReplyAlert } from "@/email/digest";
 
@@ -48,12 +49,17 @@ export async function runOutreachTick(): Promise<TickResult> {
     processed: 0, failed: 0, claimed: 0, pollAccepted: 0, pollReplied: 0, staleArchived: 0, replenished: 0,
   };
 
-  // Poll fallbacks first — read-only-ish, safe regardless of pause/window, and
-  // they recover from missed webhooks (advance acceptances/replies).
-  base.pollAccepted = await pollInviteAcceptances().catch((e) => {
-    console.error("[tick] pollInviteAcceptances failed:", e);
+  // Invite ACCEPTANCES come from the `users.new_relation` webhook (Unipile's
+  // ~8h relations-sync push) — the source of truth. We do NOT poll for them
+  // every tick (that pull pattern reads as bot scraping and risks the account).
+  // The reconcile below runs AT MOST once per UTC day as a missed-webhook
+  // safety net, and self-skips on every other tick.
+  base.pollAccepted = await reconcileInviteAcceptances().catch((e) => {
+    console.error("[tick] reconcileInviteAcceptances failed:", e);
     return 0;
   });
+  // Replies still poll as a fallback — far lower volume (only active MESSAGED
+  // threads) and the message_received webhook can miss.
   base.pollReplied = await pollReplies().catch((e) => {
     console.error("[tick] pollReplies failed:", e);
     return 0;
@@ -207,25 +213,44 @@ async function claimDueThreads(limit: number): Promise<string[]> {
   }
 }
 
-// ─── Poll fallback: invite acceptances ──────────────────────────────────────
+// ─── Daily reconcile: missed invite acceptances ──────────────────────────────
 
-async function pollInviteAcceptances(): Promise<number> {
+/**
+ * Invite acceptances are handled by the `users.new_relation` webhook
+ * (app/api/webhooks/unipile/route.ts) — Unipile pushes accepted connections on
+ * its ~8h relations-sync cadence. This reconcile is ONLY a missed-webhook safety
+ * net and runs AT MOST once per UTC day: polling the sent-invitations / profile
+ * endpoints every 30-min tick reads as bot scraping and risks the account.
+ *
+ * The once-a-day slot is claimed via a WebhookEvent marker row (unique id) — the
+ * first tick of the day claims it, every other tick that day no-ops. Acceptance
+ * is confirmed against the real profile (1st-degree) before advancing, never
+ * inferred from mere absence in the sent list.
+ */
+async function reconcileInviteAcceptances(): Promise<number> {
   const accountId = config.owner.linkedinAccountId;
   if (!accountId) return 0;
 
+  // Claim today's slot. If the marker already exists, another tick ran it today.
+  const dayKey = `reconcile:invite-accept:${new Date().toISOString().slice(0, 10)}`;
+  try {
+    await prisma.webhookEvent.create({
+      data: { id: dayKey, provider: "internal", eventType: "invite-reconcile" },
+    });
+  } catch {
+    return 0; // already reconciled today
+  }
+
   const pending = await prisma.channelThread.findMany({
-    where: {
-      status: "ACTIVE",
-      providerState: { path: ["phase"], equals: "INVITE_PENDING" },
-    },
+    where: { status: "ACTIVE", providerState: { path: ["phase"], equals: "INVITE_PENDING" } },
     select: { id: true, candidateProviderId: true, providerState: true, outreachId: true },
   });
   if (pending.length === 0) return 0;
 
-  let sent: SentInvitation[];
-  try {
-    sent = await listSentInvitations(accountId, 200);
-  } catch {
+  // limit=100 (Unipile rejects higher). null => fetch failed: do NOT infer.
+  const sent = await listSentInvitations(accountId, 100);
+  if (sent === null) {
+    console.warn("[tick] reconcileInviteAcceptances: sent-invitations fetch failed — skipping today");
     return 0;
   }
   const stillPending = new Set(
@@ -235,7 +260,18 @@ async function pollInviteAcceptances(): Promise<number> {
   let accepted = 0;
   for (const t of pending) {
     if (!t.candidateProviderId) continue;
-    if (stillPending.has(t.candidateProviderId)) continue; // still awaiting
+    if (stillPending.has(t.candidateProviderId)) continue; // still awaiting acceptance
+
+    // Absent from the sent list ≠ accepted (could be withdrawn/expired/paginated).
+    // Confirm a real 1st-degree connection before advancing — otherwise the DM
+    // fails with "Subscription required" / "Recipient cannot be reached".
+    let connected = false;
+    try {
+      connected = isAlreadyConnected(await fetchProfile(accountId, t.candidateProviderId));
+    } catch {
+      continue; // re-check tomorrow / let the 7-day timeout handle it
+    }
+    if (!connected) continue;
 
     const res = await prisma.channelThread.updateMany({
       where: { id: t.id, status: "ACTIVE", providerState: { path: ["phase"], equals: "INVITE_PENDING" } },
@@ -250,7 +286,7 @@ async function pollInviteAcceptances(): Promise<number> {
       if (jobId) await recomputeOutreachState(jobId).catch(() => {});
     }
   }
-  if (accepted > 0) console.log(`[tick] pollInviteAcceptances: ${accepted} accepted → CONNECTED`);
+  if (accepted > 0) console.log(`[tick] reconcileInviteAcceptances: ${accepted} missed acceptance(s) → CONNECTED`);
   return accepted;
 }
 

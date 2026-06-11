@@ -19,7 +19,12 @@ export interface OutreachMessages {
 }
 
 function fill(tpl: string, vars: Record<string, string>): string {
-  return tpl.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? "").replace(/\s+/g, " ").trim();
+  return tpl
+    .replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? "")
+    .replace(/[^\S\n]*[—–][^\S\n]*/g, ", ") // em/en dash → comma (DB-overridden templates can still contain them)
+    .replace(/[^\S\n]+/g, " ")   // collapse horizontal whitespace only (preserve newlines)
+    .replace(/ *\n */g, "\n")    // trim spaces around newlines
+    .trim();
 }
 
 /**
@@ -53,10 +58,9 @@ export async function writeMessages(opts: {
     name: opts.target.name,
     company: opts.company,
     role,
-    pitch: sanitizePitch(opts.pitch),
     ownerName: config.owner.name || "",
     ownerFirstName: (config.owner.name || "").split(" ")[0] || "",
-    resumeLink: opts.resumeUrl ? `Resume: ${opts.resumeUrl}` : "",
+    resumeLink: opts.resumeUrl ? `My resume: ${opts.resumeUrl}` : "",
   };
 
   return {

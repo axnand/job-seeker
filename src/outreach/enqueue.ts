@@ -72,11 +72,8 @@ export async function draftAndQueueTargets(
   const followupsTotal = 1 + Math.max(0, settings.outreach.maxFollowups); // first DM + N followups
   const pitch = job.tailoredPitch ?? `${job.role} is a strong fit for my backend / full-stack background.`;
 
-  // Build a stable resume link — app endpoint generates fresh presigned URL on every click.
-  const resumeKey = job.tailoredResumeKey
-    ?? (await prisma.resumeProfile.findUnique({ where: { id: "default" } }))?.baseResumeKey
-    ?? null;
-  const resumeUrl = resumeKey ? `${config.app.baseUrl}/api/resume/download?key=${encodeURIComponent(resumeKey)}` : undefined;
+  // Short, stable resume link — /r redirects to the presigned S3 URL on click.
+  const resumeUrl = `${config.app.baseUrl}/r`;
 
   let drafted = 0;
   for (const target of targets) {

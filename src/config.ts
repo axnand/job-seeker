@@ -108,11 +108,30 @@ Targeting: entry-level / SDE-1 / junior software engineering roles at strong pro
   },
 
   // Outreach message templates (editable from the dashboard).
-  // Placeholders: {firstName} {name} {company} {role} {pitch} {ownerName}
+  // Placeholders: {firstName} {name} {company} {role} {resumeLink} {ownerName}
   templates: {
     connectionNote: "Hi {firstName}, I came across {company}'s {role} opening and noticed you're on the team. Would love to connect and learn more.",
-    firstDm: "Hey {firstName}, thanks for connecting! I'm exploring {role} opportunities and {company} really stood out to me. {pitch} Would you be open to referring me, or pointing me to the right person? No pressure if it's not a fit.",
-    followup: "Hi {firstName}, just following up in case my note got buried — still very interested in the {role} role at {company}. Totally fine if it's not the right time. Thanks!",
+
+    firstDm: [
+      "Hi {firstName},",
+      "",
+      "I'm currently looking for {role} opportunities and recently came across an opening at {company} that caught my interest. I was hoping you might be able to help me with a referral.",
+      "",
+      "I'm currently working as a Software Engineer at Salescode.ai, using Java, JavaScript, Spring Boot, and CI/CD tools.",
+      "",
+      "I'd really appreciate it if you could refer me. No pressure if it's not a fit.",
+      "",
+      "{resumeLink}",
+      "Thanks a lot for your time!",
+    ].join("\n"),
+
+    followup: [
+      "Hi {firstName},",
+      "",
+      "Just following up in case my earlier message got buried. Still very interested in the {role} role at {company}.",
+      "",
+      "Totally fine if the timing isn't right. Thanks!",
+    ].join("\n"),
   },
 
   staleness: {
@@ -122,7 +141,9 @@ Targeting: entry-level / SDE-1 / junior software engineering roles at strong pro
 
   ai: {
     defaultProvider: "openai" as string,
-    defaultModel: "gpt-4o-mini" as string,
+    // gpt-4.1 (not 4o-mini): far better world-knowledge of company pay bands, so
+    // salary estimates for unstated-pay roles are calibrated instead of optimistic.
+    defaultModel: "gpt-4.1" as string,
     fallbackApiKey: process.env.OPENAI_API_KEY ?? "",
     enableResumeTailoring: false,
   },

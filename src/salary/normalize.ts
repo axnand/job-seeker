@@ -80,11 +80,14 @@ export function salaryGate(
     return { pass: true };
   }
 
-  // Below threshold — check confidence
-  if (salary.basis === "stated" || salary.confidence === "high") {
+  // Below threshold. Drop when we're reasonably sure the pay is low: a stated
+  // figure, or a medium/high-confidence estimate (e.g. a known low-paying
+  // IT-services firm). Only a genuinely uncertain (low-confidence) guess is
+  // kept-but-flagged, so we don't discard legit roles whose pay we can't read.
+  if (salary.basis === "stated" || salary.confidence === "high" || salary.confidence === "medium") {
     return { pass: false, reason: `salary_below_threshold_${salary.basis}` };
   }
 
-  // Uncertain estimate below threshold — keep but flag
+  // Uncertain (low-confidence) estimate below threshold — keep but flag
   return { pass: true, reason: "salary_uncertain_estimate_flagged" };
 }

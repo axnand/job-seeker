@@ -27,9 +27,7 @@ import {
   cancelInvitation,
   fetchProfile,
   isAlreadyConnected,
-  type MessageAttachment,
 } from "@/unipile/client";
-import { downloadResume } from "@/lib/s3";
 import { recomputeOutreachState } from "@/status/outreach-state";
 import { handleSendError } from "./safety";
 import { nextSendWindowOpen } from "./limits";
@@ -371,7 +369,7 @@ async function doInvitePendingTimeout(
   // Not connected — cancel the pending invite, then archive.
   try {
     const sent = await listSentInvitations(accountId);
-    const match = sent.find((i) => i.invitedUserId === providerUserId || i.invitedUserPublicId === providerUserId);
+    const match = sent?.find((i) => i.invitedUserId === providerUserId || i.invitedUserPublicId === providerUserId);
     if (match) await cancelInvitation(accountId, match.id);
   } catch {
     /* best effort */
@@ -404,41 +402,36 @@ async function doSendFirstDm(
   if (!(await verifyStillSendable(thread.id))) return;
   if (!(await markPendingSend(thread.id))) return;
 
-  const text = ps.firstDm ?? "Hi — thanks for connecting!";
-
-  // Attach the resume PDF if one is uploaded (tailored for this job, else base).
-  const jobRow = await prisma.channelThread.findUnique({
-    where: { id: thread.id },
-    select: { outreach: { select: { job: { select: { tailoredResumeKey: true } } } } },
-  });
-  const resumeKey = jobRow?.outreach?.job?.tailoredResumeKey
-    ?? (await prisma.resumeProfile.findUnique({ where: { id: "default" } }))?.baseResumeKey
-    ?? null;
-  let attachment: MessageAttachment | undefined;
-  if (resumeKey) {
-    try {
-      const data = await downloadResume(resumeKey);
-      const filename = resumeKey.split("/").pop() ?? "resume.pdf";
-      attachment = { data, filename };
-    } catch (err) {
-      console.warn(`${tag} could not load resume for attachment — sending without:`, err);
-    }
-  }
+  const text = ps.firstDm ?? "Hi, thanks for connecting!";
 
   let chatId = "";
   let messageId = "";
   try {
-    ({ chatId, messageId } = await startChat(accountId, providerUserId, text, attachment));
+    ({ chatId, messageId } = await startChat(accountId, providerUserId, text));
   } catch (err) {
     const body = String((err as Error).message ?? "").toLowerCase();
-    if (body.includes("no_connection_with_recipient")) {
-      // Not actually connected — reset to QUEUED so the invite is (re)sent.
+    const code = String((err as { code?: string }).code ?? "").toLowerCase();
+    const text = `${body} ${code}`;
+    // "Subscription required" / "Recipient cannot be reached" / no-connection all
+    // mean the same thing: we are NOT a 1st-degree connection, so the acceptance
+    // signal that moved us to CONNECTED was wrong (a missed/early webhook or a
+    // stale flip). Don't burn the circuit breaker and archive a contact whose
+    // invite may still be pending — revert to INVITE_PENDING and wait for the
+    // real new_relation webhook. The 7-day timeout still cleans up dead invites.
+    if (
+      /no_connection_with_recipient|subscription required|subscription_required|cannot be reached|cannot_be_reached|not_connected|no connection/.test(
+        text,
+      )
+    ) {
       await guardedThreadUpdate(thread.id, {
-        status: "PENDING",
-        providerState: { ...ps, phase: "QUEUED" },
-        nextActionAt: new Date(),
+        status: "ACTIVE",
+        providerState: { ...ps, phase: "INVITE_PENDING" },
+        consecutiveFailures: 0,
+        pendingSendKey: null,
+        pendingSendStartedAt: null,
+        nextActionAt: daysFromNow(s.outreach.inviteTimeoutDays),
       });
-      console.log(`${tag} DM failed: not connected — reset to QUEUED`);
+      console.log(`${tag} DM blocked (not connected: "${body.slice(0, 60)}") — back to INVITE_PENDING, awaiting acceptance`);
       return;
     }
     throw err;
@@ -485,7 +478,7 @@ async function doFollowup(
   if (!(await verifyStillSendable(thread.id))) return;
   if (!(await markPendingSend(thread.id))) return;
 
-  const text = ps.followup ?? "Just following up — still very interested. Thanks!";
+  const text = ps.followup ?? "Just following up, still very interested. Thanks!";
   const { messageId } = await sendChatMessage(accountId, thread.providerChatId, text);
 
   budget.dmsLeft -= 1;

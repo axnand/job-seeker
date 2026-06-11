@@ -6,6 +6,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { config } from "@/config";
+import { getSettings } from "@/lib/settings";
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
@@ -51,12 +52,15 @@ async function loadProvider(providerId?: string): Promise<ProviderConfig> {
     // DB might not be available during build
   }
 
-  // Fallback to env
+  // No AiProvider row → default OpenAI endpoint. The model is taken from live
+  // settings (the dashboard "Default model" field), falling back to the config
+  // default. This is what makes that UI field actually change the live model.
+  const settings = await getSettings().catch(() => null);
   return {
     providerType: "openai-compatible",
     baseUrl: "https://api.openai.com/v1",
     apiKey: config.ai.fallbackApiKey,
-    model: config.ai.defaultModel,
+    model: settings?.ai.defaultModel || config.ai.defaultModel,
   };
 }
 

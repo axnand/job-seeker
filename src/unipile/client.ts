@@ -252,13 +252,21 @@ export interface SentInvitation {
   date: string;
 }
 
-export async function listSentInvitations(accountId: string, limit = 100): Promise<SentInvitation[]> {
+/**
+ * List sent (pending) invitations. Returns `null` on a fetch failure so callers
+ * can distinguish "the API failed" from "no invites are pending" — critical for
+ * acceptance inference: an empty list must never be read as "everyone accepted"
+ * when it was actually an error. `limit` is clamped to 100 (Unipile rejects any
+ * higher value with HTTP 400 invalid_parameters).
+ */
+export async function listSentInvitations(accountId: string, limit = 100): Promise<SentInvitation[] | null> {
+  const safeLimit = Math.min(Math.max(1, limit), 100);
   try {
     const data = await request<{ items?: Array<Record<string, unknown>> } | Array<Record<string, unknown>>>(
       "GET",
       "/users/invite/sent",
       undefined,
-      { account_id: accountId, limit: String(limit) }
+      { account_id: accountId, limit: String(safeLimit) }
     );
     const items = (Array.isArray(data) ? data : data.items ?? []) as Array<Record<string, unknown>>;
     return items.map((i) => ({
@@ -268,7 +276,7 @@ export async function listSentInvitations(accountId: string, limit = 100): Promi
       date: (i.date as string) ?? "",
     }));
   } catch {
-    return [];
+    return null;
   }
 }
 
@@ -345,9 +353,11 @@ export async function listChatMessages(
     const items = (Array.isArray(data) ? data : data.items ?? []) as Array<Record<string, unknown>>;
     return items.map((m) => ({
       id: String(m.id ?? ""),
-      fromMe: m.from_me === true || m.is_from_me === true,
+      // Unipile messages use `is_sender` (1 = us, 0 = them) and `timestamp`.
+      // Keep the older field names as fallbacks for forward-compat.
+      fromMe: m.is_sender === 1 || m.is_sender === true || m.from_me === true || m.is_from_me === true,
       text: String(m.text ?? m.body ?? ""),
-      date: String(m.date ?? m.created_at ?? ""),
+      date: String(m.timestamp ?? m.date ?? m.created_at ?? ""),
     }));
   } catch {
     return [];
