@@ -74,6 +74,9 @@ model Job {
   // Post-specific
   sourcePostAuthorUrl  String?
   sourcePostAuthorName String?
+  // Requisition/job ID resolved from the apply link (feed posts that just share
+  // an apply URL). Handed to the referrer in the DM so they can submit you.
+  externalJobId        String?
 
   // AI scoring (populated after scoring step)
   aiScore        Int?

@@ -17,6 +17,7 @@ export interface RawJob {
   // Post-specific
   sourcePostAuthorUrl?: string;
   sourcePostAuthorName?: string;
+  externalJobId?: string;    // requisition/job ID resolved from the apply link
 
   // Pre-extracted salary from source (higher-trust than LLM estimate)
   sourceSalary?: RawSalary;

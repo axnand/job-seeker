@@ -26,6 +26,7 @@ export default function SettingsPage() {
   const [kw, setKw]         = useState("");
   const [co, setCo]         = useState("");
   const [tcForm, setTcForm] = useState<{ name: string; ats: "greenhouse" | "lever" | "ashby"; boardToken: string }>({ name: "", ats: "greenhouse", boardToken: "" });
+  const [faForm, setFaForm] = useState<{ name: string; publicId: string }>({ name: "", publicId: "" });
 
   useEffect(() => {
     fetch("/api/settings").then(r => r.json()).then(setS).catch(console.error);
@@ -61,6 +62,7 @@ export default function SettingsPage() {
   const out = (v: Partial<typeof s.outreach>) => save({ ...s, outreach: { ...s.outreach, ...v } });
   const ai  = (v: Partial<typeof s.ai>)       => save({ ...s, ai:       { ...s.ai,       ...v } });
   const tc  = (v: typeof s.targetCompanies)   => save({ ...s, targetCompanies: v });
+  const fa  = (v: typeof s.feedAuthors)       => save({ ...s, feedAuthors: v });
   const tpl = (v: Partial<typeof s.templates>) => save({ ...s, templates: { ...s.templates, ...v } });
 
   return (
@@ -95,7 +97,8 @@ export default function SettingsPage() {
           {(
             [
               { key: "linkedin"     as const, label: "LinkedIn Jobs",  desc: "LinkedIn job board via Unipile" },
-              { key: "linkedinPosts" as const, label: "LinkedIn Posts", desc: "Hiring posts (\"we're hiring\" / \"DM me\") — AI-extracted" },
+              { key: "linkedinPosts" as const, label: "LinkedIn Posts", desc: "Hiring posts (\"we're hiring\" / \"DM me\") via global keyword search — AI-extracted" },
+              { key: "linkedinFeed"  as const, label: "LinkedIn Feed",  desc: "Hiring posts from a curated author watchlist (set below)" },
               { key: "adzuna"       as const, label: "Adzuna",        desc: "India aggregator — free API" },
               { key: "atsWatchlist" as const, label: "ATS Watchlist", desc: "Greenhouse / Lever / Ashby company boards" },
               { key: "remotive"     as const, label: "Remotive",      desc: "Curated remote tech roles" },
@@ -152,6 +155,41 @@ export default function SettingsPage() {
             </Button>
           </div>
           <p className="text-[11px] text-zinc-400 mt-2">Board token = the company slug in their careers URL (e.g. <span className="font-mono">stripe</span> for greenhouse.io/stripe). Requires the ATS Watchlist source above to be on.</p>
+        </Section>
+      )}
+
+      {/* ── Feed watchlist (shown in Sources tab) ───────────────────── */}
+      {tab === "sources" && (
+        <Section title="Feed Watchlist" desc="People whose posts are monitored for hiring signals. LinkedIn has no home-feed API, so we poll each author directly — the author becomes your warm referral contact.">
+          <div className="space-y-2 mb-4">
+            {s.feedAuthors.length === 0 && (
+              <p className="text-xs text-zinc-400">No authors yet. Add recruiters or people who post roles you'd want a referral for.</p>
+            )}
+            {s.feedAuthors.map((a, i) => (
+              <div key={`${a.publicId}:${i}`} className="flex items-center gap-2 text-sm bg-zinc-50 border border-zinc-100 rounded-lg px-3 py-2">
+                <span className="font-medium text-zinc-800">{a.name}</span>
+                <span className="text-xs text-zinc-400 font-mono truncate">linkedin.com/in/{a.publicId}</span>
+                <button onClick={() => fa(s.feedAuthors.filter((_, j) => j !== i))}
+                  className="ml-auto text-zinc-400 hover:text-red-600 transition-colors shrink-0">×</button>
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <Input value={faForm.name} onChange={e => setFaForm(f => ({ ...f, name: e.target.value }))}
+              placeholder="Name" className="text-sm flex-1" />
+            <Input value={faForm.publicId} onChange={e => setFaForm(f => ({ ...f, publicId: e.target.value }))}
+              placeholder="profile slug" className="text-sm flex-1 font-mono" />
+            <Button variant="outline" size="sm"
+              onClick={() => {
+                const publicId = normalizeSlug(faForm.publicId);
+                if (!faForm.name.trim() || !publicId) return;
+                fa([...s.feedAuthors, { name: faForm.name.trim(), publicId }]);
+                setFaForm({ name: "", publicId: "" });
+              }}>
+              Add
+            </Button>
+          </div>
+          <p className="text-[11px] text-zinc-400 mt-2">Profile slug = the part after <span className="font-mono">/in/</span> in their profile URL (e.g. <span className="font-mono">jane-doe</span> for linkedin.com/in/jane-doe). You can paste the full URL — we'll extract the slug. Requires the LinkedIn Feed source above to be on.</p>
         </Section>
       )}
 
@@ -330,7 +368,7 @@ export default function SettingsPage() {
           <Section title="Message Templates" icon={<Lock className="w-3.5 h-3.5 text-zinc-400" />}
             desc="Drafted per job from these, then you review & edit each one in the job drawer before it sends.">
             <div className="mb-3 flex flex-wrap gap-1.5">
-              {["{firstName}", "{name}", "{company}", "{role}", "{pitch}", "{ownerName}"].map(v => (
+              {["{firstName}", "{name}", "{company}", "{role}", "{pitch}", "{ownerName}", "{jobId}", "{jobRef}"].map(v => (
                 <code key={v} className="text-[11px] bg-zinc-100 text-zinc-600 rounded px-1.5 py-0.5 font-mono">{v}</code>
               ))}
               <span className="text-[11px] text-zinc-400 ml-1 self-center">— filled in automatically per job</span>
@@ -380,6 +418,13 @@ export default function SettingsPage() {
       )}
     </div>
   );
+}
+
+/** Accept a full LinkedIn profile URL or a bare slug; return the /in/ slug. */
+function normalizeSlug(input: string): string {
+  const v = input.trim();
+  const m = v.match(/\/in\/([^/?#]+)/);
+  return (m ? m[1] : v).replace(/\/+$/, "");
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────

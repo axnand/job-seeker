@@ -47,6 +47,7 @@ export async function writeMessages(opts: {
   role: string;
   pitch: string;
   resumeUrl?: string;
+  jobId?: string;
 }): Promise<OutreachMessages> {
   const settings = await getSettings().catch(() => null);
   const templates = settings?.templates ?? config.templates;
@@ -62,6 +63,10 @@ export async function writeMessages(opts: {
     ownerName: config.owner.name || "",
     ownerFirstName: (config.owner.name || "").split(" ")[0] || "",
     resumeLink: opts.resumeUrl ? `My resume: ${opts.resumeUrl}` : "",
+    // {jobId} = raw id (or empty). {jobRef} = a ready-made clause that disappears
+    // when there's no id, so the template reads cleanly either way.
+    jobId: opts.jobId ?? "",
+    jobRef: opts.jobId ? ` The job ID is ${opts.jobId}, in case it helps with the referral.` : "",
   };
 
   return {

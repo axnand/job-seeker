@@ -84,6 +84,7 @@ export async function draftAndQueueTargets(
         role: job.role,
         pitch,
         resumeUrl,
+        jobId: job.externalJobId ?? undefined,
       });
 
       // Upsert the shared Contact (one human = one row, keyed by provider id).

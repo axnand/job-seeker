@@ -110,6 +110,7 @@ async function runDiscover() {
           applyType: raw.applyType,
           sourcePostAuthorUrl: raw.sourcePostAuthorUrl,
           sourcePostAuthorName: raw.sourcePostAuthorName,
+          externalJobId: raw.externalJobId,
           postedAt: raw.postedAt,
 
           aiScore: result.score,

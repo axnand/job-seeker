@@ -190,21 +190,49 @@ export async function sendForJobs(
 
 // ─── Claim ────────────────────────────────────────────────────────────────────
 
+/**
+ * Claim due threads, FAIR-SHARE ACROSS JOBS — discovery queues people faster than
+ * the daily invite cap can send them, so neither FIFO (oldest crowd out) nor pure
+ * score (top jobs drain the whole budget) is right. Instead we round-robin:
+ *
+ *   1. post-acceptance actions first (CONNECTED/MESSAGED) — someone already
+ *      engaged, so send their DM/follow-up before any new invite (separate budget,
+ *      so this never starves invites);
+ *   2. then by within-job rank (ROW_NUMBER per job) — every job's 1st candidate is
+ *      claimed before any job's 2nd, so the daily budget spreads across MANY jobs
+ *      instead of going deep on a few;
+ *   3. job aiScore breaks ties within a round (better-fit roles go first);
+ *   4. oldest-queued (nextActionAt) as the final tiebreak.
+ *
+ * Budget-exhausted claims are rescheduled by the worker, so nothing is lost. No
+ * FOR UPDATE/SKIP LOCKED is needed — withCronLock serializes ticks and the
+ * atomic `SET nextActionAt = NULL` is itself the claim guard (a window function
+ * also can't coexist with row locking in Postgres).
+ */
 async function claimDueThreads(limit: number): Promise<string[]> {
   const now = new Date();
   try {
     const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
-      WITH claimed AS (
+      WITH ranked AS (
+        SELECT
+          ct.id,
+          (CASE WHEN (ct."providerState"->>'phase') IN ('CONNECTED','MESSAGED') THEN 0 ELSE 1 END) AS post_accept,
+          ROW_NUMBER() OVER (PARTITION BY o."jobId" ORDER BY ct."nextActionAt" ASC, ct.id) AS job_rank,
+          j."aiScore" AS score
+        FROM "ChannelThread" ct
+        LEFT JOIN "Outreach" o ON o.id = ct."outreachId"
+        LEFT JOIN "Job" j ON j.id = o."jobId"
+        WHERE ct.status IN ('PENDING', 'ACTIVE')
+          AND ct."nextActionAt" IS NOT NULL
+          AND ct."nextActionAt" <= ${now}
+      ),
+      claimed AS (
         UPDATE "ChannelThread"
         SET "nextActionAt" = NULL
         WHERE id IN (
-          SELECT id FROM "ChannelThread"
-          WHERE status IN ('PENDING', 'ACTIVE')
-            AND "nextActionAt" IS NOT NULL
-            AND "nextActionAt" <= ${now}
-          ORDER BY "nextActionAt" ASC
+          SELECT id FROM ranked
+          ORDER BY post_accept ASC, job_rank ASC, score DESC NULLS LAST
           LIMIT ${limit}
-          FOR UPDATE SKIP LOCKED
         )
         RETURNING id
       )

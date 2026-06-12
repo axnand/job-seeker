@@ -28,7 +28,10 @@
       "Bash(node cleanup.mjs)",
       "Bash(node cleanup.mjs --apply)",
       "Bash(git stash *)",
-      "Bash(echo \"exit=$?\")"
+      "Bash(echo \"exit=$?\")",
+      "Bash(sed -n '1,40p' app/api/cron/tick/route.ts)",
+      "Bash(sed -n '1,60p' src/lib/cron-lock.ts)",
+      "Bash(echo \"tsc exit=$?\")"
     ]
   }
 }
