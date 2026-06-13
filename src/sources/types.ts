@@ -10,6 +10,7 @@ export interface RawJob {
   applyUrl: string;
   location?: string;
   jobProviderId?: string;    // source-native id for dedup
+  companyId?: string;        // LinkedIn company_id — used for company-size filtering
   sourcePostUrl?: string;
   applyType: ApplyType;
   postedAt?: Date;

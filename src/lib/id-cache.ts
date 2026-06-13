@@ -3,13 +3,15 @@
  * Stored in AppSettings.data under "idCache" (no extra table needed).
  *
  * Keys:
- *   location:<text>   → LinkedIn region/location id
- *   company:<name>    → LinkedIn company id (TTL 7 days)
+ *   location:<text>        → LinkedIn region/location id
+ *   company:<name>         → LinkedIn company id (TTL 7 days)
+ *   companySize:<id>       → employee_count number, or -1 if API returned no count (TTL 30 days)
  */
 
 import { prisma } from "./prisma";
 
-const COMPANY_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const COMPANY_TTL_MS      = 7  * 24 * 60 * 60 * 1000;
+const COMPANY_SIZE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 interface CacheEntry { id: string; cachedAt: number }
 type CacheStore = Record<string, CacheEntry>;
@@ -57,4 +59,21 @@ export async function getCachedCompanyId(name: string): Promise<string | null> {
 
 export async function setCachedCompanyId(name: string, id: string): Promise<void> {
   await writeEntry(`company:${name}`, id);
+}
+
+/**
+ * Get cached company employee count by LinkedIn company_id.
+ * Returns: number = known count, -1 = API returned no count (unknown), undefined = not cached.
+ * TTL 30 days — company headcount changes slowly.
+ */
+export async function getCachedCompanySize(companyId: string): Promise<number | undefined> {
+  const store = await readStore();
+  const entry = store[`companySize:${companyId}`];
+  if (!entry) return undefined;
+  if (Date.now() - entry.cachedAt > COMPANY_SIZE_TTL_MS) return undefined;
+  return Number(entry.id); // stored as string in the generic cache
+}
+
+export async function setCachedCompanySize(companyId: string, count: number): Promise<void> {
+  await writeEntry(`companySize:${companyId}`, String(count));
 }

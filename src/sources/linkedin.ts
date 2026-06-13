@@ -93,6 +93,7 @@ export async function fetchLinkedinJobs(keyword: string, search: SearchCfg): Pro
         applyUrl: detail?.apply_url ?? item.url ?? `https://www.linkedin.com/jobs/view/${item.id}`,
         location: item.location,
         jobProviderId: item.id,
+        companyId: detail?.company_id,
         applyType: "REFERRAL_FIRST",
         postedAt: item.posted_at ? new Date(item.posted_at) : undefined,
       };

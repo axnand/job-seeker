@@ -17,10 +17,14 @@ import { scoreJob } from "@/scoring/ai-scorer";
 import { normalizeSalary } from "@/salary/normalize";
 import { dedupeKey } from "@/sources/normalize";
 import { sendDailyDigest } from "@/email/digest";
+import { sendFriendDigest } from "@/email/friend-digest";
 import { enqueueOutreach } from "@/outreach/enqueue";
 import { getSettings } from "@/lib/settings";
 import { withCronLock } from "@/lib/cron-lock";
 import { sweepStaleJobs } from "@/status/staleness";
+import { getCompanyProfile } from "@/unipile/client";
+import { getCachedCompanySize, setCachedCompanySize } from "@/lib/id-cache";
+import { config } from "@/config";
 import type { AppStage, SalaryBasis, SalaryConfidence, SalaryPeriod } from "@prisma/client";
 
 const SCORE_CONCURRENCY = 6; // parallel LLM calls — fast without hammering rate limits
@@ -34,6 +38,45 @@ const NON_ENG = /\b(sales|account executive|recruiter|talent|copywriter|content 
 const ENG_OVERRIDE = /\b(software|back.?end|front.?end|full.?stack|sde|sdet|developer|programmer|devops|platform engineer|infrastructure|data engineer|ml engineer|machine learning|software development)\b/i;
 
 export const maxDuration = 300; // allow long runs on Vercel Pro; hobby caps at 60s
+
+// ─── Company-size filter ─────────────────────────────────────────────────────
+
+const MIN_EMPLOYEE_COUNT = 51; // drop confirmed 1–10 and 11–50 bands; keep ≥51
+
+import type { RawJob } from "@/sources/types";
+
+async function filterByCompanySize(jobs: RawJob[]): Promise<RawJob[]> {
+  const accountId = config.owner.linkedinAccountId;
+  const result: RawJob[] = [];
+
+  for (const job of jobs) {
+    if (!job.companyId || !accountId) {
+      result.push(job); // no size data available — keep
+      continue;
+    }
+
+    // Check cache first (30-day TTL)
+    let count = await getCachedCompanySize(job.companyId).catch(() => undefined);
+
+    if (count === undefined) {
+      // Not cached — fetch and cache
+      const profile = await getCompanyProfile(accountId, job.companyId);
+      count = profile?.employee_count
+        ?? profile?.employee_count_range?.from
+        ?? -1; // -1 = API returned no count → treat as unknown
+      await setCachedCompanySize(job.companyId, count).catch(() => {});
+    }
+
+    if (count !== -1 && count < MIN_EMPLOYEE_COUNT) {
+      console.log(`[discover] filtered small company: ${job.company} (${count} employees)`);
+      continue; // confirmed too small — drop
+    }
+
+    result.push(job); // confirmed large enough, or unknown size — keep
+  }
+
+  return result;
+}
 
 export async function POST() {
   try {
@@ -59,11 +102,17 @@ async function runDiscover() {
     const maxPostedAge = settings.search.recencyDays * 24 * 60 * 60 * 1000;
 
     // Drop old postings + obvious non-engineering roles before scoring
-    const eligible = rawJobs.filter(job => {
+    const afterTitleFilter = rawJobs.filter(job => {
       if (NON_ENG.test(job.role) && !ENG_OVERRIDE.test(job.role)) return false;
       if (!job.postedAt) return true;                       // unknown age — keep
       return now.getTime() - job.postedAt.getTime() < maxPostedAge;
     });
+
+    // Company-size filter — drop confirmed micro companies (≤50 employees).
+    // Only LinkedIn jobs carry a companyId; all other sources pass through.
+    // Unknown size (fetch failed / no companyId) also passes through — we drop
+    // only what we can confirm is too small.
+    const eligible = await filterByCompanySize(afterTitleFilter);
 
     console.log(`[discover] scoring all ${eligible.length} eligible jobs (concurrency ${SCORE_CONCURRENCY})`);
 
@@ -152,6 +201,8 @@ async function runDiscover() {
     if (toEmail.length > 0) {
       await sendDailyDigest(toEmail);
       console.log(`[discover] digest sent with ${toEmail.length} jobs`);
+      await sendFriendDigest(toEmail).catch(e =>
+        console.error("[discover] friend digest failed:", e));
     }
 
     // Staleness sweep — soft-close jobs that went nowhere (backlog #23).

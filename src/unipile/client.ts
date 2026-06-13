@@ -173,10 +173,31 @@ export async function getJobDetail(
   jobId: string
 ): Promise<{
   id: string; title: string; description?: string; apply_url?: string;
-  location?: string; company?: string; published_at?: number;
+  location?: string; company?: string; company_id?: string; published_at?: number;
   hiring_team?: Array<{ name?: string; profile_url?: string; provider_id?: string; headline?: string }>;
 }> {
   return request("GET", `/linkedin/jobs/${jobId}`, undefined, { account_id: accountId });
+}
+
+/** Fetch LinkedIn company profile by its numeric LinkedIn company_id. */
+export async function getCompanyProfile(
+  accountId: string,
+  companyId: string,
+): Promise<{
+  name?: string;
+  employee_count?: number;
+  employee_count_range?: { from?: number; to?: number };
+} | null> {
+  try {
+    return await request(
+      "GET",
+      `/linkedin/company/${encodeURIComponent(companyId)}`,
+      undefined,
+      { account_id: accountId },
+    );
+  } catch {
+    return null;
+  }
 }
 
 /**
