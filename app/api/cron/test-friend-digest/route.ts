@@ -1,17 +1,18 @@
 /**
  * GET /api/cron/test-friend-digest
- * Manual trigger to test the friend digest pipeline end-to-end:
- * fetches recent jobs from DB → applies the 8 LPA filter → sends the email.
+ * Manual trigger to test the friend digest pipeline end-to-end.
+ * Accepts optional ?to=email to override the recipient (for previewing).
  * Protected by the same Bearer CRON_SECRET as other cron routes.
  */
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sendFriendDigest } from "@/email/friend-digest";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    // Pull the last 50 NEW/APPROVED jobs (covers several cron runs)
+    const overrideTo = req.nextUrl.searchParams.get("to") ?? undefined;
+
     const jobs = await prisma.job.findMany({
       where: { appStage: { in: ["NEW", "APPROVED"] } },
       orderBy: { discoveredAt: "desc" },
@@ -30,11 +31,11 @@ export async function GET() {
       return NextResponse.json({ ok: false, reason: "no eligible jobs found", salaryBreakdown });
     }
 
-    await sendFriendDigest(jobs);
+    await sendFriendDigest(jobs, overrideTo);
 
     return NextResponse.json({
       ok: true,
-      emailSentTo: "mmayank.connect@gmail.com",
+      emailSentTo: overrideTo ?? "mmayank.connect@gmail.com",
       salaryBreakdown,
     });
   } catch (err) {

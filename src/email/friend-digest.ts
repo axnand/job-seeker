@@ -35,7 +35,7 @@ function jobCard(job: Job): string {
 </div>`;
 }
 
-export async function sendFriendDigest(jobs: Job[]): Promise<void> {
+export async function sendFriendDigest(jobs: Job[], overrideTo?: string): Promise<void> {
   // Include jobs where salary is unknown (null) — we can't confirm they're below 8 LPA.
   // Only exclude jobs that are confirmed below 8 LPA.
   const eligible = jobs.filter(j => j.salaryAnnualBase === null || j.salaryAnnualBase >= MIN_ANNUAL_BASE_INR);
@@ -62,7 +62,7 @@ export async function sendFriendDigest(jobs: Job[]): Promise<void> {
   }).join("\n\n---\n\n");
 
   await sendMail({
-    to: "mmayank.connect@gmail.com",
+    to: overrideTo ?? "mmayank.connect@gmail.com",
     subject: `${eligible.length} job opening${eligible.length !== 1 ? "s" : ""} above 8 LPA today`,
     html,
     text,
