@@ -29,7 +29,7 @@ import { getSettings, type AppSettingsData } from "@/lib/settings";
 import { findTargets } from "./people-finder";
 import { draftAndQueueTargets } from "./enqueue";
 import { recomputeOutreachState } from "@/status/outreach-state";
-import { sendPoolExhaustedAlert } from "@/email/alerts";
+import { sendPoolExhaustedBatch } from "@/email/alerts";
 
 // Bound the work (DB + LinkedIn API) per tick. Oldest-attempted jobs go first,
 // so over successive ticks every eligible job is serviced fairly.
@@ -37,6 +37,13 @@ const MAX_JOBS_PER_TICK = 10;
 
 // A thread in one of these phases means the person accepted the invite.
 const ACCEPTED_PHASES = new Set(["CONNECTED", "MESSAGED"]);
+
+export interface ExhaustedJob {
+  jobId: string; company: string; role: string;
+  accepted: number; connectTarget: number;
+  totalSent: number; maxInvites: number;
+  reason: "ceiling" | "no_candidates";
+}
 
 export interface ReplenishResult {
   examined: number;  // jobs looked at this tick
@@ -47,6 +54,7 @@ export interface ReplenishResult {
 
 export async function replenishOutreach(settings?: AppSettingsData): Promise<ReplenishResult> {
   const res: ReplenishResult = { examined: 0, toppedUp: 0, queued: 0, exhausted: 0 };
+  const newlyExhausted: ExhaustedJob[] = [];
   if (!config.owner.linkedinAccountId) return res;
 
   const s = settings ?? (await getSettings());
@@ -117,10 +125,7 @@ export async function replenishOutreach(settings?: AppSettingsData): Promise<Rep
       res.exhausted++;
       if (!job.poolAlertedAt) {
         await prisma.job.update({ where: { id: job.id }, data: { poolAlertedAt: new Date() } }).catch(() => {});
-        sendPoolExhaustedAlert({
-          jobId: job.id, company: job.company, role: job.role,
-          accepted, connectTarget, totalSent: total, maxInvites, reason: "ceiling",
-        }).catch((e) => console.error("[replenish] exhaustion alert email failed:", e));
+        newlyExhausted.push({ jobId: job.id, company: job.company, role: job.role, accepted, connectTarget, totalSent: total, maxInvites, reason: "ceiling" });
       }
       continue;
     }
@@ -138,10 +143,7 @@ export async function replenishOutreach(settings?: AppSettingsData): Promise<Rep
       );
       if (!job.poolAlertedAt) {
         await prisma.job.update({ where: { id: job.id }, data: { poolAlertedAt: new Date() } }).catch(() => {});
-        sendPoolExhaustedAlert({
-          jobId: job.id, company: job.company, role: job.role,
-          accepted, connectTarget, totalSent: total, maxInvites, reason: "no_candidates",
-        }).catch((e) => console.error("[replenish] exhaustion alert email failed:", e));
+        newlyExhausted.push({ jobId: job.id, company: job.company, role: job.role, accepted, connectTarget, totalSent: total, maxInvites, reason: "no_candidates" });
       }
       continue;
     }
@@ -156,6 +158,11 @@ export async function replenishOutreach(settings?: AppSettingsData): Promise<Rep
           `(accepted ${accepted}/${connectTarget}, pending ${pending}→${pending + n}, sent ${total}→${total + n}/${maxInvites})`,
       );
     }
+  }
+
+  if (newlyExhausted.length > 0) {
+    sendPoolExhaustedBatch(newlyExhausted).catch(e =>
+      console.error("[replenish] exhaustion batch email failed:", e));
   }
 
   return res;

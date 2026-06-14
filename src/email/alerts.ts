@@ -31,54 +31,58 @@ export async function sendPauseAlert(reason: string): Promise<void> {
   });
 }
 
-export async function sendPoolExhaustedAlert(opts: {
-  jobId: string;
-  company: string;
-  role: string;
-  accepted: number;
-  connectTarget: number;
-  totalSent: number;
-  maxInvites: number;
+export async function sendPoolExhaustedBatch(jobs: Array<{
+  jobId: string; company: string; role: string;
+  accepted: number; connectTarget: number;
+  totalSent: number; maxInvites: number;
   reason: "ceiling" | "no_candidates";
-}): Promise<void> {
-  if (!config.owner.email) return;
-  const dashboardUrl = `${config.app.baseUrl}/jobs/${opts.jobId}`;
-  const { company, role, accepted, connectTarget, totalSent, maxInvites, reason } = opts;
+}>): Promise<void> {
+  if (!config.owner.email || jobs.length === 0) return;
 
-  const reasonText =
-    reason === "ceiling"
-      ? `Hit the ${maxInvites}-invite ceiling before reaching the ${connectTarget}-accept target.`
-      : `LinkedIn returned no more candidates for this company.`;
+  const rows = jobs.map(({ jobId, company, role, accepted, connectTarget, totalSent, maxInvites, reason }) => {
+    const reasonText = reason === "ceiling" ? `hit ${maxInvites}-invite cap` : "no more candidates";
+    const dashboardUrl = `${config.app.baseUrl}/jobs/${jobId}`;
+    return `<tr>
+      <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:13px;color:#111827">${company}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:13px;color:#374151">${role}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:13px;color:#6b7280">${accepted}/${connectTarget} accepted · ${totalSent} sent · ${reasonText}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:right">
+        <a href="${dashboardUrl}" style="font-size:12px;color:#2563eb;text-decoration:none">View →</a>
+      </td>
+    </tr>`;
+  }).join("");
 
-  const html = `
-<!DOCTYPE html>
+  const html = `<!DOCTYPE html>
 <html>
-<body style="max-width:600px;margin:0 auto;padding:20px;font-family:sans-serif">
-  <h2 style="color:#92400e">⚠️ Pool exhausted — ${company}</h2>
-  <p>The outreach pipeline for <strong>${role}</strong> at <strong>${company}</strong>
-  has been stopped: ${reasonText}</p>
-  <table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:14px">
-    <tr style="background:#fef3c7">
-      <td style="padding:8px 12px;border:1px solid #fde68a;color:#78350f"><strong>Accepted</strong></td>
-      <td style="padding:8px 12px;border:1px solid #fde68a;color:#92400e">${accepted} / ${connectTarget} target</td>
-    </tr>
-    <tr>
-      <td style="padding:8px 12px;border:1px solid #e5e7eb;color:#374151"><strong>Total invites sent</strong></td>
-      <td style="padding:8px 12px;border:1px solid #e5e7eb;color:#374151">${totalSent} / ${maxInvites} cap</td>
-    </tr>
+<body style="max-width:680px;margin:0 auto;padding:20px;font-family:sans-serif">
+  <h2 style="color:#92400e;margin-bottom:4px">⚠️ Pool exhausted — ${jobs.length} job${jobs.length !== 1 ? "s" : ""}</h2>
+  <p style="margin-top:0;color:#6b7280;font-size:13px">LinkedIn returned no more candidates for these roles. No further invites will be sent automatically.</p>
+  <table style="width:100%;border-collapse:collapse;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden">
+    <thead>
+      <tr style="background:#fef3c7">
+        <th style="padding:8px 12px;text-align:left;font-size:12px;color:#78350f">Company</th>
+        <th style="padding:8px 12px;text-align:left;font-size:12px;color:#78350f">Role</th>
+        <th style="padding:8px 12px;text-align:left;font-size:12px;color:#78350f">Status</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
   </table>
-  <p style="font-size:14px;color:#374151">No further invites will be sent for this job automatically.
-  If you want to raise the cap or try different people, adjust
-  <a href="${config.app.baseUrl}/settings">Settings → Pipeline</a> and the next replenish tick will retry.</p>
-  <a href="${dashboardUrl}" style="display:inline-block;margin-top:8px;background:#f59e0b;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;font-size:14px;font-weight:600">View job →</a>
+  <p style="font-size:13px;color:#6b7280;margin-top:16px">
+    To retry with a higher cap, adjust <a href="${config.app.baseUrl}/settings">Settings → Pipeline</a>.
+  </p>
 </body>
 </html>`;
 
+  const text = jobs.map(j =>
+    `${j.company} — ${j.role}: ${j.accepted}/${j.connectTarget} accepted, ${j.totalSent} sent (${j.reason})`
+  ).join("\n");
+
   await sendMail({
     to: config.owner.email,
-    subject: `[Job Automation] ⚠️ Pool exhausted: ${role} at ${company} (${accepted}/${connectTarget} connected)`,
+    subject: `[Job Automation] ⚠️ Pool exhausted: ${jobs.length} job${jobs.length !== 1 ? "s" : ""}`,
     html,
-    text: `Pool exhausted for ${role} at ${company}. ${accepted}/${connectTarget} accepted, ${totalSent}/${maxInvites} sent. Reason: ${reasonText}`,
+    text,
   });
 }
 
