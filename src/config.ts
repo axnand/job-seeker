@@ -35,7 +35,9 @@ export const config = {
     },
     baseCurrency: process.env.BASE_CURRENCY ?? "INR",
     strictSalary: false,
-    blacklistedCompanies: [] as string[],
+    blacklistedCompanies: [
+      "ACI Worldwide",
+    ] as string[],
     // Freshness — runs every 3h and only looks at jobs posted in the last day.
     // 1 = tightest the source APIs allow (they're day-granular); the overlap
     // across 3-hourly runs is a safety buffer and dedup prevents re-processing.

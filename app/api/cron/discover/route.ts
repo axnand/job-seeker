@@ -108,11 +108,20 @@ async function runDiscover() {
       return now.getTime() - job.postedAt.getTime() < maxPostedAge;
     });
 
+    // Blacklist — companies explicitly excluded (low pay, bad fit, etc.)
+    const blacklist = settings.search.blacklistedCompanies.map(c => c.toLowerCase());
+    const afterBlacklist = blacklist.length === 0 ? afterTitleFilter : afterTitleFilter.filter(job => {
+      const co = job.company.toLowerCase();
+      const blocked = blacklist.some(b => co.includes(b) || b.includes(co));
+      if (blocked) console.log(`[discover] blacklisted company: ${job.company}`);
+      return !blocked;
+    });
+
     // Company-size filter — drop confirmed micro companies (≤50 employees).
     // Only LinkedIn jobs carry a companyId; all other sources pass through.
     // Unknown size (fetch failed / no companyId) also passes through — we drop
     // only what we can confirm is too small.
-    const eligible = await filterByCompanySize(afterTitleFilter);
+    const eligible = await filterByCompanySize(afterBlacklist);
 
     console.log(`[discover] scoring all ${eligible.length} eligible jobs (concurrency ${SCORE_CONCURRENCY})`);
 

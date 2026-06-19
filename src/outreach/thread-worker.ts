@@ -30,6 +30,7 @@ import {
   type MessageAttachment,
 } from "@/unipile/client";
 import { downloadResume } from "@/lib/s3";
+import { renderMessages } from "@/outreach/message-writer";
 import { recomputeOutreachState } from "@/status/outreach-state";
 import { handleSendError } from "./safety";
 import { nextSendWindowOpen } from "./limits";
@@ -215,6 +216,14 @@ export async function processThread(
     return;
   }
 
+  const blacklist = s.search.blacklistedCompanies.map(c => c.toLowerCase());
+  const coLower = job.company.toLowerCase();
+  if (blacklist.some(b => coLower.includes(b) || b.includes(coLower))) {
+    await archiveThread(threadId, `Company blacklisted: ${job.company}`);
+    await prisma.job.updateMany({ where: { id: job.id, appStage: { not: "SKIPPED" } }, data: { appStage: "SKIPPED" } });
+    return;
+  }
+
   const accountId = thread.accountId ?? config.owner.linkedinAccountId;
   if (!accountId) {
     await archiveThread(threadId, "No LinkedIn account configured");
@@ -232,14 +241,15 @@ export async function processThread(
   }
 
   try {
+    const contactName = thread.outreach?.contact.name ?? "";
     if (phase === "QUEUED") {
       await doSendInvite(thread, ps, accountId, providerUserId, budget, s, tag);
     } else if (phase === "INVITE_PENDING") {
       await doInvitePendingTimeout(thread, accountId, providerUserId, s, tag);
     } else if (phase === "CONNECTED") {
-      await doSendFirstDm(thread, ps, accountId, providerUserId, budget, s, tag);
+      await doSendFirstDm(thread, ps, accountId, providerUserId, budget, s, tag, { contactName, company: job.company, role: job.role });
     } else if (phase === "MESSAGED") {
-      await doFollowup(thread, ps, accountId, budget, s, tag);
+      await doFollowup(thread, ps, accountId, budget, s, tag, { contactName, company: job.company, role: job.role });
     } else {
       // Unknown phase — nothing to do.
       await guardedThreadUpdate(threadId, { nextActionAt: null });
@@ -403,6 +413,7 @@ async function doSendFirstDm(
   budget: SendBudgetMut,
   s: AppSettingsData,
   tag: string,
+  ctx: { contactName: string; company: string; role: string },
 ): Promise<void> {
   if (thread.lastMessageAt) {
     // DM already sent (we somehow re-entered) — move to MESSAGED.
@@ -417,7 +428,8 @@ async function doSendFirstDm(
   if (!(await verifyStillSendable(thread.id))) return;
   if (!(await markPendingSend(thread.id))) return;
 
-  const text = ps.firstDm ?? "Hi, thanks for connecting!";
+  const rendered = await renderMessages({ name: ctx.contactName, company: ctx.company, role: ctx.role });
+  const text = rendered.firstDm;
 
   const resumeKey =
     (await prisma.channelThread.findUnique({
@@ -494,6 +506,7 @@ async function doFollowup(
   budget: SendBudgetMut,
   s: AppSettingsData,
   tag: string,
+  ctx: { contactName: string; company: string; role: string },
 ): Promise<void> {
   if (thread.followupsSent >= thread.followupsTotal) {
     await archiveThread(thread.id, "All follow-ups exhausted — no reply");
@@ -510,7 +523,8 @@ async function doFollowup(
   if (!(await verifyStillSendable(thread.id))) return;
   if (!(await markPendingSend(thread.id))) return;
 
-  const text = ps.followup ?? "Just following up, still very interested. Thanks!";
+  const rendered = await renderMessages({ name: ctx.contactName, company: ctx.company, role: ctx.role });
+  const text = rendered.followup;
   const { messageId } = await sendChatMessage(accountId, thread.providerChatId, text);
 
   budget.dmsLeft -= 1;

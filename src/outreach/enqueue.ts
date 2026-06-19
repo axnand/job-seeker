@@ -70,22 +70,11 @@ export async function draftAndQueueTargets(
   settings: AppSettingsData,
 ): Promise<number> {
   const followupsTotal = 1 + Math.max(0, settings.outreach.maxFollowups); // first DM + N followups
-  const pitch = job.tailoredPitch ?? `${job.role} is a strong fit for my backend / full-stack background.`;
-
-  // Short, stable resume link — /r redirects to the presigned S3 URL on click.
-  const resumeUrl = `${config.app.baseUrl}/r`;
 
   let drafted = 0;
   for (const target of targets) {
     try {
-      const messages = await writeMessages({
-        target,
-        company: job.company,
-        role: job.role,
-        pitch,
-        resumeUrl,
-        jobId: job.externalJobId ?? undefined,
-      });
+      const messages = await writeMessages({ target, company: job.company, role: job.role });
 
       // Upsert the shared Contact (one human = one row, keyed by provider id).
       const contact = await prisma.contact.upsert({

@@ -81,7 +81,7 @@ IMPORTANT: Compare only against fixed/guaranteed base salary — NOT CTC, NOT to
 - STACK FIT: Reward Java/Spring Boot/Kafka/Node/TypeScript/backend/distributed/full-stack. Non-engineering → score 0-15.
 - LEVEL FIT: Reward "new grad", "entry-level", "SDE-1", "associate", "Software Engineer I", "0-2 years", "1-3 years".
 - LOCATION (hard rule): India only. ACCEPT: (a) jobs in India, (b) global-remote/APAC-remote. HARD REJECT on-site/hybrid outside India → score 0-15.
-- COMPANY QUALITY: Slight bonus for strong product companies / well-funded startups reliably paying above ${minLPA} LPA.
+- COMPANY QUALITY: Slight bonus for strong product companies / well-funded startups reliably paying above ${minLPA} LPA. Legacy enterprise, IT services, banking-tech, or companies you are not confident about get NO bonus — assume low pay unless base is explicitly stated.
 
 ## Tasks
 1. Score 0-100 per the rubric.
@@ -103,9 +103,10 @@ IMPORTANT: Compare only against fixed/guaranteed base salary — NOT CTC, NOT to
    - confidence="medium" only when the company's junior pay band is genuinely well-known (a large IT-services firm that reliably pays low, or a top product company that reliably pays high).
    - otherwise confidence="low".
    INDIA JUNIOR (0-2 yr) BASE ANCHORS — use these, do NOT inflate:
-   - IT services / consulting / SI (TCS, Infosys, Wipro, HCL, Cognizant, Capgemini, CGI, Accenture, LTIMindtree, Tech Mahindra, Mphasis, DXC, Genpact, Hexaware, Birlasoft, and similar): typically 3.5-8 LPA base. These almost never clear the ${minLPA} LPA floor for a junior role → estimate LOW, confidence="medium".
-   - Mid-tier / unknown / domestic product companies: typically 6-14 LPA base.
-   - Strong VC-funded product companies / FAANG-adjacent / global-remote: typically 14-35 LPA base.
+   - IT services / consulting / SI (TCS, Infosys, Wipro, HCL, Cognizant, Capgemini, CGI, Accenture, LTIMindtree, Tech Mahindra, Mphasis, DXC, Genpact, Hexaware, Birlasoft, and similar): typically 3.5-8 LPA base. Almost never clear the ${minLPA} LPA floor → estimate LOW, confidence="medium".
+   - Legacy enterprise software / payment & banking tech (ACI Worldwide, Fiserv, FIS, NCR, Jack Henry, Temenos, Finastra, Tata Consultancy Financial, Oracle Financial Services, Intellect Design, Mphasis, IBS Group, and similar): typically 6-12 LPA base for junior roles in India. DO NOT treat these as top-tier product companies — estimate LOW, confidence="medium".
+   - Mid-tier / unknown Indian product or startup companies: typically 8-16 LPA base. When company quality is unclear, bias toward the lower end.
+   - Strong VC-funded product companies / FAANG-adjacent / global-remote (Google, Microsoft, Amazon, Atlassian, Intuit, Razorpay, CRED, Zepto, Meesho, slice, etc.): typically 16-35 LPA base.
    When torn between two bands, pick the LOWER one.
    - min/max = FULL rupee amount (18 LPA base = 1800000). period = "year"|"month"|"hour" only. currency = "INR" for India roles.
 5. RESUME TAILORING: needsTailoring=false by default. Set true only when the JD emphasizes skills in the candidate's background but not prominent in the base resume, AND surfacing them would materially help. If true, tailoringSuggestions = 2-4 concrete edits (truthful only — never invent skills). If false, tailoringSuggestions = null.

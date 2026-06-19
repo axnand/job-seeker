@@ -61,7 +61,13 @@ export interface SalaryGateResult {
 
 /**
  * Decide whether a job passes the salary gate.
- * Never drops a job on a low/medium-confidence estimate — flags it instead.
+ *
+ * Confidence-aware margins (low-confidence estimates that barely clear the
+ * floor are likely over-estimates, so we require a buffer):
+ *   stated / high  → pass at exactly the floor (we trust the number)
+ *   medium         → pass at exactly the floor (reasonably reliable)
+ *   low            → pass only if estimate is ≥15% above the floor
+ *                    (shaky guess: need headroom before burning outreach quota)
  */
 export function salaryGate(
   salary: NormalizedSalary | null,
@@ -70,24 +76,29 @@ export function salaryGate(
 ): SalaryGateResult {
   const strict = strictSalary ?? config.search.strictSalary;
   if (!salary) {
-    if (strict) {
-      return { pass: false, reason: "salary_unknown_strict_mode" };
-    }
+    if (strict) return { pass: false, reason: "salary_unknown_strict_mode" };
     return { pass: true, reason: "salary_unknown_kept" };
   }
 
-  if (salary.annualBase >= minAnnualBase) {
+  const isLowConfidence = salary.confidence === "low" && salary.basis !== "stated";
+  const effectiveFloor = isLowConfidence ? minAnnualBase * 1.15 : minAnnualBase;
+
+  if (salary.annualBase >= effectiveFloor) {
     return { pass: true };
   }
 
-  // Below threshold. Drop when we're reasonably sure the pay is low: a stated
-  // figure, or a medium/high-confidence estimate (e.g. a known low-paying
-  // IT-services firm). Only a genuinely uncertain (low-confidence) guess is
-  // kept-but-flagged, so we don't discard legit roles whose pay we can't read.
+  // Below threshold. Drop when we're reasonably sure: stated figure, or
+  // medium/high-confidence estimate. Low-confidence below the effective floor
+  // is also dropped — it's a shaky guess that doesn't clear even the buffered bar.
   if (salary.basis === "stated" || salary.confidence === "high" || salary.confidence === "medium") {
     return { pass: false, reason: `salary_below_threshold_${salary.basis}` };
   }
 
-  // Uncertain (low-confidence) estimate below threshold — keep but flag
+  // Low-confidence estimate that cleared the base floor but not the 15% buffer
+  if (isLowConfidence) {
+    return { pass: false, reason: "salary_low_confidence_below_buffer" };
+  }
+
+  // Fallback: uncertain estimate below threshold — keep but flag
   return { pass: true, reason: "salary_uncertain_estimate_flagged" };
 }
