@@ -133,15 +133,18 @@ export async function sendForJobs(
   if (settings.outreach.globalPause) return { sent: 0, failed: 0, paused: true };
 
   const budget = await getSendBudget(settings);
-  // Manual sends bypass the daily cap (user explicitly chose these jobs) but still
-  // respect the weekly cap — that's LinkedIn's hard account-safety limit and must
-  // never be exceeded. DM cap is always enforced.
+  // Manual sends bypass BOTH daily and weekly invite caps — the user explicitly
+  // chose these jobs. Our weekly cap is a conservative self-limit, not LinkedIn's
+  // hard rate limit; LinkedIn's API will reject if truly throttled.
   const effectiveInvitesLeft = opts.ignoreInviteLimit
-    ? Math.max(0, budget.weeklyInviteCap - budget.invites7d)
+    ? Number.MAX_SAFE_INTEGER
     : budget.invitesLeft;
   const budgetMut: SendBudgetMut = { invitesLeft: effectiveInvitesLeft, dmsLeft: budget.dmsLeft };
-  // Only bail early if there is genuinely nothing to send.
-  if (budgetMut.invitesLeft <= 0 && budgetMut.dmsLeft <= 0) return { sent: 0, failed: 0, capped: true };
+  // For auto sends: bail early when both invite and DM budgets are zero.
+  // For manual sends: always proceed — thread workers handle per-type budget checks.
+  if (!opts.ignoreInviteLimit && budgetMut.invitesLeft <= 0 && budgetMut.dmsLeft <= 0) {
+    return { sent: 0, failed: 0, capped: true };
+  }
 
   const outreaches = await prisma.outreach.findMany({
     where: { jobId: { in: jobIds }, threadId: { not: null } },

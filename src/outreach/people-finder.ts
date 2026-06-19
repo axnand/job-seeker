@@ -47,10 +47,14 @@ const ROLE_NOISE =
  * Turn a job title into a clean function keyword for people search.
  *   "Senior Java Backend Developer (Remote)" → "java backend developer"
  *   "SDE II"                                  → "software engineer"
+ *   "Software Engineer, AI Squads"            → "software engineer"
+ * Uses only the first comma-delimited segment — what follows a comma is usually
+ * a team/squad name (e.g. "AI Squads") that over-narrows people search results.
  * Falls back to "software engineer" when nothing meaningful survives.
  */
 export function roleKeywords(role: string): string {
-  const cleaned = (role ?? "")
+  const primaryRole = (role ?? "").split(",")[0] ?? "";
+  const cleaned = primaryRole
     .toLowerCase()
     .replace(/\(.*?\)/g, " ")          // strip parentheticals
     .replace(/\bsdet\b/g, "software engineer in test")
