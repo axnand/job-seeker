@@ -138,7 +138,14 @@ export async function POST(req: NextRequest) {
     }
   } catch (err) {
     console.error(`[webhook/unipile] handler error for ${eventType}:`, (err as Error).message);
-    return NextResponse.json({ ok: false, error: (err as Error).message });
+    // Delete the dedup row so Unipile can retry — without this, the event is
+    // permanently lost (dedup blocks the retry but the handler never ran).
+    if (dedupeId) {
+      await prisma.webhookEvent
+        .delete({ where: { id: `${eventType}:${dedupeId}` } })
+        .catch(() => {});
+    }
+    return NextResponse.json({ ok: false, error: (err as Error).message }, { status: 500 });
   }
 
   return NextResponse.json({ ok: true });

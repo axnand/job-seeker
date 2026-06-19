@@ -19,6 +19,8 @@ type Job = {
   salaryFlagReason: string | null; applyUrl: string; location: string | null;
   jdText: string; createdAt: string; appStageNote: string | null;
   needsTailoring: boolean; tailoringSuggestions: string | null; tailoredResumeKey: string | null;
+  // Pre-computed by the list API so the board never receives raw providerState JSON.
+  outreachCounts?: { sent: number; connected: number; replied: number };
   outreaches?: Array<{
     id: string; role: string;
     contact: { name: string; title: string | null; linkedinUrl: string };
@@ -324,26 +326,16 @@ export default function BoardPage() {
     showToast("Job restored to New.", "info");
   }, [showToast]);
 
-  // Compact outreach progress for the card badge: "3 sent · 1 connected" etc.
-  const outreachSummary = useCallback((outreaches: Job["outreaches"]): string | null => {
-    if (!outreaches?.length) return null;
-    let sent = 0, connected = 0, messaged = 0, replied = 0;
-    for (const o of outreaches) {
-      const t = o.thread;
-      if (!t || t.status === "ARCHIVED") continue;
-      if (t.status === "REPLIED") { replied++; sent++; connected++; messaged++; continue; }
-      const phase = (t.providerState as { phase?: string } | null)?.phase;
-      if (phase === "MESSAGED")       { messaged++; connected++; sent++; }
-      else if (phase === "CONNECTED") { connected++; sent++; }
-      else if (phase === "INVITE_PENDING") { sent++; }
-    }
-    if (sent === 0) return null;
+  // Compact outreach progress for the card badge — reads the pre-computed counts
+  // from the list API (no raw thread data on the board).
+  const outreachSummary = useCallback((job: Job): string | null => {
+    const c = job.outreachCounts;
+    if (!c || c.sent === 0) return null;
     const parts: string[] = [];
-    if (replied)   parts.push(`${replied} replied`);
-    if (messaged && !replied) parts.push(`${messaged} DM'd`);
-    if (connected && !messaged && !replied) parts.push(`${connected} connected`);
-    if (sent)      parts.push(`${sent} sent`);
-    return parts.length ? parts.join(" · ") : null;
+    if (c.replied)             parts.push(`${c.replied} replied`);
+    else if (c.connected)      parts.push(`${c.connected} connected`);
+    if (c.sent)                parts.push(`${c.sent} sent`);
+    return parts.join(" · ") || null;
   }, []);
 
   // Distinct sources present (for the Source filter options)
@@ -587,7 +579,7 @@ export default function BoardPage() {
                               {outreach.text}
                             </span>
                           )}
-                          {(() => { const s = outreachSummary(job.outreaches); return s ? (
+                          {(() => { const s = outreachSummary(job); return s ? (
                             <span className="text-[10px] text-zinc-400 bg-zinc-50 border border-zinc-200 rounded-md px-2 py-1">{s}</span>
                           ) : null; })()}
                         </div>

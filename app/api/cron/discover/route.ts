@@ -217,6 +217,13 @@ async function runDiscover() {
     // Staleness sweep — soft-close jobs that went nowhere (backlog #23).
     const swept = await sweepStaleJobs().catch(() => ({ closedNew: 0, closedApproved: 0 }));
 
+    // Prune old webhook dedup rows — only needed during the retry window;
+    // keeping them forever bloats the table and slows dedup lookups.
+    const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const { count: prunedWebhooks } = await prisma.webhookEvent
+      .deleteMany({ where: { processedAt: { lt: cutoff } } })
+      .catch(() => ({ count: 0 }));
+
     return {
       ok: true,
       fetched: rawJobs.length,
@@ -224,6 +231,7 @@ async function runDiscover() {
       scored: scored.length,
       emailed: toEmail.length,
       staleClosed: swept.closedNew + swept.closedApproved,
+      prunedWebhooks,
     };
   }
 }

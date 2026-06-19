@@ -133,13 +133,14 @@ export async function sendForJobs(
   if (settings.outreach.globalPause) return { sent: 0, failed: 0, paused: true };
 
   const budget = await getSendBudget(settings);
-  // Manual sends: bypass ALL invite caps (daily + weekly). The user explicitly chose
-  // these jobs — caps are guardrails for the automated cron, not user intent.
-  // Use a large number so all per-thread checks pass naturally; DM cap is unaffected.
-  const effectiveInvitesLeft = opts.ignoreInviteLimit ? 999 : budget.invitesLeft;
-  const budgetMut: SendBudgetMut = { invitesLeft: effectiveInvitesLeft, dmsLeft: budget.dmsLeft, ignoreInviteLimit: opts.ignoreInviteLimit };
-  // Only bail early if there is genuinely nothing to send — for manual sends invites
-  // always have budget, so only return capped when DMs are also empty (pure-DM jobs).
+  // Manual sends bypass the daily cap (user explicitly chose these jobs) but still
+  // respect the weekly cap — that's LinkedIn's hard account-safety limit and must
+  // never be exceeded. DM cap is always enforced.
+  const effectiveInvitesLeft = opts.ignoreInviteLimit
+    ? Math.max(0, budget.weeklyInviteCap - budget.invites7d)
+    : budget.invitesLeft;
+  const budgetMut: SendBudgetMut = { invitesLeft: effectiveInvitesLeft, dmsLeft: budget.dmsLeft };
+  // Only bail early if there is genuinely nothing to send.
   if (budgetMut.invitesLeft <= 0 && budgetMut.dmsLeft <= 0) return { sent: 0, failed: 0, capped: true };
 
   const outreaches = await prisma.outreach.findMany({
