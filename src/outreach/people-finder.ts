@@ -175,13 +175,12 @@ function brandToken(name: string): string {
 /** Does a person actually look like they work at the target company? */
 function matchesCompany(p: OutreachTarget, token: string): boolean {
   if (!token || token.length < 3) return false;
-  // If Unipile returned a current_company, the search was already scoped by
-  // LinkedIn's company filter — trust it. Only require the token check when
-  // current_company is absent (headline-only results where LinkedIn may have leaked
-  // people from unrelated companies).
-  if (p.company) return true;
-  const hay = (p.title ?? "").toLowerCase();
-  return hay.includes(token);
+  // Inverted logic: only REJECT when current_company is explicitly set to a company
+  // that doesn't match our token — that's LinkedIn filter leakage.
+  // If current_company is null (very common in search results), trust the
+  // company-scoped search and accept the result.
+  if (p.company && !p.company.toLowerCase().includes(token)) return false;
+  return true;
 }
 
 /**
