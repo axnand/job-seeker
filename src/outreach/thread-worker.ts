@@ -40,8 +40,6 @@ const MAX_CONSECUTIVE_FAILURES = 5;
 export interface SendBudgetMut {
   invitesLeft: number;
   dmsLeft: number;
-  /** Manual send — bypass the daily invite cap (weekly cap still enforced upstream). */
-  ignoreInviteLimit?: boolean;
 }
 
 interface ProviderState {
@@ -292,7 +290,7 @@ async function doSendInvite(
   s: AppSettingsData,
   tag: string,
 ): Promise<void> {
-  if (budget.invitesLeft <= 0 && !budget.ignoreInviteLimit) {
+  if (budget.invitesLeft <= 0) {
     await guardedThreadUpdate(thread.id, { nextActionAt: nextSendWindowOpen(s) });
     console.log(`${tag} invite budget exhausted — rescheduled`);
     return;
@@ -431,7 +429,10 @@ async function doSendFirstDm(
   if (!(await markPendingSend(thread.id))) return;
 
   const rendered = await renderMessages({ name: ctx.contactName, company: ctx.company, role: ctx.role });
-  const text = rendered.firstDm;
+  // Prefer the per-thread draft (set at enqueue time, editable in the confirm
+  // drawer). Fall back to the live template so global template edits still
+  // propagate to auto-queued threads that were never individually reviewed.
+  const text = ps.firstDm?.trim() || rendered.firstDm;
 
   const resumeKey =
     (await prisma.channelThread.findUnique({
@@ -526,7 +527,7 @@ async function doFollowup(
   if (!(await markPendingSend(thread.id))) return;
 
   const rendered = await renderMessages({ name: ctx.contactName, company: ctx.company, role: ctx.role });
-  const text = rendered.followup;
+  const text = ps.followup?.trim() || rendered.followup;
   const { messageId } = await sendChatMessage(accountId, thread.providerChatId, text);
 
   budget.dmsLeft -= 1;

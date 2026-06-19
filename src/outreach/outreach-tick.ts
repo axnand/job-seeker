@@ -133,9 +133,13 @@ export async function sendForJobs(
   if (settings.outreach.globalPause) return { sent: 0, failed: 0, paused: true };
 
   const budget = await getSendBudget(settings);
-  // Manual sends bypass the daily invite cap — the weekly cap is the hard safety net.
-  const effectiveInvitesLeft = opts.ignoreInviteLimit ? Math.max(budget.invitesLeft, budget.weeklyInviteCap - budget.invites7d) : budget.invitesLeft;
+  // Manual sends: bypass ALL invite caps (daily + weekly). The user explicitly chose
+  // these jobs — caps are guardrails for the automated cron, not user intent.
+  // Use a large number so all per-thread checks pass naturally; DM cap is unaffected.
+  const effectiveInvitesLeft = opts.ignoreInviteLimit ? 999 : budget.invitesLeft;
   const budgetMut: SendBudgetMut = { invitesLeft: effectiveInvitesLeft, dmsLeft: budget.dmsLeft, ignoreInviteLimit: opts.ignoreInviteLimit };
+  // Only bail early if there is genuinely nothing to send — for manual sends invites
+  // always have budget, so only return capped when DMs are also empty (pure-DM jobs).
   if (budgetMut.invitesLeft <= 0 && budgetMut.dmsLeft <= 0) return { sent: 0, failed: 0, capped: true };
 
   const outreaches = await prisma.outreach.findMany({
@@ -145,9 +149,21 @@ export async function sendForJobs(
   const threadIds = outreaches.map((o) => o.threadId!).filter(Boolean);
   if (threadIds.length === 0) return { sent: 0, failed: 0, noThreads: true };
 
-  // Claim (null nextActionAt) so the cron doesn't double-process.
+  // Claim threads that need action now:
+  //   • PENDING (QUEUED/DRAFT) — haven't sent yet, manual send should fire them
+  //   • ACTIVE with nextActionAt <= now — already past their scheduled action
+  // Exclude ACTIVE threads whose nextActionAt is in the future (e.g. INVITE_PENDING
+  // waiting 7 days for acceptance, or CONNECTED/MESSAGED waiting for a window).
+  // Claiming those early would mis-trigger the timeout logic.
+  const now = new Date();
   const claimable = await prisma.channelThread.findMany({
-    where: { id: { in: threadIds }, status: { in: ["PENDING", "ACTIVE"] } },
+    where: {
+      id: { in: threadIds },
+      OR: [
+        { status: "PENDING" },
+        { status: "ACTIVE", nextActionAt: { lte: now } },
+      ],
+    },
     select: { id: true, providerState: true },
   });
   await prisma.channelThread.updateMany({
@@ -187,7 +203,10 @@ export async function sendForJobs(
         .catch(() => {});
     }
   }
-  return { sent, failed, ...(budgetMut.invitesLeft <= 0 ? { capped: true } : {}) };
+  // Don't report capped for manual sends — the user already knew they were at the
+  // limit; they clicked Send intentionally. capped flag only matters for the cron.
+  const wasCapped = !opts.ignoreInviteLimit && budgetMut.invitesLeft <= 0;
+  return { sent, failed, ...(wasCapped ? { capped: true } : {}) };
 }
 
 /**
