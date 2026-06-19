@@ -49,12 +49,33 @@ export async function POST(req: NextRequest) {
     })
     .map((j) => j.id);
 
+  let archived = 0;
   if (matchIds.length > 0) {
     await prisma.job.updateMany({
       where: { id: { in: matchIds } },
       data: { appStage: "SKIPPED", appStageNote: `Company blacklisted: ${company}` },
     });
+
+    // Stop any outreach already in flight for those jobs now, rather than
+    // waiting for the next tick (matters when blacklisting an approved job).
+    // Replied threads are wins — leave them be.
+    const threads = await prisma.channelThread.findMany({
+      where: { status: { notIn: ["ARCHIVED", "REPLIED"] }, outreach: { jobId: { in: matchIds } } },
+      select: { id: true },
+    });
+    if (threads.length > 0) {
+      const res = await prisma.channelThread.updateMany({
+        where: { id: { in: threads.map((t) => t.id) } },
+        data: {
+          status: "ARCHIVED",
+          archivedAt: new Date(),
+          archivedReason: `Company blacklisted: ${company}`,
+          nextActionAt: null,
+        },
+      });
+      archived = res.count;
+    }
   }
 
-  return NextResponse.json({ ok: true, blacklisted: company, skipped: matchIds.length });
+  return NextResponse.json({ ok: true, blacklisted: company, skipped: matchIds.length, archived });
 }

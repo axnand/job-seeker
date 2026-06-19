@@ -184,7 +184,12 @@ export default function BoardPage() {
     setSelected(s => (s && companyMatches(s.company, company)) ? null : s);
     setActing(false);
     const n = res?.skipped ?? 0;
-    showToast(`Blacklisted ${company}${n ? ` · ${n} job${n !== 1 ? "s" : ""} removed` : ""}.`, "warn");
+    const a = res?.archived ?? 0;
+    const parts = [
+      n ? `${n} job${n !== 1 ? "s" : ""} removed` : "",
+      a ? `${a} outreach stopped` : "",
+    ].filter(Boolean);
+    showToast(`Blacklisted ${company}${parts.length ? ` · ${parts.join(" · ")}` : ""}.`, "warn");
   }, [companyMatches, showToast]);
 
   // Initialise editable drafts whenever the open job's detail loads.
@@ -691,6 +696,14 @@ export default function BoardPage() {
                       variant="outline" size="sm" className="text-xs h-9 text-red-600">Skip / stop</Button>
                   </div>
                 </div>
+              )}
+
+              {job.appStage !== "SKIPPED" && (
+                <Button onClick={(e) => blacklistCompany(e, job.company)} disabled={acting}
+                  variant="outline" size="sm"
+                  className="text-xs h-9 w-full text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700">
+                  ⊘ Blacklist {job.company} &amp; stop outreach
+                </Button>
               )}
 
               {(job.outreaches?.length ?? 0) > 0 && (
