@@ -17,7 +17,8 @@ export async function POST(req: NextRequest) {
   if (jobIds.length === 0) {
     return NextResponse.json({ error: "jobIds required" }, { status: 400 });
   }
-  const result = await sendForJobs(jobIds, { withNote: body.withNote === true });
+  // Manual sends bypass the daily invite cap — user explicitly chose these jobs.
+  const result = await sendForJobs(jobIds, { withNote: body.withNote === true, ignoreInviteLimit: true });
 
   // Fast-track: once the owner has sent, drop anything still queued for these
   // jobs so the tick won't send more behind their back ("the task is done now").

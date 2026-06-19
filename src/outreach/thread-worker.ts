@@ -40,6 +40,8 @@ const MAX_CONSECUTIVE_FAILURES = 5;
 export interface SendBudgetMut {
   invitesLeft: number;
   dmsLeft: number;
+  /** Manual send — bypass the daily invite cap (weekly cap still enforced upstream). */
+  ignoreInviteLimit?: boolean;
 }
 
 interface ProviderState {
@@ -290,7 +292,7 @@ async function doSendInvite(
   s: AppSettingsData,
   tag: string,
 ): Promise<void> {
-  if (budget.invitesLeft <= 0) {
+  if (budget.invitesLeft <= 0 && !budget.ignoreInviteLimit) {
     await guardedThreadUpdate(thread.id, { nextActionAt: nextSendWindowOpen(s) });
     console.log(`${tag} invite budget exhausted — rescheduled`);
     return;

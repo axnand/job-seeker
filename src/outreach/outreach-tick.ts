@@ -124,7 +124,7 @@ export async function runOutreachTick(): Promise<TickResult> {
  */
 export async function sendForJobs(
   jobIds: string[],
-  opts: { withNote?: boolean } = {},
+  opts: { withNote?: boolean; ignoreInviteLimit?: boolean } = {},
 ): Promise<{
   sent: number; failed: number; paused?: boolean; capped?: boolean; noThreads?: boolean;
 }> {
@@ -133,7 +133,9 @@ export async function sendForJobs(
   if (settings.outreach.globalPause) return { sent: 0, failed: 0, paused: true };
 
   const budget = await getSendBudget(settings);
-  const budgetMut: SendBudgetMut = { invitesLeft: budget.invitesLeft, dmsLeft: budget.dmsLeft };
+  // Manual sends bypass the daily invite cap — the weekly cap is the hard safety net.
+  const effectiveInvitesLeft = opts.ignoreInviteLimit ? Math.max(budget.invitesLeft, budget.weeklyInviteCap - budget.invites7d) : budget.invitesLeft;
+  const budgetMut: SendBudgetMut = { invitesLeft: effectiveInvitesLeft, dmsLeft: budget.dmsLeft, ignoreInviteLimit: opts.ignoreInviteLimit };
   if (budgetMut.invitesLeft <= 0 && budgetMut.dmsLeft <= 0) return { sent: 0, failed: 0, capped: true };
 
   const outreaches = await prisma.outreach.findMany({
@@ -191,10 +193,11 @@ export async function sendForJobs(
 /**
  * Clear the leftover send queue for the given jobs — used by the manual "Send
  * now" fast-track once the owner has actioned the jobs themselves. Archives only
- * threads that haven't sent anything yet (phase QUEUED/DRAFT), so an invite that
- * couldn't go now (rate-capped) won't quietly go out on a later tick. Threads
- * that already sent (INVITE_PENDING and beyond) are left alone — their post-
- * acceptance DM/follow-up still runs. Returns the count archived.
+ * threads that haven't sent anything yet (phase QUEUED/DRAFT) AND are still idle
+ * (nextActionAt IS NULL). Threads that were rescheduled to the future because the
+ * invite budget was exhausted during this same send will have nextActionAt set and
+ * are left alone — the next cron tick will send them. Threads already at
+ * INVITE_PENDING and beyond are also left alone.
  */
 export async function clearQueuedForJobs(jobIds: string[]): Promise<number> {
   if (jobIds.length === 0) return 0;
@@ -209,6 +212,7 @@ export async function clearQueuedForJobs(jobIds: string[]): Promise<number> {
     where: {
       id: { in: threadIds },
       status: "PENDING",
+      nextActionAt: null, // skip threads already rescheduled by a budget-exhausted send
       OR: [
         { providerState: { path: ["phase"], equals: "QUEUED" } },
         { providerState: { path: ["phase"], equals: "DRAFT" } },
