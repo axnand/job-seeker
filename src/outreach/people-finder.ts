@@ -175,7 +175,12 @@ function brandToken(name: string): string {
 /** Does a person actually look like they work at the target company? */
 function matchesCompany(p: OutreachTarget, token: string): boolean {
   if (!token || token.length < 3) return false;
-  const hay = `${p.title ?? ""} ${p.company ?? ""}`.toLowerCase();
+  // If Unipile returned a current_company, the search was already scoped by
+  // LinkedIn's company filter — trust it. Only require the token check when
+  // current_company is absent (headline-only results where LinkedIn may have leaked
+  // people from unrelated companies).
+  if (p.company) return true;
+  const hay = (p.title ?? "").toLowerCase();
   return hay.includes(token);
 }
 
@@ -201,6 +206,17 @@ async function targetsFromSearch(job: Job, accountId: string): Promise<OutreachT
     if (!companyId) {
       const resolved = await resolveSearchParam(accountId, "COMPANY", cleanedName).catch(() => []);
       companyId = resolved[0]?.id ?? null;
+
+      // Fallback: if the full cleaned name didn't resolve (e.g. "SuperPe Marketplace"
+      // isn't in LinkedIn's index but "SuperPe" is), retry with just the brand token.
+      if (!companyId && token.length >= 4) {
+        const fallback = await resolveSearchParam(accountId, "COMPANY", token).catch(() => []);
+        companyId = fallback[0]?.id ?? null;
+        if (companyId) {
+          console.log(`[people-finder] resolved "${job.company}" via brand token "${token}" → ${companyId}`);
+        }
+      }
+
       if (companyId) await setCachedCompanyId(cleanedName, companyId).catch(() => {});
     }
 
@@ -221,6 +237,7 @@ async function targetsFromSearch(job: Job, accountId: string): Promise<OutreachT
 
     // Hard relevance gate: keep only people whose headline/company mentions the brand.
     const relevant = targets.filter((t) => matchesCompany(t, token));
+    console.log(`[people-finder] "${job.company}": ${recruiters.length} recruiters + ${peers.length} peers → ${targets.length} valid → ${relevant.length} matched token "${token}"`);
     if (relevant.length === 0) {
       console.log(`[people-finder] no people matched company "${job.company}" (token "${token}", role "${peerKeywords}") — skipping`);
     }
