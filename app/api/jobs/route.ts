@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
 
   const jobs = await prisma.job.findMany({
     where: {
-      ...(appStage ? { appStage } : {}),
+      ...(appStage ? { appStage } : { appStage: { not: "SKIPPED" } }),
       ...(source ? { source: source as never } : {}),
     },
     orderBy: { createdAt: "desc" },
