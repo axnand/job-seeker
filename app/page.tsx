@@ -5,6 +5,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Sheet, SheetContent, SheetHeader } from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import type { AppStage, OutreachState } from "@prisma/client";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -124,6 +125,7 @@ export default function BoardPage() {
   };
 
   // Filters + sort (client-side over the loaded jobs)
+  const [fQuery, setFQuery]   = useState("");
   const [fSource, setFSource] = useState("All");
   const [fApply, setFApply]   = useState("All");
   const [fScore, setFScore]   = useState("All");
@@ -155,6 +157,35 @@ export default function BoardPage() {
     setJobs(prev => prev.map(j => j.id === jobId ? { ...j, appStage: updated.appStage, outreachState: updated.outreachState } : j));
     setActing(false);
   }, []);
+
+  // Same bidirectional-substring match the discover/blacklist API uses.
+  const companyMatches = useCallback((co: string, term: string) => {
+    const a = co.toLowerCase(), b = term.toLowerCase();
+    return a.includes(b) || b.includes(a);
+  }, []);
+
+  // Quick card action — fire the stage change without opening the drawer.
+  const quickAct = useCallback(async (e: React.MouseEvent, jobId: string, action: string) => {
+    e.stopPropagation();
+    setActing(true);
+    await fetch("/api/jobs/action", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ jobId, action }) }).catch(() => {});
+    const updated = await fetch(`/api/jobs/${jobId}`).then(r => r.json()).catch(() => null) as Job | null;
+    if (updated) setJobs(prev => prev.map(j => j.id === jobId ? { ...j, appStage: updated.appStage, outreachState: updated.outreachState } : j));
+    setActing(false);
+  }, []);
+
+  // Blacklist the card's company: block future discovery + skip its open jobs now.
+  const blacklistCompany = useCallback(async (e: React.MouseEvent, company: string) => {
+    e.stopPropagation();
+    if (!window.confirm(`Blacklist “${company}”?\n\nThis removes its jobs from the board and blocks future ones. You can undo it in Settings → Company blacklist.`)) return;
+    setActing(true);
+    const res = await fetch("/api/companies/blacklist", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ company }) }).then(r => r.json()).catch(() => null);
+    setJobs(prev => prev.filter(j => !companyMatches(j.company, company)));
+    setSelected(s => (s && companyMatches(s.company, company)) ? null : s);
+    setActing(false);
+    const n = res?.skipped ?? 0;
+    showToast(`Blacklisted ${company}${n ? ` · ${n} job${n !== 1 ? "s" : ""} removed` : ""}.`, "warn");
+  }, [companyMatches, showToast]);
 
   // Initialise editable drafts whenever the open job's detail loads.
   useEffect(() => {
@@ -201,7 +232,9 @@ export default function BoardPage() {
   );
 
   const visible = useMemo(() => {
+    const q = fQuery.trim().toLowerCase();
     const v = jobs.filter(j => {
+      if (q && !j.company.toLowerCase().includes(q) && !j.role.toLowerCase().includes(q)) return false;
       if (fSource !== "All" && j.source !== fSource) return false;
       if (fApply === "Referral" && j.applyType !== "REFERRAL_FIRST") return false;
       if (fApply === "Manual" && j.applyType !== "MANUAL_NOTIFY") return false;
@@ -216,7 +249,7 @@ export default function BoardPage() {
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
     return v;
-  }, [jobs, fSource, fApply, fScore, sort]);
+  }, [jobs, fQuery, fSource, fApply, fScore, sort]);
 
   const byStage = STAGES.reduce<Record<string, Job[]>>((a,s) => { a[s]=[]; return a; }, {});
   for (const j of visible) if (j.appStage !== "SKIPPED" && byStage[j.appStage]) byStage[j.appStage].push(j);
@@ -270,6 +303,19 @@ export default function BoardPage() {
 
         {/* Filter bar */}
         <div className="flex items-center gap-2">
+          <div className="relative w-56">
+            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400 text-xs pointer-events-none">⌕</span>
+            <Input
+              value={fQuery}
+              onChange={e => setFQuery(e.target.value)}
+              placeholder="Search company or role…"
+              className="h-9 pl-7 pr-7 text-xs bg-white border-zinc-200 shadow-sm rounded-lg"
+            />
+            {fQuery && (
+              <button onClick={() => setFQuery("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-700 text-sm leading-none">×</button>
+            )}
+          </div>
           <select value={fSource} onChange={e => setFSource(e.target.value)}
             className="text-xs border border-zinc-200 rounded-lg px-3 py-2 bg-white text-zinc-600 shadow-sm focus:outline-none focus:border-zinc-400 cursor-pointer">
             <option value="All">Source: All</option>
@@ -288,8 +334,8 @@ export default function BoardPage() {
             <option value="60+">Score: 60+</option>
             <option value="<60">Score: &lt;60</option>
           </select>
-          {(fSource !== "All" || fApply !== "All" || fScore !== "All") && (
-            <button onClick={() => { setFSource("All"); setFApply("All"); setFScore("All"); }}
+          {(fQuery !== "" || fSource !== "All" || fApply !== "All" || fScore !== "All") && (
+            <button onClick={() => { setFQuery(""); setFSource("All"); setFApply("All"); setFScore("All"); }}
               className="text-xs text-zinc-400 hover:text-zinc-700 px-2 py-1.5 transition-colors">Clear</button>
           )}
           <div className="ml-auto flex items-center gap-1 text-xs text-zinc-400">
@@ -412,6 +458,26 @@ export default function BoardPage() {
                           )}
                         </div>
                       </button>
+
+                      {/* Hover quick-actions — sit above the card, never nested in it */}
+                      <div className="absolute bottom-2 right-2 z-10 flex items-center gap-1 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity">
+                        {job.appStage === "NEW" && (
+                          <button title="Approve & queue outreach" disabled={acting}
+                            onClick={(e) => quickAct(e, job.id, "approve")}
+                            className="w-7 h-7 rounded-lg bg-white/95 backdrop-blur border border-zinc-200 shadow-sm flex items-center justify-center text-xs text-zinc-500 hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-600 disabled:opacity-50 transition-colors">✓</button>
+                        )}
+                        {(job.appStage === "APPROVED" || job.appStage === "OUTREACH") && (
+                          <button title="Mark replied" disabled={acting}
+                            onClick={(e) => quickAct(e, job.id, "replied")}
+                            className="w-7 h-7 rounded-lg bg-white/95 backdrop-blur border border-zinc-200 shadow-sm flex items-center justify-center text-xs text-zinc-500 hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-600 disabled:opacity-50 transition-colors">↩</button>
+                        )}
+                        <button title="Skip / remove from board" disabled={acting}
+                          onClick={(e) => quickAct(e, job.id, "skip")}
+                          className="w-7 h-7 rounded-lg bg-white/95 backdrop-blur border border-zinc-200 shadow-sm flex items-center justify-center text-xs text-zinc-500 hover:bg-zinc-100 hover:border-zinc-400 hover:text-zinc-700 disabled:opacity-50 transition-colors">✕</button>
+                        <button title={`Blacklist ${job.company}`} disabled={acting}
+                          onClick={(e) => blacklistCompany(e, job.company)}
+                          className="w-7 h-7 rounded-lg bg-white/95 backdrop-blur border border-zinc-200 shadow-sm flex items-center justify-center text-sm text-zinc-500 hover:bg-red-50 hover:border-red-300 hover:text-red-600 disabled:opacity-50 transition-colors">⊘</button>
+                      </div>
                       </div>
                     );
                   })}

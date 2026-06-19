@@ -16,6 +16,14 @@ const VALID_ACTIONS: AppStage[] = [
   "APPROVED", "OUTREACH", "REPLIED", "SKIPPED",
 ];
 
+// Friendly verbs used by the UI → canonical stage.
+const ACTION_ALIASES: Record<string, AppStage> = {
+  approve: "APPROVED",
+  skip: "SKIPPED",
+  replied: "REPLIED",
+  outreach: "OUTREACH",
+};
+
 export async function POST(req: NextRequest) {
   const body = await req.json() as { jobId?: string; action?: string; note?: string };
 
@@ -23,7 +31,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "jobId and action required" }, { status: 400 });
   }
 
-  const newStage = body.action.toUpperCase() as AppStage;
+  const key = body.action.toLowerCase();
+  const newStage = (ACTION_ALIASES[key] ?? body.action.toUpperCase()) as AppStage;
   if (!VALID_ACTIONS.includes(newStage)) {
     return NextResponse.json({ error: "invalid action" }, { status: 400 });
   }
