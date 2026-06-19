@@ -1,13 +1,14 @@
 /**
  * POST /api/companies/blacklist
- * Body: { company: string }
+ * Body: { company: string } | { companies: string[] }
  *
- * Adds a company to search.blacklistedCompanies (so it's filtered out of future
- * discovery and any open threads get archived on the next tick) AND skips every
- * job already on the board for that company so it disappears now.
+ * Adds the company/companies to search.blacklistedCompanies (so they're filtered
+ * out of future discovery) AND, for every job already on the board that matches,
+ * skips the job and archives any in-flight outreach immediately — so nothing more
+ * sends for that company from now on.
  *
- * Matching mirrors the discover/thread-worker rule: a job matches if its company
- * (lowercased) and the blacklisted term contain each other in either direction.
+ * Matching mirrors the discover/thread-worker rule: a job matches a term if its
+ * company (lowercased) and the term contain each other in either direction.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -15,29 +16,40 @@ import { prisma } from "@/lib/prisma";
 import { getSettings, updateSettings } from "@/lib/settings";
 
 export async function POST(req: NextRequest) {
-  const body = (await req.json()) as { company?: string };
-  const company = body.company?.trim();
-  if (!company) {
+  const body = (await req.json()) as { company?: string; companies?: string[] };
+
+  // Normalise to a deduped (case-insensitive) list of non-empty terms.
+  const raw = [body.company, ...(body.companies ?? [])];
+  const seen = new Set<string>();
+  const terms: string[] = [];
+  for (const r of raw) {
+    const t = r?.trim();
+    if (!t) continue;
+    const key = t.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    terms.push(t);
+  }
+  if (terms.length === 0) {
     return NextResponse.json({ error: "company required" }, { status: 400 });
   }
-  const termLower = company.toLowerCase();
+  const termsLower = terms.map((t) => t.toLowerCase());
 
-  // Add to the blacklist (case-insensitive dedup).
+  // Add to the blacklist (case-insensitive dedup against what's already there).
   const settings = await getSettings();
-  const already = settings.search.blacklistedCompanies.some(
-    (c) => c.toLowerCase() === termLower,
-  );
-  if (!already) {
+  const existing = new Set(settings.search.blacklistedCompanies.map((c) => c.toLowerCase()));
+  const toAdd = terms.filter((t) => !existing.has(t.toLowerCase()));
+  if (toAdd.length > 0) {
     await updateSettings({
       search: {
         ...settings.search,
-        blacklistedCompanies: [...settings.search.blacklistedCompanies, company],
+        blacklistedCompanies: [...settings.search.blacklistedCompanies, ...toAdd],
       },
     });
   }
 
-  // Skip every job already on the board for that company. Filter in JS so the
-  // match uses the same bidirectional-substring rule as the rest of the app.
+  // Skip every job already on the board that matches any term. Filter in JS so
+  // the match uses the same bidirectional-substring rule as the rest of the app.
   const open = await prisma.job.findMany({
     where: { appStage: { not: "SKIPPED" } },
     select: { id: true, company: true },
@@ -45,15 +57,16 @@ export async function POST(req: NextRequest) {
   const matchIds = open
     .filter((j) => {
       const co = j.company.toLowerCase();
-      return co.includes(termLower) || termLower.includes(co);
+      return termsLower.some((t) => co.includes(t) || t.includes(co));
     })
     .map((j) => j.id);
 
+  const reason = `Company blacklisted: ${terms.join(", ")}`;
   let archived = 0;
   if (matchIds.length > 0) {
     await prisma.job.updateMany({
       where: { id: { in: matchIds } },
-      data: { appStage: "SKIPPED", appStageNote: `Company blacklisted: ${company}` },
+      data: { appStage: "SKIPPED", appStageNote: reason },
     });
 
     // Stop any outreach already in flight for those jobs now, rather than
@@ -69,7 +82,7 @@ export async function POST(req: NextRequest) {
         data: {
           status: "ARCHIVED",
           archivedAt: new Date(),
-          archivedReason: `Company blacklisted: ${company}`,
+          archivedReason: reason,
           nextActionAt: null,
         },
       });
@@ -77,5 +90,5 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ok: true, blacklisted: company, skipped: matchIds.length, archived });
+  return NextResponse.json({ ok: true, blacklisted: terms, skipped: matchIds.length, archived });
 }

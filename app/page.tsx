@@ -192,6 +192,28 @@ export default function BoardPage() {
     showToast(`Blacklisted ${company}${parts.length ? ` · ${parts.join(" · ")}` : ""}.`, "warn");
   }, [companyMatches, showToast]);
 
+  // Blacklist every distinct company in the current selection in one shot.
+  const bulkBlacklist = useCallback(async () => {
+    const companies = Array.from(new Set(jobs.filter(j => sel.has(j.id)).map(j => j.company)));
+    if (companies.length === 0) return;
+    const label = companies.length === 1 ? `“${companies[0]}”` : `${companies.length} companies`;
+    if (!window.confirm(`Blacklist ${label}?\n\n${companies.join(", ")}\n\nThis removes their jobs from the board, stops any outreach, and blocks future ones. Undo in Settings → Company blacklist.`)) return;
+    setActing(true);
+    const res = await fetch("/api/companies/blacklist", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ companies }) }).then(r => r.json()).catch(() => null);
+    setJobs(prev => prev.filter(j => !companies.some(c => companyMatches(j.company, c))));
+    setSel(new Set());
+    setSelected(s => (s && companies.some(c => companyMatches(s.company, c))) ? null : s);
+    setActing(false);
+    const n = res?.skipped ?? 0;
+    const a = res?.archived ?? 0;
+    const parts = [
+      `${companies.length} compan${companies.length !== 1 ? "ies" : "y"} blacklisted`,
+      n ? `${n} job${n !== 1 ? "s" : ""} removed` : "",
+      a ? `${a} outreach stopped` : "",
+    ].filter(Boolean);
+    showToast(`${parts.join(" · ")}.`, "warn");
+  }, [jobs, sel, companyMatches, showToast]);
+
   // Initialise editable drafts whenever the open job's detail loads.
   useEffect(() => {
     if (!detail?.outreaches) { setDrafts({}); return; }
@@ -274,6 +296,13 @@ export default function BoardPage() {
   ];
 
   const job = detail ?? selected;
+
+  // How many of the selected cards are APPROVED (the only ones "Send requests"
+  // applies to). Selection itself works on any card, for bulk blacklisting.
+  const selApprovedCount = useMemo(
+    () => jobs.filter(j => sel.has(j.id) && j.appStage === "APPROVED").length,
+    [jobs, sel],
+  );
 
   return (
     <div className="flex flex-col h-[calc(100vh-48px)] bg-zinc-100 overflow-hidden">
@@ -377,7 +406,7 @@ export default function BoardPage() {
                   <span className="ml-auto text-xs font-semibold text-zinc-400 tabular-nums bg-zinc-100 rounded-full px-2 py-0.5 min-w-[24px] text-center">
                     {cards.length}
                   </span>
-                  {stage === "APPROVED" && cards.length > 0 && (
+                  {cards.length > 0 && (
                     <button
                       onClick={() => setSel(prev => {
                         const ids = cards.map(c => c.id);
@@ -412,12 +441,10 @@ export default function BoardPage() {
                     const isSel = sel.has(job.id);
                     return (
                       <div key={job.id} className="relative group">
-                      {job.appStage === "APPROVED" && (
-                        <button onClick={(e) => { e.stopPropagation(); toggleSel(job.id); }}
-                          className={`absolute top-2.5 right-2.5 z-10 w-5 h-5 rounded-md border flex items-center justify-center text-[11px] leading-none transition-all ${isSel ? "bg-zinc-900 border-zinc-900 text-white opacity-100" : "bg-white border-zinc-300 text-transparent hover:border-zinc-500 opacity-0 group-hover:opacity-100"}`}>
-                          ✓
-                        </button>
-                      )}
+                      <button onClick={(e) => { e.stopPropagation(); toggleSel(job.id); }}
+                        className={`absolute top-2.5 right-2.5 z-10 w-5 h-5 rounded-md border flex items-center justify-center text-[11px] leading-none transition-all ${isSel ? "bg-zinc-900 border-zinc-900 text-white opacity-100" : "bg-white border-zinc-300 text-transparent hover:border-zinc-500 opacity-0 group-hover:opacity-100"}`}>
+                        ✓
+                      </button>
                       <button onClick={() => openJob(job)}
                         className={`w-full text-left bg-white rounded-xl p-4 border hover:shadow-md active:scale-[0.99] transition-all shadow-sm ${isSel ? "border-zinc-900 ring-1 ring-zinc-900" : "border-zinc-200 hover:border-zinc-300"}`}>
 
@@ -506,22 +533,28 @@ export default function BoardPage() {
         </div>
       )}
 
-      {/* ── Bulk send action bar ──────────────────────────────────────── */}
+      {/* ── Bulk action bar ───────────────────────────────────────────── */}
       {sel.size > 0 && !askNote && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-zinc-900 text-white rounded-full shadow-xl pl-5 pr-2 py-2">
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-zinc-900 text-white rounded-full shadow-xl pl-5 pr-2 py-2">
           <span className="text-sm font-medium">{sel.size} selected</span>
-          <button onClick={() => setSel(new Set())} className="text-xs text-zinc-300 hover:text-white">Clear</button>
-          <button onClick={() => setAskNote(true)} disabled={sending}
-            className="bg-white text-zinc-900 text-sm font-semibold rounded-full px-4 py-1.5 hover:bg-zinc-100 disabled:opacity-60 flex items-center gap-1.5">
-            {sending ? "Sending…" : "Send requests →"}
+          <button onClick={() => setSel(new Set())} className="text-xs text-zinc-300 hover:text-white mr-1">Clear</button>
+          <button onClick={bulkBlacklist} disabled={acting || sending}
+            className="bg-red-500 text-white text-sm font-semibold rounded-full px-4 py-1.5 hover:bg-red-600 disabled:opacity-60">
+            ⊘ Blacklist
           </button>
+          {selApprovedCount > 0 && (
+            <button onClick={() => setAskNote(true)} disabled={sending}
+              className="bg-white text-zinc-900 text-sm font-semibold rounded-full px-4 py-1.5 hover:bg-zinc-100 disabled:opacity-60 flex items-center gap-1.5">
+              {sending ? "Sending…" : "Send requests →"}
+            </button>
+          )}
         </div>
       )}
 
       {/* Connection-note choice for the manual bulk send */}
       {sel.size > 0 && askNote && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-zinc-900 text-white rounded-2xl shadow-xl px-4 py-3">
-          <span className="text-sm font-medium mr-1">Add a connection note to {sel.size} invite{sel.size !== 1 ? "s" : ""}?</span>
+          <span className="text-sm font-medium mr-1">Add a connection note to {selApprovedCount} invite{selApprovedCount !== 1 ? "s" : ""}?</span>
           <button onClick={() => sendSelected(true)} disabled={sending}
             className="bg-white text-zinc-900 text-sm font-semibold rounded-full px-4 py-1.5 hover:bg-zinc-100 disabled:opacity-60">
             With note
