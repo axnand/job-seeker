@@ -101,6 +101,7 @@ export default function BoardPage() {
   const [paused, setPaused]  = useState(false);
   const [sel, setSel]       = useState<Set<string>>(new Set());
   const [sending, setSending] = useState(false);
+  const [finding, setFinding] = useState(false);
   const [askNote, setAskNote] = useState(false);
   const [toast, setToast]   = useState<{ msg: string; tone: "info" | "warn" | "error" } | null>(null);
   const showToast = useCallback((msg: string, tone: "info" | "warn" | "error" = "info") => {
@@ -113,7 +114,9 @@ export default function BoardPage() {
     setSending(true);
     setAskNote(false);
     const jobIds = [...sel];
-    const res = await fetch("/api/outreach/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobIds, withNote }) }).then(r => r.json()).catch(() => null);
+    // clearQueue: this bar is the manual fast-track — once we've sent, drop any
+    // leftover queued invites for these jobs so the tick won't send more later.
+    const res = await fetch("/api/outreach/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobIds, withNote, clearQueue: true }) }).then(r => r.json()).catch(() => null);
     setSending(false);
     setSel(new Set());
     const d = await fetch("/api/jobs?limit=200").then(r => r.json()).catch(() => null);
@@ -121,7 +124,23 @@ export default function BoardPage() {
     if (res?.paused) showToast("Outreach is paused — turn it back on in Settings → Outreach.", "error");
     else if (res?.capped) showToast("Daily/weekly send cap hit. The rest go out automatically in the next window.", "warn");
     else if (res?.noThreads) showToast("Nothing to send for the selected jobs.", "info");
-    else if (typeof res?.sent === "number") showToast(`Sent ${res.sent} request${res.sent !== 1 ? "s" : ""}.`, "info");
+    else if (typeof res?.sent === "number") {
+      const cleared = res.cleared ? ` · ${res.cleared} queued cleared` : "";
+      showToast(`Sent ${res.sent} request${res.sent !== 1 ? "s" : ""}${cleared}.`, "info");
+    }
+  };
+  // Find up to 10 LinkedIn people for each selected job and queue draft outreach.
+  const findPeople = async () => {
+    if (sel.size === 0) return;
+    setFinding(true);
+    const jobIds = [...sel];
+    const res = await fetch("/api/outreach/find-people", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobIds, count: 10 }) }).then(r => r.json()).catch(() => null);
+    setFinding(false);
+    const d = await fetch("/api/jobs?limit=200").then(r => r.json()).catch(() => null);
+    if (d?.jobs) setJobs(d.jobs);
+    if (!res?.ok) showToast("Couldn't find people right now — try again.", "error");
+    else if (res.drafted > 0) showToast(`Found ${res.drafted} ${res.drafted !== 1 ? "people" : "person"} across ${res.jobsTouched} job${res.jobsTouched !== 1 ? "s" : ""}. Review or hit "Send now".`, "info");
+    else showToast("No new people found for the selected jobs.", "warn");
   };
 
   // Filters + sort (client-side over the loaded jobs)
@@ -297,10 +316,11 @@ export default function BoardPage() {
 
   const job = detail ?? selected;
 
-  // How many of the selected cards are APPROVED (the only ones "Send requests"
-  // applies to). Selection itself works on any card, for bulk blacklisting.
-  const selApprovedCount = useMemo(
-    () => jobs.filter(j => sel.has(j.id) && j.appStage === "APPROVED").length,
+  // How many selected cards have outreach worth sending now (Approved =
+  // queued invites; Outreach = in-flight threads to advance). Selection itself
+  // works on any card, for "Find people" and bulk blacklisting.
+  const selSendableCount = useMemo(
+    () => jobs.filter(j => sel.has(j.id) && (j.appStage === "APPROVED" || j.appStage === "OUTREACH")).length,
     [jobs, sel],
   );
 
@@ -538,14 +558,18 @@ export default function BoardPage() {
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-zinc-900 text-white rounded-full shadow-xl pl-5 pr-2 py-2">
           <span className="text-sm font-medium">{sel.size} selected</span>
           <button onClick={() => setSel(new Set())} className="text-xs text-zinc-300 hover:text-white mr-1">Clear</button>
-          <button onClick={bulkBlacklist} disabled={acting || sending}
+          <button onClick={findPeople} disabled={finding || sending || acting}
+            className="bg-zinc-700 text-white text-sm font-semibold rounded-full px-4 py-1.5 hover:bg-zinc-600 disabled:opacity-60">
+            {finding ? "Finding…" : "⊕ Find people"}
+          </button>
+          <button onClick={bulkBlacklist} disabled={acting || sending || finding}
             className="bg-red-500 text-white text-sm font-semibold rounded-full px-4 py-1.5 hover:bg-red-600 disabled:opacity-60">
             ⊘ Blacklist
           </button>
-          {selApprovedCount > 0 && (
-            <button onClick={() => setAskNote(true)} disabled={sending}
+          {selSendableCount > 0 && (
+            <button onClick={() => setAskNote(true)} disabled={sending || finding}
               className="bg-white text-zinc-900 text-sm font-semibold rounded-full px-4 py-1.5 hover:bg-zinc-100 disabled:opacity-60 flex items-center gap-1.5">
-              {sending ? "Sending…" : "Send requests →"}
+              {sending ? "Sending…" : "Send now →"}
             </button>
           )}
         </div>
@@ -554,7 +578,7 @@ export default function BoardPage() {
       {/* Connection-note choice for the manual bulk send */}
       {sel.size > 0 && askNote && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-zinc-900 text-white rounded-2xl shadow-xl px-4 py-3">
-          <span className="text-sm font-medium mr-1">Add a connection note to {selApprovedCount} invite{selApprovedCount !== 1 ? "s" : ""}?</span>
+          <span className="text-sm font-medium mr-1">Add a connection note to {selSendableCount} invite{selSendableCount !== 1 ? "s" : ""}?</span>
           <button onClick={() => sendSelected(true)} disabled={sending}
             className="bg-white text-zinc-900 text-sm font-semibold rounded-full px-4 py-1.5 hover:bg-zinc-100 disabled:opacity-60">
             With note

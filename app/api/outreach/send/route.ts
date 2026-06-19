@@ -6,17 +6,25 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { sendForJobs } from "@/outreach/outreach-tick";
+import { sendForJobs, clearQueuedForJobs } from "@/outreach/outreach-tick";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
 export async function POST(req: NextRequest) {
-  const body = await req.json().catch(() => ({})) as { jobIds?: string[]; withNote?: boolean };
+  const body = await req.json().catch(() => ({})) as { jobIds?: string[]; withNote?: boolean; clearQueue?: boolean };
   const jobIds = Array.isArray(body.jobIds) ? body.jobIds.filter(Boolean) : [];
   if (jobIds.length === 0) {
     return NextResponse.json({ error: "jobIds required" }, { status: 400 });
   }
   const result = await sendForJobs(jobIds, { withNote: body.withNote === true });
-  return NextResponse.json({ ok: true, ...result });
+
+  // Fast-track: once the owner has sent, drop anything still queued for these
+  // jobs so the tick won't send more behind their back ("the task is done now").
+  let cleared = 0;
+  if (body.clearQueue === true) {
+    cleared = await clearQueuedForJobs(jobIds).catch(() => 0);
+  }
+
+  return NextResponse.json({ ok: true, ...result, cleared });
 }

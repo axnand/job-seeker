@@ -188,6 +188,43 @@ export async function sendForJobs(
   return { sent, failed, ...(budgetMut.invitesLeft <= 0 ? { capped: true } : {}) };
 }
 
+/**
+ * Clear the leftover send queue for the given jobs — used by the manual "Send
+ * now" fast-track once the owner has actioned the jobs themselves. Archives only
+ * threads that haven't sent anything yet (phase QUEUED/DRAFT), so an invite that
+ * couldn't go now (rate-capped) won't quietly go out on a later tick. Threads
+ * that already sent (INVITE_PENDING and beyond) are left alone — their post-
+ * acceptance DM/follow-up still runs. Returns the count archived.
+ */
+export async function clearQueuedForJobs(jobIds: string[]): Promise<number> {
+  if (jobIds.length === 0) return 0;
+  const outreaches = await prisma.outreach.findMany({
+    where: { jobId: { in: jobIds }, threadId: { not: null } },
+    select: { threadId: true },
+  });
+  const threadIds = outreaches.map((o) => o.threadId!).filter(Boolean);
+  if (threadIds.length === 0) return 0;
+
+  const res = await prisma.channelThread.updateMany({
+    where: {
+      id: { in: threadIds },
+      status: "PENDING",
+      OR: [
+        { providerState: { path: ["phase"], equals: "QUEUED" } },
+        { providerState: { path: ["phase"], equals: "DRAFT" } },
+      ],
+    },
+    data: {
+      status: "ARCHIVED",
+      archivedAt: new Date(),
+      archivedReason: "Cleared after manual send",
+      nextActionAt: null,
+    },
+  });
+  for (const jobId of jobIds) await recomputeOutreachState(jobId).catch(() => {});
+  return res.count;
+}
+
 // ─── Claim ────────────────────────────────────────────────────────────────────
 
 /**
