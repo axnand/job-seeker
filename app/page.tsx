@@ -17,7 +17,7 @@ type Job = {
   salaryAnnualBase: number | null; salaryCurrency: string | null;
   salaryBasis: string | null; salaryConfidence: string | null;
   salaryFlagReason: string | null; applyUrl: string; location: string | null;
-  jdText: string; createdAt: string;
+  jdText: string; createdAt: string; appStageNote: string | null;
   needsTailoring: boolean; tailoringSuggestions: string | null; tailoredResumeKey: string | null;
   outreaches?: Array<{
     id: string; role: string;
@@ -31,6 +31,7 @@ type Job = {
 };
 
 type DraftEdit = { connectionNote: string; firstDm: string; followup: string };
+type Toast = { msg: string; tone: "info" | "warn" | "error"; undo?: () => void } | null;
 
 const THREAD_PHASE_LABEL: Record<string, string> = {
   QUEUED:         "Queued — invite sends next tick",
@@ -103,10 +104,13 @@ export default function BoardPage() {
   const [sending, setSending] = useState(false);
   const [finding, setFinding] = useState(false);
   const [askNote, setAskNote] = useState(false);
-  const [toast, setToast]   = useState<{ msg: string; tone: "info" | "warn" | "error" } | null>(null);
-  const showToast = useCallback((msg: string, tone: "info" | "warn" | "error" = "info") => {
-    setToast({ msg, tone });
-    setTimeout(() => setToast(null), 4500);
+  const [showSkipped, setShowSkipped]   = useState(false);
+  const [skippedJobs, setSkippedJobs]   = useState<Job[]>([]);
+  const [loadingSkipped, setLoadingSkipped] = useState(false);
+  const [toast, setToast]   = useState<Toast>(null);
+  const showToast = useCallback((msg: string, tone: "info" | "warn" | "error" = "info", undo?: () => void) => {
+    setToast({ msg, tone, undo });
+    setTimeout(() => setToast(null), 6000);
   }, []);
   const toggleSel = (id: string) => setSel(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const sendSelected = async (withNote: boolean) => {
@@ -168,6 +172,15 @@ export default function BoardPage() {
     setDetail(full);
   }, []);
 
+  const toggleSkipped = useCallback(async () => {
+    if (showSkipped) { setShowSkipped(false); return; }
+    setShowSkipped(true);
+    setLoadingSkipped(true);
+    const d = await fetch("/api/jobs?appStage=SKIPPED&limit=200").then(r => r.json()).catch(() => null);
+    setSkippedJobs(d?.jobs ?? []);
+    setLoadingSkipped(false);
+  }, [showSkipped]);
+
   const act = useCallback(async (jobId: string, action: string) => {
     setActing(true);
     await fetch("/api/jobs/action", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ jobId, action }) });
@@ -196,7 +209,11 @@ export default function BoardPage() {
   // Blacklist the card's company: block future discovery + skip its open jobs now.
   const blacklistCompany = useCallback(async (e: React.MouseEvent, company: string) => {
     e.stopPropagation();
-    if (!window.confirm(`Blacklist “${company}”?\n\nThis removes its jobs from the board and blocks future ones. You can undo it in Settings → Company blacklist.`)) return;
+    if (!window.confirm(`Blacklist "${company}"?\n\nThis removes its jobs from the board and blocks future ones.`)) return;
+    // Capture current stages before wiping so we can undo.
+    const restores = jobs
+      .filter(j => companyMatches(j.company, company) && j.appStage !== "SKIPPED")
+      .map(j => ({ id: j.id, stage: j.appStage as string }));
     setActing(true);
     const res = await fetch("/api/companies/blacklist", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ company }) }).then(r => r.json()).catch(() => null);
     setJobs(prev => prev.filter(j => !companyMatches(j.company, company)));
@@ -204,19 +221,30 @@ export default function BoardPage() {
     setActing(false);
     const n = res?.skipped ?? 0;
     const a = res?.archived ?? 0;
-    const parts = [
-      n ? `${n} job${n !== 1 ? "s" : ""} removed` : "",
-      a ? `${a} outreach stopped` : "",
-    ].filter(Boolean);
-    showToast(`Blacklisted ${company}${parts.length ? ` · ${parts.join(" · ")}` : ""}.`, "warn");
-  }, [companyMatches, showToast]);
+    const parts = [n ? `${n} job${n !== 1 ? "s" : ""} removed` : "", a ? `${a} outreach stopped` : ""].filter(Boolean);
+    showToast(
+      `Blacklisted ${company}${parts.length ? ` · ${parts.join(" · ")}` : ""}.`,
+      "warn",
+      async () => {
+        await fetch("/api/companies/unblacklist", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ company, restores }) }).catch(() => {});
+        const d = await fetch("/api/jobs?limit=200").then(r => r.json()).catch(() => null);
+        if (d?.jobs) setJobs(d.jobs);
+        showToast(`Unblacklisted ${company}.`, "info");
+      },
+    );
+  }, [jobs, companyMatches, showToast]);
 
   // Blacklist every distinct company in the current selection in one shot.
   const bulkBlacklist = useCallback(async () => {
     const companies = Array.from(new Set(jobs.filter(j => sel.has(j.id)).map(j => j.company)));
     if (companies.length === 0) return;
-    const label = companies.length === 1 ? `“${companies[0]}”` : `${companies.length} companies`;
-    if (!window.confirm(`Blacklist ${label}?\n\n${companies.join(", ")}\n\nThis removes their jobs from the board, stops any outreach, and blocks future ones. Undo in Settings → Company blacklist.`)) return;
+    const label = companies.length === 1 ? `"${companies[0]}"` : `${companies.length} companies`;
+    if (!window.confirm(`Blacklist ${label}?\n\n${companies.join(", ")}\n\nThis removes their jobs from the board, stops any outreach, and blocks future ones.`)) return;
+    // Capture current stages for undo (per company).
+    const restoresByCompany = companies.map(c => ({
+      company: c,
+      restores: jobs.filter(j => companyMatches(j.company, c) && j.appStage !== "SKIPPED").map(j => ({ id: j.id, stage: j.appStage as string })),
+    }));
     setActing(true);
     const res = await fetch("/api/companies/blacklist", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ companies }) }).then(r => r.json()).catch(() => null);
     setJobs(prev => prev.filter(j => !companies.some(c => companyMatches(j.company, c))));
@@ -230,7 +258,18 @@ export default function BoardPage() {
       n ? `${n} job${n !== 1 ? "s" : ""} removed` : "",
       a ? `${a} outreach stopped` : "",
     ].filter(Boolean);
-    showToast(`${parts.join(" · ")}.`, "warn");
+    showToast(
+      `${parts.join(" · ")}.`,
+      "warn",
+      async () => {
+        await Promise.all(restoresByCompany.map(({ company, restores }) =>
+          fetch("/api/companies/unblacklist", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ company, restores }) }).catch(() => {}),
+        ));
+        const d = await fetch("/api/jobs?limit=200").then(r => r.json()).catch(() => null);
+        if (d?.jobs) setJobs(d.jobs);
+        showToast(`Unblacklisted ${companies.length} compan${companies.length !== 1 ? "ies" : "y"}.`, "info");
+      },
+    );
   }, [jobs, sel, companyMatches, showToast]);
 
   // Initialise editable drafts whenever the open job's detail loads.
@@ -269,6 +308,42 @@ export default function BoardPage() {
     const updated = await fetch(`/api/jobs/${jobId}`).then(r => r.json()) as Job;
     setDetail(updated);
     setUploadingResume(false);
+  }, []);
+
+  // Restore a skipped job back to New.
+  const restoreJob = useCallback(async (e: React.MouseEvent, jobId: string) => {
+    e.stopPropagation();
+    setActing(true);
+    await fetch("/api/jobs/action", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ jobId, action: "restore" }) }).catch(() => {});
+    const updated = await fetch(`/api/jobs/${jobId}`).then(r => r.json()).catch(() => null) as Job | null;
+    if (updated) {
+      setSkippedJobs(prev => prev.filter(j => j.id !== jobId));
+      setJobs(prev => [...prev, updated]);
+    }
+    setActing(false);
+    showToast("Job restored to New.", "info");
+  }, [showToast]);
+
+  // Compact outreach progress for the card badge: "3 sent · 1 connected" etc.
+  const outreachSummary = useCallback((outreaches: Job["outreaches"]): string | null => {
+    if (!outreaches?.length) return null;
+    let sent = 0, connected = 0, messaged = 0, replied = 0;
+    for (const o of outreaches) {
+      const t = o.thread;
+      if (!t || t.status === "ARCHIVED") continue;
+      if (t.status === "REPLIED") { replied++; sent++; connected++; messaged++; continue; }
+      const phase = (t.providerState as { phase?: string } | null)?.phase;
+      if (phase === "MESSAGED")       { messaged++; connected++; sent++; }
+      else if (phase === "CONNECTED") { connected++; sent++; }
+      else if (phase === "INVITE_PENDING") { sent++; }
+    }
+    if (sent === 0) return null;
+    const parts: string[] = [];
+    if (replied)   parts.push(`${replied} replied`);
+    if (messaged && !replied) parts.push(`${messaged} DM'd`);
+    if (connected && !messaged && !replied) parts.push(`${connected} connected`);
+    if (sent)      parts.push(`${sent} sent`);
+    return parts.length ? parts.join(" · ") : null;
   }, []);
 
   // Distinct sources present (for the Source filter options)
@@ -401,8 +476,12 @@ export default function BoardPage() {
               </button>
             ))}
           </div>
+          <button onClick={toggleSkipped}
+            className={`text-xs font-semibold px-3 py-2 rounded-lg border shadow-sm transition-colors ${showSkipped ? "bg-zinc-800 text-white border-zinc-800" : "bg-white text-zinc-500 border-zinc-200 hover:border-zinc-400 hover:text-zinc-700"}`}>
+            {showSkipped ? "Hide skipped" : "Skipped"}
+          </button>
           <a href="/add"
-            className="ml-2 bg-zinc-900 hover:bg-zinc-700 text-white text-xs font-semibold px-4 py-2 rounded-lg shadow-sm transition-colors">
+            className="ml-1 bg-zinc-900 hover:bg-zinc-700 text-white text-xs font-semibold px-4 py-2 rounded-lg shadow-sm transition-colors">
             + Add Job
           </a>
         </div>
@@ -508,6 +587,9 @@ export default function BoardPage() {
                               {outreach.text}
                             </span>
                           )}
+                          {(() => { const s = outreachSummary(job.outreaches); return s ? (
+                            <span className="text-[10px] text-zinc-400 bg-zinc-50 border border-zinc-200 rounded-md px-2 py-1">{s}</span>
+                          ) : null; })()}
                         </div>
                       </button>
 
@@ -540,6 +622,61 @@ export default function BoardPage() {
         </div>
       </div>
 
+      {/* ── Skipped panel ─────────────────────────────────────────────── */}
+      {showSkipped && (
+        <div className="flex-shrink-0 px-8 pb-6">
+          <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
+            <div className="flex items-center gap-2.5 px-5 py-3.5 border-b border-zinc-100 border-l-[3px] border-l-zinc-300">
+              <div className="w-2 h-2 rounded-full bg-zinc-300" />
+              <span className="text-sm font-semibold text-zinc-600">Skipped</span>
+              <span className="text-xs font-semibold text-zinc-400 bg-zinc-100 rounded-full px-2 py-0.5">{loadingSkipped ? "…" : skippedJobs.length}</span>
+            </div>
+            <div className="p-4">
+              {loadingSkipped && (
+                <div className="grid grid-cols-4 gap-3">
+                  <div className="bg-zinc-100 rounded-xl h-20 animate-pulse" />
+                  <div className="bg-zinc-100 rounded-xl h-20 animate-pulse opacity-60" />
+                </div>
+              )}
+              {!loadingSkipped && skippedJobs.length === 0 && (
+                <p className="text-sm text-zinc-400 py-2">No skipped jobs.</p>
+              )}
+              {!loadingSkipped && skippedJobs.length > 0 && (
+                <div className="grid grid-cols-4 gap-3 max-h-64 overflow-y-auto">
+                  {skippedJobs.map(sj => (
+                    <div key={sj.id} className="relative group bg-zinc-50 border border-zinc-200 rounded-xl p-3 flex flex-col gap-1">
+                      <div className="flex items-start gap-2">
+                        <Avatar className={`h-7 w-7 rounded-lg shrink-0 ${avatarClr(sj.company)}`}>
+                          <AvatarFallback className={`rounded-lg text-[11px] font-bold ${avatarClr(sj.company)}`}>
+                            {sj.company.charAt(0).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-semibold text-zinc-700 truncate">{sj.company}</p>
+                          <p className="text-[11px] text-zinc-400 truncate">{sj.role}</p>
+                        </div>
+                        {sj.aiScore !== null && (
+                          <span className={`text-[10px] font-bold px-1 py-0.5 rounded shrink-0 ${scoreClr(sj.aiScore)}`}>{sj.aiScore}</span>
+                        )}
+                      </div>
+                      {sj.appStageNote && (
+                        <p className="text-[10px] text-zinc-400 truncate">{sj.appStageNote}</p>
+                      )}
+                      <button
+                        onClick={(e) => restoreJob(e, sj.id)}
+                        disabled={acting}
+                        className="mt-1 text-[11px] font-medium text-zinc-500 hover:text-zinc-900 hover:bg-white border border-zinc-200 rounded-lg px-2 py-1 transition-colors self-start">
+                        Restore →
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Toast ─────────────────────────────────────────────────────── */}
       {toast && (
         <div className={`fixed top-6 left-1/2 -translate-x-1/2 z-[60] flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium shadow-lg border animate-in fade-in slide-in-from-top-2 ${
@@ -549,6 +686,12 @@ export default function BoardPage() {
         }`}>
           <span>{toast.tone === "error" ? "⛔" : toast.tone === "warn" ? "⚠" : "✓"}</span>
           {toast.msg}
+          {toast.undo && (
+            <button onClick={() => { toast.undo!(); setToast(null); }}
+              className="ml-2 font-semibold underline underline-offset-2 opacity-80 hover:opacity-100">
+              Undo
+            </button>
+          )}
           <button onClick={() => setToast(null)} className="ml-1 opacity-50 hover:opacity-100">×</button>
         </div>
       )}

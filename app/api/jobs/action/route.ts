@@ -18,10 +18,11 @@ const VALID_ACTIONS: AppStage[] = [
 
 // Friendly verbs used by the UI → canonical stage.
 const ACTION_ALIASES: Record<string, AppStage> = {
-  approve: "APPROVED",
-  skip: "SKIPPED",
-  replied: "REPLIED",
+  approve:  "APPROVED",
+  skip:     "SKIPPED",
+  replied:  "REPLIED",
   outreach: "OUTREACH",
+  restore:  "NEW",
 };
 
 export async function POST(req: NextRequest) {
@@ -37,13 +38,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "invalid action" }, { status: 400 });
   }
 
+  const isRestore = body.action?.toLowerCase() === "restore";
   const job = await prisma.job.update({
     where: { id: body.jobId },
     data: {
       appStage: newStage,
-      appStageNote: body.note ?? null,
+      // Restore wipes the skip-reason; explicit note overrides both directions.
+      appStageNote: body.note ?? (isRestore ? null : undefined),
       ...(newStage === "APPROVED" ? { approvedAt: new Date() } : {}),
-      
     },
   });
 

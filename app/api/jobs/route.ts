@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
     take: limit,
     ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
     include: {
-      outreaches: { include: { contact: true } },
+      outreaches: { include: { contact: true, thread: { select: { status: true, providerState: true } } } },
     },
   });
 
