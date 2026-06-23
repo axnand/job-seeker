@@ -210,8 +210,17 @@ async function runDiscover() {
     if (toEmail.length > 0) {
       await sendDailyDigest(toEmail);
       console.log(`[discover] digest sent with ${toEmail.length} jobs`);
-      await sendFriendDigest(toEmail).catch(e =>
-        console.error("[discover] friend digest failed:", e));
+      const friendDigestRecipients = [
+        "mmayank.connect@gmail.com",
+        "rastogivani15@gmail.com"
+      ];
+      
+      await Promise.all(
+        friendDigestRecipients.map(email =>
+          sendFriendDigest(toEmail, email).catch(e =>
+            console.error(`[discover] friend digest failed for ${email}:`, e))
+        )
+      );
     }
 
     // Staleness sweep — soft-close jobs that went nowhere (backlog #23).
