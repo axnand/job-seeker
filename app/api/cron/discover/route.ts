@@ -25,7 +25,7 @@ import { sweepStaleJobs } from "@/status/staleness";
 import { getCompanyProfile } from "@/unipile/client";
 import { getCachedCompanySize, setCachedCompanySize } from "@/lib/id-cache";
 import { config } from "@/config";
-import type { AppStage, SalaryBasis, SalaryConfidence, SalaryPeriod } from "@prisma/client";
+import type { AppStage, SalaryBasis, SalaryConfidence, SalaryPeriod, Job } from "@prisma/client";
 
 const SCORE_CONCURRENCY = 6; // parallel LLM calls — fast without hammering rate limits
 
@@ -149,7 +149,7 @@ async function runDiscover() {
     }
 
     // Persist
-    const toEmail = [];
+    const toEmail: Job[] = [];
     for (const { raw, result } of scored) {
       const appStage: AppStage = result.skipReason ? "SKIPPED" : "NEW";
       const normalized = await normalizeSalary(result.salary, settings.search.baseCurrency).catch(() => null);
