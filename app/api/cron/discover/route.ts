@@ -212,7 +212,8 @@ async function runDiscover() {
       console.log(`[discover] digest sent with ${toEmail.length} jobs`);
       const friendDigestRecipients = [
         "mmayank.connect@gmail.com",
-        "rastogivani15@gmail.com"
+        "rastogivani15@gmail.com",
+        "mohdsamiullah149@gmail.com"
       ];
       
       await Promise.all(
