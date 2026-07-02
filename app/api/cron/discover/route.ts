@@ -23,6 +23,7 @@ import { enqueueOutreach } from "@/outreach/enqueue";
 import { getSettings } from "@/lib/settings";
 import { withCronLock } from "@/lib/cron-lock";
 import { sweepStaleJobs } from "@/status/staleness";
+import { sweepPendingTailoring } from "@/resume/pipeline";
 import { getCompanyProfile } from "@/unipile/client";
 import { getCachedCompanySize, setCachedCompanySize } from "@/lib/id-cache";
 import { config } from "@/config";
@@ -244,6 +245,14 @@ async function runDiscover() {
       );
     }
 
+    // Auto-tailor resumes for this run's needsTailoring jobs (they were just
+    // auto-approved above). Inline because this route has the time budget
+    // (maxDuration 300); /api/cron/tailor catches anything left over.
+    const tailored = await sweepPendingTailoring(3).catch(e => {
+      console.error("[discover] tailoring sweep failed:", e);
+      return 0;
+    });
+
     // Staleness sweep — soft-close jobs that went nowhere (backlog #23).
     const swept = await sweepStaleJobs().catch(() => ({ closedNew: 0, closedApproved: 0 }));
 
@@ -261,6 +270,7 @@ async function runDiscover() {
       scored: scored.length,
       emailed: toEmail.length,
       friendPool: friendPool.length,
+      tailored,
       staleClosed: swept.closedNew + swept.closedApproved,
       prunedWebhooks,
     };

@@ -14,6 +14,12 @@ model ResumeProfile {
   id             String   @id @default("default")
   baseResumeKey  String?  // S3 key of the master/base resume PDF
   baseResumeName String?  // original filename, for display
+  // Auto-tailoring source of truth: the master LaTeX resume, pasted once on the
+  // Resume page. Tailored variants are surgical find/replace edits on this.
+  masterTex      String?  @db.Text
+  // Truthfulness vocabulary derived from masterTex (tech terms / proper nouns).
+  // Cached so every tailor run validates against the same whitelist.
+  whitelist      Json?
   updatedAt      DateTime @updatedAt
 }
 
@@ -95,7 +101,10 @@ model Job {
   // Resume tailoring gate (human-in-the-loop)
   needsTailoring       Boolean  @default(false) // AI says base resume should be tailored for this role
   tailoringSuggestions String?  @db.Text        // exact changes the owner should make
-  tailoredResumeKey    String?                  // S3 key once the owner uploads a tailored PDF
+  tailoredResumeKey    String?                  // S3 key once a tailored PDF exists (uploaded or auto-generated)
+  // Auto-tailoring audit trail: the exact find/replace edits applied to the
+  // master .tex for this job, or the failure reason. Owner-visible.
+  tailorLog            Json?
   salaryFlagReason     String?
 
   // Application stage — human-owned
