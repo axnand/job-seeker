@@ -6,6 +6,37 @@ import { Sheet, SheetContent, SheetHeader } from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select, SelectTrigger, SelectContent, SelectItem } from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogFooter,
+  AlertDialogTitle,
+  AlertDialogDescription,
+} from "@/components/ui/alert-dialog";
+import { PageHeader } from "@/components/page-header";
+import {
+  Search,
+  X,
+  Plus,
+  Check,
+  CheckCheck,
+  CornerUpLeft,
+  Ban,
+  RotateCcw,
+  ExternalLink,
+  Upload,
+  Sparkles,
+  TriangleAlert,
+  UserPlus,
+  Send,
+  Pause,
+  Copy,
+  CircleX,
+  Eye,
+  EyeOff,
+} from "lucide-react";
 import type { AppStage, OutreachState } from "@prisma/client";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -41,7 +72,7 @@ const THREAD_PHASE_LABEL: Record<string, string> = {
   INVITE_PENDING: "Invite sent — awaiting acceptance",
   CONNECTED:      "Connected — DM sends next tick",
   MESSAGED:       "Messaged — awaiting reply",
-  REPLIED:        "Replied 🎉",
+  REPLIED:        "Replied",
 };
 
 // ─── Config ───────────────────────────────────────────────────────────────────
@@ -67,7 +98,7 @@ const OUTREACH_META: Record<string, { text: string; cls: string }> = {
   INVITE_SENT:       { text:"Invite sent", cls:"text-blue-600 bg-blue-50 border-blue-200" },
   CONNECTED:         { text:"Connected",   cls:"text-blue-600 bg-blue-50 border-blue-200" },
   MESSAGED:          { text:"Messaged",    cls:"text-indigo-600 bg-indigo-50 border-indigo-200" },
-  REPLIED:           { text:"Replied ✓",   cls:"text-emerald-700 bg-emerald-50 border-emerald-200" },
+  REPLIED:           { text:"Replied",     cls:"text-emerald-700 bg-emerald-50 border-emerald-200" },
   NO_REPLY_ARCHIVED: { text:"No reply",    cls:"text-zinc-500 bg-zinc-100 border-zinc-200" },
 };
 
@@ -134,6 +165,11 @@ export default function BoardPage() {
   const [skippedJobs, setSkippedJobs]   = useState<Job[]>([]);
   const [loadingSkipped, setLoadingSkipped] = useState(false);
   const [toast, setToast]   = useState<Toast>(null);
+  // Destructive confirmations (blacklist) route through a proper AlertDialog
+  // instead of window.confirm — the pending action is stored here.
+  const [confirmDialog, setConfirmDialog] = useState<{
+    title: string; description: React.ReactNode; confirmLabel: string; onConfirm: () => void;
+  } | null>(null);
   const showToast = useCallback((msg: string, tone: "info" | "warn" | "error" = "info", undo?: () => void) => {
     setToast({ msg, tone, undo });
     setTimeout(() => setToast(null), 6000);
@@ -256,9 +292,7 @@ export default function BoardPage() {
   }, [showToast]);
 
   // Blacklist the card's company: block future discovery + skip its open jobs now.
-  const blacklistCompany = useCallback(async (e: React.MouseEvent, company: string) => {
-    e.stopPropagation();
-    if (!window.confirm(`Blacklist "${company}"?\n\nThis removes its jobs from the board and blocks future ones.`)) return;
+  const runBlacklistCompany = useCallback(async (company: string) => {
     // Capture current stages before wiping so we can undo.
     const restores = jobs
       .filter(j => companyMatches(j.company, company) && j.appStage !== "SKIPPED")
@@ -283,12 +317,20 @@ export default function BoardPage() {
     );
   }, [jobs, companyMatches, showToast]);
 
+  // Blacklist the card's company: confirm first, then block + skip its jobs.
+  const blacklistCompany = useCallback((e: React.MouseEvent, company: string) => {
+    e.stopPropagation();
+    setConfirmDialog({
+      title: `Blacklist ${company}?`,
+      description: "This removes its jobs from the board, stops any outreach, and blocks future ones. You can undo right after.",
+      confirmLabel: "Blacklist company",
+      onConfirm: () => runBlacklistCompany(company),
+    });
+  }, [runBlacklistCompany]);
+
   // Blacklist every distinct company in the current selection in one shot.
-  const bulkBlacklist = useCallback(async () => {
-    const companies = Array.from(new Set(jobs.filter(j => sel.has(j.id)).map(j => j.company)));
+  const runBulkBlacklist = useCallback(async (companies: string[]) => {
     if (companies.length === 0) return;
-    const label = companies.length === 1 ? `"${companies[0]}"` : `${companies.length} companies`;
-    if (!window.confirm(`Blacklist ${label}?\n\n${companies.join(", ")}\n\nThis removes their jobs from the board, stops any outreach, and blocks future ones.`)) return;
     // Capture current stages for undo (per company).
     const restoresByCompany = companies.map(c => ({
       company: c,
@@ -319,7 +361,25 @@ export default function BoardPage() {
         showToast(`Unblacklisted ${companies.length} compan${companies.length !== 1 ? "ies" : "y"}.`, "info");
       },
     );
-  }, [jobs, sel, companyMatches, showToast]);
+  }, [jobs, companyMatches, showToast]);
+
+  const bulkBlacklist = useCallback(() => {
+    const companies = Array.from(new Set(jobs.filter(j => sel.has(j.id)).map(j => j.company)));
+    if (companies.length === 0) return;
+    const label = companies.length === 1 ? companies[0] : `${companies.length} companies`;
+    setConfirmDialog({
+      title: `Blacklist ${label}?`,
+      description: (
+        <>
+          {companies.join(", ")}
+          <br />
+          This removes their jobs from the board, stops any outreach, and blocks future ones.
+        </>
+      ),
+      confirmLabel: `Blacklist ${companies.length === 1 ? "company" : "all"}`,
+      onConfirm: () => runBulkBlacklist(companies),
+    });
+  }, [jobs, sel, runBulkBlacklist]);
 
   // Initialise editable drafts whenever the open job's detail loads.
   useEffect(() => {
@@ -427,17 +487,29 @@ export default function BoardPage() {
   );
 
   return (
-    <div className="flex flex-col h-[calc(100vh-48px)] bg-zinc-100 overflow-hidden">
+    <div className="flex flex-1 flex-col min-h-0 overflow-hidden bg-zinc-50">
+
+      <PageHeader title="Dashboard" subtitle="Your job-search pipeline, end to end">
+        <button onClick={toggleSkipped}
+          className={`inline-flex items-center gap-1.5 text-xs font-medium px-3 h-8 rounded-lg border transition-colors ${showSkipped ? "bg-zinc-900 text-white border-zinc-900" : "bg-white text-zinc-600 border-zinc-200 hover:bg-zinc-50 hover:text-zinc-900"}`}>
+          {showSkipped ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+          {showSkipped ? "Hide skipped" : "Skipped"}
+        </button>
+        <a href="/add"
+          className="inline-flex items-center gap-1.5 bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-semibold px-3 h-8 rounded-lg shadow-sm transition-colors">
+          <Plus className="size-3.5" /> Add job
+        </a>
+      </PageHeader>
 
       {/* ── Stats + Controls ──────────────────────────────────────────── */}
-      <div className="flex-shrink-0 px-8 pt-6 pb-4 space-y-4">
+      <div className="flex-shrink-0 px-6 pt-5 pb-4 space-y-4">
 
         {/* Stat cards */}
         <div className="grid grid-cols-7 gap-3">
           {stats.map(({ label, value, color }) => (
-            <div key={label} className="bg-white rounded-xl border border-zinc-200 shadow-sm px-4 py-3.5">
+            <div key={label} className="bg-white rounded-xl border border-zinc-200 shadow-sm px-4 py-3">
               <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest mb-1">{label}</p>
-              <p className={`text-2xl font-bold tabular-nums ${loading ? "text-zinc-200 animate-pulse" : color}`}>
+              <p className={`text-2xl font-semibold tabular-nums ${loading ? "text-zinc-200 animate-pulse" : color}`}>
                 {loading ? "0" : value}
               </p>
             </div>
@@ -448,7 +520,7 @@ export default function BoardPage() {
         {paused && (
           <div className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-red-50 border border-red-200 text-red-700">
             <div className="flex items-center gap-2 text-sm font-medium">
-              <span className="text-base">⏸</span>
+              <Pause className="size-4 shrink-0" />
               Outreach is paused — no invites or DMs will be sent until you turn it back on.
             </div>
             <a href="/settings" className="text-xs font-semibold underline underline-offset-2 whitespace-nowrap hover:text-red-900">
@@ -460,62 +532,68 @@ export default function BoardPage() {
         {/* Filter bar */}
         <div className="flex items-center gap-2">
           <div className="relative w-56">
-            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400 text-xs pointer-events-none">⌕</span>
+            <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-zinc-400 pointer-events-none" />
             <Input
               value={fQuery}
               onChange={e => setFQuery(e.target.value)}
               placeholder="Search company or role…"
-              className="h-9 pl-7 pr-7 text-xs bg-white border-zinc-200 shadow-sm rounded-lg"
+              className="h-8 pl-8 pr-7 text-xs bg-white border-zinc-200 shadow-sm rounded-lg"
             />
             {fQuery && (
-              <button onClick={() => setFQuery("")}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-700 text-sm leading-none">×</button>
+              <button onClick={() => setFQuery("")} aria-label="Clear search"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-700">
+                <X className="size-3.5" />
+              </button>
             )}
           </div>
-          <select value={fSource} onChange={e => setFSource(e.target.value)}
-            className="text-xs border border-zinc-200 rounded-lg px-3 py-2 bg-white text-zinc-600 shadow-sm focus:outline-none focus:border-zinc-400 cursor-pointer">
-            <option value="All">Source: All</option>
-            {sourceOptions.map(src => <option key={src} value={src}>{SOURCE_LABEL[src] ?? src}</option>)}
-          </select>
-          <select value={fApply} onChange={e => setFApply(e.target.value)}
-            className="text-xs border border-zinc-200 rounded-lg px-3 py-2 bg-white text-zinc-600 shadow-sm focus:outline-none focus:border-zinc-400 cursor-pointer">
-            <option value="All">Apply type: All</option>
-            <option value="Referral">Referral first</option>
-            <option value="Manual">Manual apply</option>
-          </select>
-          <select value={fScore} onChange={e => setFScore(e.target.value)}
-            className="text-xs border border-zinc-200 rounded-lg px-3 py-2 bg-white text-zinc-600 shadow-sm focus:outline-none focus:border-zinc-400 cursor-pointer">
-            <option value="All">Score: All</option>
-            <option value="80+">Score: 80+</option>
-            <option value="60+">Score: 60+</option>
-            <option value="<60">Score: &lt;60</option>
-          </select>
+          <Select value={fSource} onValueChange={(v: string) => setFSource(v)}>
+            <SelectTrigger className="h-8 text-xs text-zinc-600 shadow-sm">
+              {`Source: ${fSource === "All" ? "All" : (SOURCE_LABEL[fSource] ?? fSource)}`}
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="All">All sources</SelectItem>
+              {sourceOptions.map(src => <SelectItem key={src} value={src}>{SOURCE_LABEL[src] ?? src}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Select value={fApply} onValueChange={(v: string) => setFApply(v)}>
+            <SelectTrigger className="h-8 text-xs text-zinc-600 shadow-sm">
+              {`Apply: ${fApply === "All" ? "All" : fApply === "Referral" ? "Referral first" : "Manual apply"}`}
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="All">Apply type: All</SelectItem>
+              <SelectItem value="Referral">Referral first</SelectItem>
+              <SelectItem value="Manual">Manual apply</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={fScore} onValueChange={(v: string) => setFScore(v)}>
+            <SelectTrigger className="h-8 text-xs text-zinc-600 shadow-sm">
+              {`Score: ${fScore}`}
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="All">Score: All</SelectItem>
+              <SelectItem value="80+">Score: 80+</SelectItem>
+              <SelectItem value="60+">Score: 60+</SelectItem>
+              <SelectItem value="<60">{"Score: <60"}</SelectItem>
+            </SelectContent>
+          </Select>
           {(fQuery !== "" || fSource !== "All" || fApply !== "All" || fScore !== "All") && (
             <button onClick={() => { setFQuery(""); setFSource("All"); setFApply("All"); setFScore("All"); }}
               className="text-xs text-zinc-400 hover:text-zinc-700 px-2 py-1.5 transition-colors">Clear</button>
           )}
           <div className="ml-auto flex items-center gap-1 text-xs text-zinc-400">
-            <span className="mr-1 font-medium">Sort:</span>
+            <span className="mr-1 font-medium">Sort</span>
             {(["Score","Salary","Date"] as const).map(sortKey => (
               <button key={sortKey} onClick={() => setSort(sortKey)}
-                className={`px-2.5 py-1.5 rounded-lg transition-all ${sort === sortKey ? "bg-white text-zinc-900 shadow-sm font-medium" : "hover:bg-white hover:text-zinc-700 hover:shadow-sm"}`}>
+                className={`px-2.5 py-1.5 rounded-lg transition-all ${sort === sortKey ? "bg-white text-zinc-900 shadow-sm font-medium ring-1 ring-zinc-200" : "hover:bg-white hover:text-zinc-700 hover:shadow-sm"}`}>
                 {sortKey}
               </button>
             ))}
           </div>
-          <button onClick={toggleSkipped}
-            className={`text-xs font-semibold px-3 py-2 rounded-lg border shadow-sm transition-colors ${showSkipped ? "bg-zinc-800 text-white border-zinc-800" : "bg-white text-zinc-500 border-zinc-200 hover:border-zinc-400 hover:text-zinc-700"}`}>
-            {showSkipped ? "Hide skipped" : "Skipped"}
-          </button>
-          <a href="/add"
-            className="ml-1 bg-zinc-900 hover:bg-zinc-700 text-white text-xs font-semibold px-4 py-2 rounded-lg shadow-sm transition-colors">
-            + Add Job
-          </a>
         </div>
       </div>
 
       {/* ── Kanban ────────────────────────────────────────────────────── */}
-      <div className="flex-1 overflow-x-auto overflow-y-hidden px-8 pb-8">
+      <div className="flex-1 overflow-x-auto overflow-y-hidden px-6 pb-6 scrollbar-slim">
         {/* White board container */}
         <div className="flex h-full w-full rounded-2xl border border-zinc-200 shadow-sm bg-white overflow-hidden">
           {STAGES.map((stage, i) => {
@@ -549,7 +627,7 @@ export default function BoardPage() {
                 </div>
 
                 {/* Cards */}
-                <div className={`flex-1 overflow-y-auto p-4 space-y-3 ${meta.lane}`}>
+                <div className={`flex-1 overflow-y-auto p-4 space-y-3 scrollbar-slim ${meta.lane}`}>
                   {loading && (
                     <>
                       <div className="bg-zinc-100 rounded-xl h-24 animate-pulse" />
@@ -584,7 +662,7 @@ export default function BoardPage() {
 
       {/* ── Skipped panel ─────────────────────────────────────────────── */}
       {showSkipped && (
-        <div className="flex-shrink-0 px-8 pb-6">
+        <div className="flex-shrink-0 px-6 pb-6">
           <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
             <div className="flex items-center gap-2.5 px-5 py-3.5 border-b border-zinc-100 border-l-[3px] border-l-zinc-300">
               <div className="w-2 h-2 rounded-full bg-zinc-300" />
@@ -625,8 +703,8 @@ export default function BoardPage() {
                       <button
                         onClick={(e) => restoreJob(e, sj.id)}
                         disabled={acting}
-                        className="mt-1 text-[11px] font-medium text-zinc-500 hover:text-zinc-900 hover:bg-white border border-zinc-200 rounded-lg px-2 py-1 transition-colors self-start">
-                        Restore →
+                        className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-zinc-500 hover:text-zinc-900 hover:bg-white border border-zinc-200 rounded-lg px-2 py-1 transition-colors self-start">
+                        <RotateCcw className="size-3" /> Restore
                       </button>
                     </div>
                   ))}
@@ -644,7 +722,7 @@ export default function BoardPage() {
           : toast.tone === "warn" ? "bg-amber-50 border-amber-200 text-amber-800"
           : "bg-zinc-900 border-zinc-800 text-white"
         }`}>
-          <span>{toast.tone === "error" ? "⛔" : toast.tone === "warn" ? "⚠" : "✓"}</span>
+          {toast.tone === "error" ? <CircleX className="size-4 shrink-0" /> : toast.tone === "warn" ? <TriangleAlert className="size-4 shrink-0" /> : <Check className="size-4 shrink-0" />}
           {toast.msg}
           {toast.undo && (
             <button onClick={() => { toast.undo!(); setToast(null); }}
@@ -652,7 +730,7 @@ export default function BoardPage() {
               Undo
             </button>
           )}
-          <button onClick={() => setToast(null)} className="ml-1 opacity-50 hover:opacity-100">×</button>
+          <button onClick={() => setToast(null)} aria-label="Dismiss" className="ml-1 opacity-50 hover:opacity-100"><X className="size-3.5" /></button>
         </div>
       )}
 
@@ -662,17 +740,17 @@ export default function BoardPage() {
           <span className="text-sm font-medium">{sel.size} selected</span>
           <button onClick={() => setSel(new Set())} className="text-xs text-zinc-300 hover:text-white mr-1">Clear</button>
           <button onClick={findPeople} disabled={finding || sending || acting}
-            className="bg-zinc-700 text-white text-sm font-semibold rounded-full px-4 py-1.5 hover:bg-zinc-600 disabled:opacity-60">
-            {finding ? "Finding…" : "⊕ Find people"}
+            className="inline-flex items-center gap-1.5 bg-zinc-700 text-white text-sm font-semibold rounded-full px-4 py-1.5 hover:bg-zinc-600 disabled:opacity-60">
+            <UserPlus className="size-3.5" /> {finding ? "Finding…" : "Find people"}
           </button>
           <button onClick={bulkBlacklist} disabled={acting || sending || finding}
-            className="bg-red-500 text-white text-sm font-semibold rounded-full px-4 py-1.5 hover:bg-red-600 disabled:opacity-60">
-            ⊘ Blacklist
+            className="inline-flex items-center gap-1.5 bg-red-500 text-white text-sm font-semibold rounded-full px-4 py-1.5 hover:bg-red-600 disabled:opacity-60">
+            <Ban className="size-3.5" /> Blacklist
           </button>
           {selSendableCount > 0 && (
             <button onClick={() => setAskNote(true)} disabled={sending || finding}
-              className="bg-white text-zinc-900 text-sm font-semibold rounded-full px-4 py-1.5 hover:bg-zinc-100 disabled:opacity-60 flex items-center gap-1.5">
-              {sending ? "Sending…" : "Send now →"}
+              className="bg-primary text-primary-foreground text-sm font-semibold rounded-full px-4 py-1.5 hover:bg-primary/90 disabled:opacity-60 flex items-center gap-1.5">
+              <Send className="size-3.5" /> {sending ? "Sending…" : "Send now"}
             </button>
           )}
         </div>
@@ -755,7 +833,7 @@ export default function BoardPage() {
 
               {job.aiReason && (
                 <div>
-                  <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest mb-2">✦ AI Analysis</p>
+                  <p className="flex items-center gap-1.5 text-[10px] font-semibold text-zinc-400 uppercase tracking-widest mb-2"><Sparkles className="size-3 text-primary" /> AI analysis</p>
                   <p className="text-sm text-zinc-700 leading-relaxed">{job.aiReason}</p>
                 </div>
               )}
@@ -763,11 +841,11 @@ export default function BoardPage() {
               {job.tailoredPitch && (
                 <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-4">
                   <div className="flex items-center justify-between mb-2.5">
-                    <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest">Generated Pitch</p>
+                    <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest">Generated pitch</p>
                     <button
                       onClick={() => { navigator.clipboard.writeText(job.tailoredPitch!); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
-                      className="text-xs font-medium text-zinc-400 hover:text-zinc-700 transition-colors">
-                      {copied ? "Copied ✓" : "Copy"}
+                      className="inline-flex items-center gap-1 text-xs font-medium text-zinc-400 hover:text-zinc-700 transition-colors">
+                      {copied ? <><Check className="size-3" /> Copied</> : <><Copy className="size-3" /> Copy</>}
                     </button>
                   </div>
                   <p className="text-sm text-zinc-700 leading-relaxed italic whitespace-pre-line">
@@ -797,7 +875,7 @@ export default function BoardPage() {
                 {job.applyUrl && (
                   <a href={job.applyUrl} target="_blank" rel="noopener noreferrer"
                     className="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold px-4 py-2 rounded-xl shadow-sm transition-colors">
-                    ↗ Apply
+                    <ExternalLink className="size-3.5" /> Apply
                   </a>
                 )}
               </div>
@@ -809,25 +887,25 @@ export default function BoardPage() {
                 <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest mb-2">Resume</p>
                 {!job.needsTailoring ? (
                   <div className="flex items-center gap-2 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2.5">
-                    <span>✓</span> Base resume is a good fit — no tailoring needed.
+                    <Check className="size-4 shrink-0" /> Base resume is a good fit — no tailoring needed.
                   </div>
                 ) : job.tailoredResumeKey ? (
                   <div className="flex items-center justify-between gap-2 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2.5">
-                    <span className="flex items-center gap-2">✓ Tailored resume uploaded</span>
+                    <span className="flex items-center gap-2"><Check className="size-4 shrink-0" /> Tailored resume uploaded</span>
                     <a href={`/api/resume/download?key=${encodeURIComponent(job.tailoredResumeKey)}`} target="_blank" rel="noopener noreferrer"
                       className="text-xs font-medium underline">View</a>
                   </div>
                 ) : (
                   <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5 space-y-2.5">
-                    <p className="text-sm font-semibold text-amber-800">⚠ Tailoring recommended before outreach</p>
+                    <p className="flex items-center gap-1.5 text-sm font-semibold text-amber-800"><TriangleAlert className="size-4 shrink-0" /> Tailoring recommended before outreach</p>
                     {job.tailoringSuggestions && (
                       <p className="text-xs text-amber-700 leading-relaxed whitespace-pre-line">{job.tailoringSuggestions}</p>
                     )}
                     <button
                       onClick={() => resumeFileRef.current?.click()}
                       disabled={uploadingResume}
-                      className="text-xs font-medium text-white bg-amber-600 hover:bg-amber-700 rounded-lg px-3 py-2 transition-colors">
-                      {uploadingResume ? "Uploading…" : "↑ Upload tailored resume (PDF)"}
+                      className="inline-flex items-center gap-1.5 text-xs font-medium text-white bg-amber-600 hover:bg-amber-700 rounded-lg px-3 py-2 transition-colors">
+                      <Upload className="size-3.5" /> {uploadingResume ? "Uploading…" : "Upload tailored resume (PDF)"}
                     </button>
                     <input ref={resumeFileRef} type="file" accept="application/pdf" className="hidden"
                       onChange={e => { const f = e.target.files?.[0]; if (f) uploadTailored(job.id, f); }} />
@@ -842,8 +920,8 @@ export default function BoardPage() {
                   <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest">Actions</p>
                   <div className="flex gap-2">
                     <Button onClick={() => act(job.id,"approve")} disabled={acting} size="sm"
-                      className="flex-1 bg-zinc-900 hover:bg-zinc-800 text-white text-xs h-9">
-                      ✓ Approve &amp; Queue Outreach
+                      className="flex-1 text-xs h-9">
+                      <Check className="size-3.5" /> Approve &amp; queue outreach
                     </Button>
                     <Button onClick={() => act(job.id,"skip")} disabled={acting} variant="outline" size="sm" className="text-xs h-9">
                       Skip
@@ -868,15 +946,15 @@ export default function BoardPage() {
                 <div className="space-y-2">
                   <Button onClick={(e) => toggleRoleClosed(e, job.id, !job.closedAt)} disabled={acting}
                     variant="outline" size="sm"
-                    className="text-xs h-9 w-full text-zinc-600 hover:bg-zinc-50">
+                    className="text-xs h-9 w-full justify-start text-zinc-600 hover:bg-zinc-50">
                     {job.closedAt
-                      ? "↺ Reopen this role"
-                      : "⊘ Close this role (keep contacts, redirect outreach to the open role)"}
+                      ? <><RotateCcw className="size-3.5" /> Reopen this role</>
+                      : <><Ban className="size-3.5" /> Close this role (keep contacts, redirect outreach)</>}
                   </Button>
                   <Button onClick={(e) => blacklistCompany(e, job.company)} disabled={acting}
                     variant="outline" size="sm"
-                    className="text-xs h-9 w-full text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700">
-                    ⊘ Blacklist {job.company} &amp; stop outreach
+                    className="text-xs h-9 w-full justify-start text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700">
+                    <Ban className="size-3.5" /> Blacklist {job.company} &amp; stop outreach
                   </Button>
                 </div>
               )}
@@ -907,7 +985,7 @@ export default function BoardPage() {
                                     {o.contact.title && <span className="font-normal text-zinc-500"> · {o.contact.title}</span>}
                                   </p>
                                   <a href={o.contact.linkedinUrl} target="_blank" rel="noopener noreferrer"
-                                    className="text-[10px] font-medium text-blue-600 hover:underline shrink-0">LinkedIn →</a>
+                                    className="inline-flex items-center gap-0.5 text-[10px] font-medium text-primary hover:underline shrink-0">LinkedIn <ExternalLink className="size-2.5" /></a>
                                 </div>
                                 <p className="text-[10px] text-zinc-400 mt-0.5">
                                   <span className="capitalize">{o.role.toLowerCase()}</span>
@@ -930,8 +1008,8 @@ export default function BoardPage() {
                                   onChange={v => setDrafts(d => ({ ...d, [t.id]: { ...edit, followup: v } }))} />
                                 <div className="flex gap-2 pt-0.5">
                                   <Button onClick={() => confirmOutreach(job.id, t.id, "send")} disabled={acting} size="sm"
-                                    className="flex-1 bg-zinc-900 hover:bg-zinc-800 text-white text-xs h-9">
-                                    ✓ Confirm &amp; Send
+                                    className="flex-1 text-xs h-9">
+                                    <Send className="size-3.5" /> Confirm &amp; send
                                   </Button>
                                   <Button onClick={() => confirmOutreach(job.id, t.id, "cancel")} disabled={acting}
                                     variant="outline" size="sm" className="text-xs h-9">Cancel</Button>
@@ -954,7 +1032,7 @@ export default function BoardPage() {
 
               <Separator className="bg-zinc-100" />
               <div>
-                <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest mb-3">Job Description</p>
+                <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest mb-3">Job description</p>
                 <pre className="text-xs text-zinc-500 whitespace-pre-wrap font-sans leading-relaxed max-h-72 overflow-y-auto bg-zinc-50 rounded-xl p-4 border border-zinc-100">
                   {job.jdText}
                 </pre>
@@ -963,6 +1041,23 @@ export default function BoardPage() {
           )}
         </SheetContent>
       </Sheet>
+
+      {/* ── Destructive confirmation ──────────────────────────────────── */}
+      <AlertDialog open={!!confirmDialog} onOpenChange={(open: boolean) => { if (!open) setConfirmDialog(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{confirmDialog?.title}</AlertDialogTitle>
+            <AlertDialogDescription>{confirmDialog?.description}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setConfirmDialog(null)}>Cancel</Button>
+            <Button variant="destructive" size="sm"
+              onClick={() => { confirmDialog?.onConfirm(); setConfirmDialog(null); }}>
+              <Ban className="size-3.5" /> {confirmDialog?.confirmLabel}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -978,7 +1073,7 @@ function DraftField({ label, value, rows, maxLength, onChange }: {
         rows={rows}
         maxLength={maxLength}
         onChange={e => onChange(e.target.value)}
-        className="mt-1 w-full border border-zinc-200 rounded-lg px-3 py-2 text-xs bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-300 focus:border-transparent leading-relaxed"
+        className="mt-1 w-full border border-zinc-200 rounded-lg px-3 py-2 text-xs bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-ring/50 focus:border-ring leading-relaxed"
       />
     </div>
   );
@@ -1056,11 +1151,12 @@ function CompanyCard({
   return (
     <div className="relative group">
       <button onClick={(e) => { e.stopPropagation(); multi ? toggleSelMany(ids) : toggleSel(ids[0]); }}
-        className={`absolute top-2.5 right-2.5 z-10 w-5 h-5 rounded-md border flex items-center justify-center text-[11px] leading-none transition-all ${allSel ? "bg-zinc-900 border-zinc-900 text-white opacity-100" : someSel ? "bg-zinc-400 border-zinc-400 text-white opacity-100" : "bg-white border-zinc-300 text-transparent hover:border-zinc-500 opacity-0 group-hover:opacity-100"}`}>
-        ✓
+        aria-label={allSel ? "Deselect" : "Select"}
+        className={`absolute top-2.5 right-2.5 z-10 w-5 h-5 rounded-md border flex items-center justify-center transition-all ${allSel ? "bg-primary border-primary text-primary-foreground opacity-100" : someSel ? "bg-primary/60 border-primary/60 text-primary-foreground opacity-100" : "bg-white border-zinc-300 text-transparent hover:border-primary opacity-0 group-hover:opacity-100"}`}>
+        <Check className="size-3" />
       </button>
 
-      <div className={`w-full bg-white rounded-xl p-4 border shadow-sm transition-all ${allSel ? "border-zinc-900 ring-1 ring-zinc-900" : "border-zinc-200 hover:border-zinc-300 hover:shadow-md"}`}>
+      <div className={`w-full bg-white rounded-xl p-4 border shadow-sm transition-all ${allSel ? "border-primary ring-1 ring-primary" : "border-zinc-200 hover:border-zinc-300 hover:shadow-md"}`}>
         <button onClick={() => openJob(primary)} className="w-full text-left">
           <div className="flex items-start gap-3">
             <Avatar className={`h-8 w-8 rounded-xl shrink-0 ${avatarClr(group.company)}`}>
@@ -1108,8 +1204,8 @@ function CompanyCard({
                   <button title={closed ? "Reopen role" : "Close role — keeps contacts, stops new invites, redirects outreach to the open role"}
                     disabled={acting}
                     onClick={(e) => toggleRoleClosed(e, j.id, !closed)}
-                    className={`shrink-0 w-5 h-5 rounded flex items-center justify-center text-[11px] transition-colors disabled:opacity-50 ${closed ? "text-emerald-600 hover:bg-emerald-50" : "text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"}`}>
-                    {closed ? "↺" : "⊘"}
+                    className={`shrink-0 w-5 h-5 rounded flex items-center justify-center transition-colors disabled:opacity-50 ${closed ? "text-emerald-600 hover:bg-emerald-50" : "text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"}`}>
+                    {closed ? <RotateCcw className="size-3" /> : <Ban className="size-3" />}
                   </button>
                 </div>
               );
@@ -1143,19 +1239,19 @@ function CompanyCard({
         {primary.appStage === "NEW" && (
           <button title="Approve & queue outreach" disabled={acting}
             onClick={(e) => quickAct(e, primary.id, "approve")}
-            className="w-7 h-7 rounded-lg bg-white/95 backdrop-blur border border-zinc-200 shadow-sm flex items-center justify-center text-xs text-zinc-500 hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-600 disabled:opacity-50 transition-colors">✓</button>
+            className="w-7 h-7 rounded-lg bg-white/95 backdrop-blur border border-zinc-200 shadow-sm flex items-center justify-center text-zinc-500 hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-600 disabled:opacity-50 transition-colors"><Check className="size-3.5" /></button>
         )}
         {(primary.appStage === "APPROVED" || primary.appStage === "OUTREACH") && (
           <button title="Mark replied" disabled={acting}
             onClick={(e) => quickAct(e, primary.id, "replied")}
-            className="w-7 h-7 rounded-lg bg-white/95 backdrop-blur border border-zinc-200 shadow-sm flex items-center justify-center text-xs text-zinc-500 hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-600 disabled:opacity-50 transition-colors">↩</button>
+            className="w-7 h-7 rounded-lg bg-white/95 backdrop-blur border border-zinc-200 shadow-sm flex items-center justify-center text-zinc-500 hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-600 disabled:opacity-50 transition-colors"><CornerUpLeft className="size-3.5" /></button>
         )}
         <button title="Skip / remove from board" disabled={acting}
           onClick={(e) => quickAct(e, primary.id, "skip")}
-          className="w-7 h-7 rounded-lg bg-white/95 backdrop-blur border border-zinc-200 shadow-sm flex items-center justify-center text-xs text-zinc-500 hover:bg-zinc-100 hover:border-zinc-400 hover:text-zinc-700 disabled:opacity-50 transition-colors">✕</button>
+          className="w-7 h-7 rounded-lg bg-white/95 backdrop-blur border border-zinc-200 shadow-sm flex items-center justify-center text-zinc-500 hover:bg-zinc-100 hover:border-zinc-400 hover:text-zinc-700 disabled:opacity-50 transition-colors"><X className="size-3.5" /></button>
         <button title={`Blacklist ${group.company}`} disabled={acting}
           onClick={(e) => blacklistCompany(e, group.company)}
-          className="w-7 h-7 rounded-lg bg-white/95 backdrop-blur border border-zinc-200 shadow-sm flex items-center justify-center text-sm text-zinc-500 hover:bg-red-50 hover:border-red-300 hover:text-red-600 disabled:opacity-50 transition-colors">⊘</button>
+          className="w-7 h-7 rounded-lg bg-white/95 backdrop-blur border border-zinc-200 shadow-sm flex items-center justify-center text-zinc-500 hover:bg-red-50 hover:border-red-300 hover:text-red-600 disabled:opacity-50 transition-colors"><Ban className="size-3.5" /></button>
       </div>
     </div>
   );
