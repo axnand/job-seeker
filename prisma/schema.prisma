@@ -110,6 +110,10 @@ model Job {
   closedAt       DateTime?
   closedReason   String?
 
+  // Owner's manual ⭐ — pinned jobs sort first on the board and always make the
+  // "Apply Today" shortlist regardless of computed priority.
+  pinned         Boolean    @default(false)
+
   // Outreach state cache — machine-owned, derived from threads
   outreachState  OutreachState @default(NONE)
   // Last time the replenish loop topped up (or attempted to) this job's outreach.

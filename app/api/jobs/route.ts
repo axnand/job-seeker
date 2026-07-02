@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { computePriority, priorityWhy } from "@/scoring/priority";
 import type { AppStage } from "@prisma/client";
 
 type ProviderStateJson = { phase?: string } | null;
@@ -48,12 +49,17 @@ export async function GET(req: NextRequest) {
 
   const nextCursor = jobs.length === limit ? jobs[jobs.length - 1].id : null;
 
-  const result = jobs.map(({ outreaches, ...job }) => ({
-    ...job,
-    outreachCounts: computeOutreachCounts(
-      outreaches.map((o) => o.thread).filter((t): t is NonNullable<typeof t> => !!t),
-    ),
-  }));
+  const result = jobs.map(({ outreaches, ...job }) => {
+    const { score, parts } = computePriority(job);
+    return {
+      ...job,
+      priority: score,
+      priorityWhy: priorityWhy(job, parts),
+      outreachCounts: computeOutreachCounts(
+        outreaches.map((o) => o.thread).filter((t): t is NonNullable<typeof t> => !!t),
+      ),
+    };
+  });
 
   return NextResponse.json({ jobs: result, nextCursor });
 }

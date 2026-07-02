@@ -14,6 +14,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { discoverJobs } from "@/sources/registry";
 import { scoreJob } from "@/scoring/ai-scorer";
+import { computePriority } from "@/scoring/priority";
 import { normalizeSalary } from "@/salary/normalize";
 import { dedupeKey } from "@/sources/normalize";
 import { sendDailyDigest } from "@/email/digest";
@@ -215,10 +216,19 @@ async function runDiscover() {
 
     console.log(`[discover] persisted ${scored.length} jobs, ${toEmail.length} for digest`);
 
-    // Send digest
+    // Send digest — headed by the Apply Today shortlist ranked across the whole
+    // open board (pinned first, then composite priority), not just today's finds.
     if (toEmail.length > 0) {
-      await sendDailyDigest(toEmail);
-      console.log(`[discover] digest sent with ${toEmail.length} jobs`);
+      const openBoard = await prisma.job.findMany({
+        where: { appStage: { in: ["NEW", "APPROVED", "OUTREACH"] }, closedAt: null },
+      });
+      const topPicks = openBoard
+        .map(j => ({ job: j, score: computePriority(j).score }))
+        .sort((a, b) => (a.job.pinned !== b.job.pinned) ? (a.job.pinned ? -1 : 1) : b.score - a.score)
+        .slice(0, 5)
+        .map(x => x.job);
+      await sendDailyDigest(toEmail, topPicks);
+      console.log(`[discover] digest sent with ${toEmail.length} jobs + ${topPicks.length} top picks`);
     }
 
     // Friend digests are independent of the owner's digest: they draw from the

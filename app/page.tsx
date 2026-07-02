@@ -19,6 +19,10 @@ type Job = {
   salaryFlagReason: string | null; applyUrl: string; location: string | null;
   jdText: string; createdAt: string; postedAt: string | null; appStageNote: string | null;
   closedAt: string | null; closedReason: string | null;
+  pinned: boolean;
+  // Composite act-on-this-today score, computed by the list API (fit + pay +
+  // trust + reach + freshness). priorityWhy is its one-line explanation.
+  priority?: number; priorityWhy?: string;
   needsTailoring: boolean; tailoringSuggestions: string | null; tailoredResumeKey: string | null;
   // Pre-computed by the list API so the board never receives raw providerState JSON.
   outreachCounts?: { sent: number; connected: number; replied: number };
@@ -178,7 +182,7 @@ export default function BoardPage() {
   const [fSource, setFSource] = useState("All");
   const [fApply, setFApply]   = useState("All");
   const [fScore, setFScore]   = useState("All");
-  const [sort, setSort]       = useState<"Score" | "Salary" | "Date">("Date");
+  const [sort, setSort]       = useState<"Priority" | "Score" | "Salary" | "Date">("Priority");
 
   // Editable outreach drafts for the open job, keyed by threadId
   const [drafts, setDrafts] = useState<Record<string, DraftEdit>>({});
@@ -254,6 +258,15 @@ export default function BoardPage() {
     setActing(false);
     showToast(closed ? "Role closed — outreach now goes out for the open role." : "Role reopened.", "info");
   }, [showToast]);
+
+  // ⭐ pin — pinned jobs sort first and always make the Apply Today strip.
+  const togglePinned = useCallback(async (e: React.MouseEvent, jobId: string, pinned: boolean) => {
+    e.stopPropagation();
+    // Optimistic — a star toggle should feel instant.
+    setJobs(prev => prev.map(j => j.id === jobId ? { ...j, pinned } : j));
+    setDetail(d => (d && d.id === jobId) ? { ...d, pinned } : d);
+    await fetch("/api/jobs/pin", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobId, pinned }) }).catch(() => {});
+  }, []);
 
   // Blacklist the card's company: block future discovery + skip its open jobs now.
   const blacklistCompany = useCallback(async (e: React.MouseEvent, company: string) => {
@@ -392,12 +405,25 @@ export default function BoardPage() {
       return true;
     });
     v.sort((a, b) => {
+      // Pinned jobs always float to the top, whatever the sort.
+      if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+      if (sort === "Priority") return (b.priority ?? -1) - (a.priority ?? -1);
       if (sort === "Score")  return (b.aiScore ?? -1) - (a.aiScore ?? -1);
       if (sort === "Salary") return (b.salaryAnnualBase ?? -1) - (a.salaryAnnualBase ?? -1);
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
     return v;
   }, [jobs, fQuery, fSource, fApply, fScore, sort]);
+
+  // "Apply Today" shortlist — the top 5 open jobs worth acting on right now:
+  // pinned first, then by composite priority. Only stages where the owner still
+  // has a move to make (NEW = approve, APPROVED/OUTREACH = push referrals).
+  const applyToday = useMemo(() => {
+    return jobs
+      .filter(j => !j.closedAt && ["NEW", "APPROVED", "OUTREACH"].includes(j.appStage))
+      .sort((a, b) => (a.pinned !== b.pinned) ? (a.pinned ? -1 : 1) : (b.priority ?? -1) - (a.priority ?? -1))
+      .slice(0, 5);
+  }, [jobs]);
 
   const byStage = STAGES.reduce<Record<string, Job[]>>((a,s) => { a[s]=[]; return a; }, {});
   for (const j of visible) if (j.appStage !== "SKIPPED" && byStage[j.appStage]) byStage[j.appStage].push(j);
@@ -496,7 +522,7 @@ export default function BoardPage() {
           )}
           <div className="ml-auto flex items-center gap-1 text-xs text-zinc-400">
             <span className="mr-1 font-medium">Sort:</span>
-            {(["Score","Salary","Date"] as const).map(sortKey => (
+            {(["Priority","Score","Salary","Date"] as const).map(sortKey => (
               <button key={sortKey} onClick={() => setSort(sortKey)}
                 className={`px-2.5 py-1.5 rounded-lg transition-all ${sort === sortKey ? "bg-white text-zinc-900 shadow-sm font-medium" : "hover:bg-white hover:text-zinc-700 hover:shadow-sm"}`}>
                 {sortKey}
@@ -512,6 +538,39 @@ export default function BoardPage() {
             + Add Job
           </a>
         </div>
+
+        {/* ── Apply Today — top 5 by priority (pinned always first) ────── */}
+        {!loading && applyToday.length > 0 && (
+          <div className="bg-white rounded-xl border border-zinc-200 shadow-sm px-4 py-3">
+            <div className="flex items-center gap-2 mb-2.5">
+              <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest">⚡ Apply Today</p>
+              <p className="text-[10px] text-zinc-300">fit · pay · reach · freshness</p>
+            </div>
+            <div className="flex gap-2.5 overflow-x-auto pb-0.5">
+              {applyToday.map((j, i) => (
+                <button key={j.id} onClick={() => openJob(j)}
+                  title={j.priorityWhy}
+                  className="flex items-center gap-2.5 min-w-[210px] max-w-[260px] text-left bg-zinc-50 hover:bg-white border border-zinc-200 hover:border-zinc-300 hover:shadow-sm rounded-lg px-3 py-2 transition-all">
+                  <span className="text-sm font-bold text-zinc-300 tabular-nums shrink-0">{i + 1}</span>
+                  <Avatar className={`h-7 w-7 rounded-lg shrink-0 ${avatarClr(j.company)}`}>
+                    <AvatarFallback className={`rounded-lg text-[11px] font-bold ${avatarClr(j.company)}`}>
+                      {j.company.charAt(0).toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-semibold text-zinc-800 truncate leading-tight">
+                      {j.pinned && <span className="text-amber-500 mr-0.5">★</span>}{j.company}
+                    </p>
+                    <p className="text-[11px] text-zinc-400 truncate leading-tight">{shortRole(j.role)}</p>
+                  </div>
+                  <span className={`shrink-0 text-[11px] font-bold px-1.5 py-0.5 rounded-md ${scoreClr(j.priority ?? null)}`}>
+                    {j.priority ?? "—"}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ── Kanban ────────────────────────────────────────────────────── */}
@@ -573,6 +632,7 @@ export default function BoardPage() {
                       quickAct={quickAct}
                       blacklistCompany={blacklistCompany}
                       toggleRoleClosed={toggleRoleClosed}
+                      togglePinned={togglePinned}
                     />
                   ))}
                 </div>
@@ -715,12 +775,21 @@ export default function BoardPage() {
                     <p className="text-sm text-zinc-500 mt-0.5">{job?.role}</p>
                     {job?.location && <p className="text-xs text-zinc-400 mt-0.5">{job.location}</p>}
                   </div>
-                  {job?.aiScore !== null && job?.aiScore !== undefined && (
-                    <div className={`shrink-0 text-center px-3 py-1.5 rounded-xl ${scoreClr(job.aiScore)}`}>
-                      <p className="text-xl font-bold leading-none">{job.aiScore}</p>
-                      <p className="text-[9px] font-semibold uppercase tracking-widest mt-0.5 opacity-50">score</p>
-                    </div>
-                  )}
+                  <div className="shrink-0 flex items-start gap-1.5">
+                    {job && (
+                      <button title={job.pinned ? "Unpin" : "Pin — always show in Apply Today"}
+                        onClick={(e) => togglePinned(e, job.id, !job.pinned)}
+                        className={`w-8 h-8 rounded-xl border flex items-center justify-center text-base transition-colors ${job.pinned ? "border-amber-300 text-amber-500 bg-amber-50" : "border-zinc-200 text-zinc-300 hover:text-amber-500 hover:border-amber-300 hover:bg-amber-50"}`}>
+                        {job.pinned ? "★" : "☆"}
+                      </button>
+                    )}
+                    {job?.aiScore !== null && job?.aiScore !== undefined && (
+                      <div className={`text-center px-3 py-1.5 rounded-xl ${scoreClr(job.aiScore)}`}>
+                        <p className="text-xl font-bold leading-none">{job.aiScore}</p>
+                        <p className="text-[9px] font-semibold uppercase tracking-widest mt-0.5 opacity-50">score</p>
+                      </div>
+                    )}
+                  </div>
                 </div>
                 {job && (
                   <div className="flex flex-wrap gap-1.5 mt-3">
@@ -1004,7 +1073,7 @@ function buildCompanyGroups(cards: Job[]): CompanyGroup[] {
 }
 
 function CompanyCard({
-  group, selected, acting, openJob, toggleSel, toggleSelMany, quickAct, blacklistCompany, toggleRoleClosed,
+  group, selected, acting, openJob, toggleSel, toggleSelMany, quickAct, blacklistCompany, toggleRoleClosed, togglePinned,
 }: {
   group: CompanyGroup;
   selected: Set<string>;
@@ -1015,6 +1084,7 @@ function CompanyCard({
   quickAct: (e: React.MouseEvent, jobId: string, action: string) => void;
   blacklistCompany: (e: React.MouseEvent, company: string) => void;
   toggleRoleClosed: (e: React.MouseEvent, jobId: string, closed: boolean) => void;
+  togglePinned: (e: React.MouseEvent, jobId: string, pinned: boolean) => void;
 }) {
   const jobs = group.jobs;
   const multi = jobs.length > 1;
@@ -1069,7 +1139,9 @@ function CompanyCard({
               </AvatarFallback>
             </Avatar>
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-zinc-900 truncate leading-tight">{group.company}</p>
+              <p className="text-sm font-semibold text-zinc-900 truncate leading-tight">
+                {jobs.some(j => j.pinned) && <span className="text-amber-500 mr-1">★</span>}{group.company}
+              </p>
               <p className="text-xs text-zinc-500 truncate mt-0.5 leading-tight">
                 {multi ? `${jobs.length} roles · ${openCount} open` : primary.role}
               </p>
@@ -1140,6 +1212,11 @@ function CompanyCard({
 
       {/* Hover quick-actions — operate on the primary (open) role */}
       <div className="absolute bottom-2 right-2 z-10 flex items-center gap-1 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity">
+        <button title={primary.pinned ? "Unpin" : "Pin — always show in Apply Today"} disabled={acting}
+          onClick={(e) => togglePinned(e, primary.id, !primary.pinned)}
+          className={`w-7 h-7 rounded-lg bg-white/95 backdrop-blur border shadow-sm flex items-center justify-center text-xs disabled:opacity-50 transition-colors ${primary.pinned ? "border-amber-300 text-amber-500 hover:bg-amber-50" : "border-zinc-200 text-zinc-400 hover:bg-amber-50 hover:border-amber-300 hover:text-amber-500"}`}>
+          {primary.pinned ? "★" : "☆"}
+        </button>
         {primary.appStage === "NEW" && (
           <button title="Approve & queue outreach" disabled={acting}
             onClick={(e) => quickAct(e, primary.id, "approve")}
