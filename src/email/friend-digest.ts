@@ -1,7 +1,10 @@
 import type { Job } from "@prisma/client";
 import { sendMail } from "./mailer";
 
-const MIN_ANNUAL_BASE_INR = 800_000; // 8 LPA
+export interface FriendRecipient {
+  email: string;
+  minBaseLPA: number;
+}
 
 function formatSalary(job: Job): string {
   if (!job.salaryAnnualBase) return "";
@@ -35,17 +38,22 @@ function jobCard(job: Job): string {
 </div>`;
 }
 
-export async function sendFriendDigest(jobs: Job[], overrideTo?: string): Promise<void> {
-  // Include jobs where salary is unknown (null) — we can't confirm they're below 8 LPA.
-  // Only exclude jobs that are confirmed below 8 LPA.
-  const eligible = jobs.filter(j => j.salaryAnnualBase === null || j.salaryAnnualBase >= MIN_ANNUAL_BASE_INR);
+/**
+ * Send one friend their digest, filtered to their own salary floor.
+ * Include jobs where salary is unknown (null) — we can't confirm they're below
+ * the floor. Only exclude jobs that are confirmed below it.
+ */
+export async function sendFriendDigest(jobs: Job[], recipient: FriendRecipient): Promise<void> {
+  const minAnnualBase = recipient.minBaseLPA * 100_000;
+  const eligible = jobs.filter(j => j.salaryAnnualBase === null || j.salaryAnnualBase >= minAnnualBase);
   if (eligible.length === 0) return;
 
+  const floorLabel = `${recipient.minBaseLPA} LPA`;
   const html = `<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"></head>
 <body style="max-width:600px;margin:0 auto;padding:24px;font-family:sans-serif">
-  <h2 style="margin-bottom:4px;font-size:18px;color:#111827">Job openings above 8 LPA</h2>
+  <h2 style="margin-bottom:4px;font-size:18px;color:#111827">Job openings above ${floorLabel}</h2>
   <p style="margin-top:0;margin-bottom:20px;color:#6b7280;font-size:13px">${eligible.length} opening${eligible.length !== 1 ? "s" : ""} today</p>
   ${eligible.map(jobCard).join("")}
 </body>
@@ -62,8 +70,8 @@ export async function sendFriendDigest(jobs: Job[], overrideTo?: string): Promis
   }).join("\n\n---\n\n");
 
   await sendMail({
-    to: overrideTo ?? "mmayank.connect@gmail.com",
-    subject: `${eligible.length} job opening${eligible.length !== 1 ? "s" : ""} above 8 LPA today`,
+    to: recipient.email,
+    subject: `${eligible.length} job opening${eligible.length !== 1 ? "s" : ""} above ${floorLabel} today`,
     html,
     text,
   });

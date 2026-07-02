@@ -93,6 +93,18 @@ Strong in LLM integration, microservices, distributed systems, full-stack dev. L
 Targeting: entry-level / SDE-1 / junior software engineering roles at strong product companies and well-funded startups that pay ABOVE 14.5 LPA base. NOT looking for senior/staff roles (insufficient YOE) or roles paying at/below 14.5 LPA (a lateral move or pay cut).`,
   },
 
+  // Friend digest — friends get every scored job that clears THEIR salary
+  // floor, including jobs the owner's pipeline skipped for pay alone
+  // (skipCategory "salary"). Jobs skipped for seniority / location / role fit
+  // are still excluded for everyone.
+  friendDigest: {
+    recipients: [
+      { email: "mmayank.connect@gmail.com",  minBaseLPA: 8 },
+      { email: "rastogivani15@gmail.com",    minBaseLPA: 8 },
+      { email: "mohdsamiullah149@gmail.com", minBaseLPA: 8 },
+    ] as Array<{ email: string; minBaseLPA: number }>,
+  },
+
   outreach: {
     // maxReferralTargetsPerJob is the IN-FLIGHT batch size: how many connection
     // invites we keep pending at once for a job. The replenish loop refills this
@@ -122,10 +134,15 @@ Targeting: entry-level / SDE-1 / junior software engineering roles at strong pro
   templates: {
     connectionNote: "Hi {firstName}, I came across {company}'s {role} opening and noticed you're on the team. Would love to connect and learn more.",
 
+    // {pitch} is the AI-tailored, role-specific blurb (Job.tailoredPitch). It
+    // renders to nothing when no pitch exists — fill() drops the blank line — so
+    // this template stays safe even for jobs that were never AI-scored.
     firstDm: [
       "Hi {firstName},",
       "",
       "I'm currently looking for {role} opportunities and recently came across an opening at {company} that caught my interest. I was hoping you might be able to help me with a referral.{jobRef}",
+      "",
+      "{pitch}",
       "",
       "I'm currently working as a Software Engineer at Salescode.ai, using Java, JavaScript, Spring Boot, and CI/CD tools.",
       "",

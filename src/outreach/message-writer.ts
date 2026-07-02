@@ -1,7 +1,16 @@
 /**
  * Builds the LinkedIn outreach messages for one target by filling the owner's
  * editable templates (Settings → Outreach). Deterministic — the exact template
- * you set is what sends. Placeholders: {firstName} {company} {role} {ownerName}
+ * you set is what sends.
+ *
+ * Placeholders: {firstName} {name} {company} {role} {activeRole} {pitch}
+ *               {ownerName} {ownerFirstName}
+ *   • {role}/{activeRole} are the role we're CURRENTLY pitching. When the posting
+ *     a thread was created under has closed, this is the company's best-fit OPEN
+ *     role (see resolveActiveRole) — so a person contacted for a now-closed role
+ *     gets re-pitched on the open one.
+ *   • {pitch} is the AI-tailored, role-specific pitch (Job.tailoredPitch). Empty
+ *     string when none exists, so templates that reference it degrade cleanly.
  *
  * Produces a connection note (≤300 chars, sent WITH the invite), a first DM
  * (sent after acceptance), and one follow-up.
@@ -26,6 +35,7 @@ export function fill(tpl: string, vars: Record<string, string>): string {
     .replace(/[^\S\n]*[—–][^\S\n]*/g, ", ") // em/en dash → comma (DB-overridden templates can still contain them)
     .replace(/[^\S\n]+/g, " ")   // collapse horizontal whitespace only (preserve newlines)
     .replace(/ *\n */g, "\n")    // trim spaces around newlines
+    .replace(/\n{3,}/g, "\n\n")  // an empty optional placeholder ({pitch}) leaves a blank line — collapse it
     .trim();
 }
 
@@ -51,6 +61,8 @@ export async function renderMessages(opts: {
   name: string;
   company: string;
   role: string;
+  /** AI-tailored, role-specific pitch (Job.tailoredPitch). Optional. */
+  pitch?: string | null;
 }): Promise<OutreachMessages> {
   const settings = await getSettings().catch(() => null);
   const templates = settings?.templates ?? config.templates;
@@ -62,6 +74,8 @@ export async function renderMessages(opts: {
     name: opts.name,
     company: opts.company,
     role,
+    activeRole: role,
+    pitch: (opts.pitch ?? "").trim(),
     ownerName: config.owner.name || "",
     ownerFirstName: (config.owner.name || "").split(" ")[0] || "",
   };
@@ -78,6 +92,7 @@ export async function writeMessages(opts: {
   target: OutreachTarget;
   company: string;
   role: string;
+  pitch?: string | null;
 }): Promise<OutreachMessages> {
-  return renderMessages({ name: opts.target.name, company: opts.company, role: opts.role });
+  return renderMessages({ name: opts.target.name, company: opts.company, role: opts.role, pitch: opts.pitch });
 }

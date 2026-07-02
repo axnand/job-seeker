@@ -69,6 +69,9 @@ export async function replenishOutreach(settings?: AppSettingsData): Promise<Rep
     where: {
       applyType: "REFERRAL_FIRST",
       appStage: { in: ["APPROVED", "OUTREACH"] },
+      // Closed postings keep their pool but are never topped up with new people —
+      // their in-flight threads get re-pitched on the open sibling at send time.
+      closedAt: null,
       outreaches: { some: {} },
       OR: [{ lastReplenishAt: null }, { lastReplenishAt: { lt: backoffCutoff } }],
     },

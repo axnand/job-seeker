@@ -33,11 +33,16 @@ export interface ScoringInput {
   };
 }
 
+/** Which rubric rule sank a below-threshold job. "salary" means the role is a
+ *  fine fit but pays under the owner's floor — the friend digest re-uses those. */
+export type SkipCategory = "salary" | "seniority" | "location" | "role_fit" | "other";
+
 export interface ScoringOutput {
   score: number;
   reason: string;
   tailoredPitch: string;
   skipReason: string | null;
+  skipCategory: SkipCategory | null;
   salary: RawSalary;
   salaryFlagReason?: string;
   salaryAnnualBase?: number;
@@ -108,9 +113,17 @@ IMPORTANT: Compare only against fixed/guaranteed base salary — NOT CTC, NOT to
    - Mid-tier / unknown Indian product or startup companies: typically 8-16 LPA base. When company quality is unclear, bias toward the lower end.
    - Strong VC-funded product companies / FAANG-adjacent / global-remote (Google, Microsoft, Amazon, Atlassian, Intuit, Razorpay, CRED, Zepto, Meesho, slice, etc.): typically 16-35 LPA base.
    When torn between two bands, pick the LOWER one.
+   DECISIVE RULE FOR UNFAMILIAR COMPANIES: if you cannot name THIS company's real Indian junior pay band from genuine knowledge, treat it as UNKNOWN → confidence="low" and use the IT-services anchor (6-10 LPA). Never round an unfamiliar company UP to a product-company band — unfamiliar ≈ low pay until proven otherwise.
+   REALITY CHECK: Indian junior base medians on AmbitionBox / Glassdoor / Levels.fyi run notably LOWER than US-centric assumptions. Anchor to Indian market reality, not to global figures for the same job title.
    - min/max = FULL rupee amount (18 LPA base = 1800000). period = "year"|"month"|"hour" only. currency = "INR" for India roles.
 5. RESUME TAILORING: needsTailoring=false by default. Set true only when the JD emphasizes skills in the candidate's background but not prominent in the base resume, AND surfacing them would materially help. If true, tailoringSuggestions = 2-4 concrete edits (truthful only — never invent skills). If false, tailoringSuggestions = null.
-6. If score < ${threshold}, set skipReason (short phrase, e.g. "senior role 5+ yrs", "below ${minLPA} LPA", "non-engineering", "US-only on-site").
+6. If score < ${threshold}, set skipReason (short phrase, e.g. "senior role 5+ yrs", "below ${minLPA} LPA", "non-engineering", "US-only on-site") AND skipCategory — the ONE rubric rule that sank it:
+   - "salary": good role fit but pay below the floor (this is the ONLY problem)
+   - "seniority": senior/staff/lead or too many years required
+   - "location": outside India / on-site abroad
+   - "role_fit": non-engineering or wrong stack
+   - "other": anything else
+   If several rules failed, pick the most disqualifying NON-salary one — "salary" means salary was the sole blocker.
 
 Respond ONLY with this JSON (no markdown):
 {
@@ -118,6 +131,7 @@ Respond ONLY with this JSON (no markdown):
   "reason": "<2 sentences>",
   "tailoredPitch": "<3 lines — no bracket placeholders>",
   "skipReason": null,
+  "skipCategory": null,
   "salary": { "min": <number>, "max": <number>, "currency": "<ISO 4217>", "period": "year|month|hour", "basis": "stated|estimated", "confidence": "high|medium|low" },
   "needsTailoring": <true|false>,
   "tailoringSuggestions": "<specific edits, or null>"
@@ -199,9 +213,16 @@ interface ParsedScoring {
   reason: string;
   tailoredPitch: string;
   skipReason: string | null;
+  skipCategory: SkipCategory | null;
   salary: RawSalary;
   needsTailoring: boolean;
   tailoringSuggestions: string | string[] | null;
+}
+
+const SKIP_CATEGORIES: readonly SkipCategory[] = ["salary", "seniority", "location", "role_fit", "other"];
+
+function coerceSkipCategory(v: unknown): SkipCategory | null {
+  return SKIP_CATEGORIES.includes(v as SkipCategory) ? (v as SkipCategory) : null;
 }
 
 /**
@@ -233,6 +254,7 @@ async function completeScoring(
         reason:        typeof parsed.reason === "string" ? parsed.reason : "",
         tailoredPitch: typeof parsed.tailoredPitch === "string" ? parsed.tailoredPitch : "",
         skipReason:    typeof parsed.skipReason === "string" && parsed.skipReason ? parsed.skipReason : null,
+        skipCategory:  coerceSkipCategory(parsed.skipCategory),
         // Coerce a null/absent/non-object salary to {} so normalization treats it
         // as "unknown" instead of throwing.
         salary:        parsed.salary && typeof parsed.salary === "object" ? parsed.salary as RawSalary : {},
@@ -272,6 +294,7 @@ export async function scoreJob(
       reason: "Scoring failed — the model returned an unparseable response twice.",
       tailoredPitch: "",
       skipReason: "scoring_failed",
+      skipCategory: "other",
       salary: {},
       needsTailoring: false,
       tailoringSuggestions: null,
@@ -289,13 +312,22 @@ export async function scoreJob(
   const gate       = salaryGate(normalized, minAnnual, input.strictSalary ?? config.search.strictSalary);
 
   let skipReason = parsed.skipReason;
-  if (!skipReason && !gate.pass) skipReason = gate.reason ?? "salary_below_threshold";
+  let skipCategory = parsed.skipCategory;
+  if (!skipReason && !gate.pass) {
+    // LLM passed it but the salary gate (floor + confidence buffer) didn't —
+    // by definition a salary-only skip.
+    skipReason = gate.reason ?? "salary_below_threshold";
+    skipCategory = "salary";
+  }
+  if (skipReason && !skipCategory) skipCategory = "other";
+  if (!skipReason) skipCategory = null;
 
   return {
     score:          Math.max(0, Math.min(100, Math.round(parsed.score))),
     reason:         parsed.reason,
     tailoredPitch:  sanitizePitch(parsed.tailoredPitch ?? ""),
     skipReason,
+    skipCategory,
     salary:         rawSalary,
     salaryFlagReason: gate.reason && gate.pass && gate.reason !== "salary_unknown_kept" ? gate.reason : undefined,
     salaryAnnualBase: normalized?.annualBase,

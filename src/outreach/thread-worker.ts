@@ -31,6 +31,7 @@ import {
 } from "@/unipile/client";
 import { downloadResume } from "@/lib/s3";
 import { renderMessages } from "@/outreach/message-writer";
+import { resolveActiveRole } from "@/outreach/active-role";
 import { recomputeOutreachState } from "@/status/outreach-state";
 import { handleSendError } from "./safety";
 import { nextSendWindowOpen } from "./limits";
@@ -247,9 +248,13 @@ export async function processThread(
     } else if (phase === "INVITE_PENDING") {
       await doInvitePendingTimeout(thread, accountId, providerUserId, s, tag);
     } else if (phase === "CONNECTED") {
-      await doSendFirstDm(thread, ps, accountId, providerUserId, budget, s, tag, { contactName, company: job.company, role: job.role });
+      // Re-pitch on the company's best-fit OPEN role when this posting has closed.
+      const active = await resolveActiveRole(job);
+      if (active.redirected) console.log(`${tag} role closed — re-pitching on "${active.role}"`);
+      await doSendFirstDm(thread, ps, accountId, providerUserId, budget, s, tag, { contactName, company: job.company, role: active.role, pitch: active.pitch, redirected: active.redirected });
     } else if (phase === "MESSAGED") {
-      await doFollowup(thread, ps, accountId, budget, s, tag, { contactName, company: job.company, role: job.role });
+      const active = await resolveActiveRole(job);
+      await doFollowup(thread, ps, accountId, budget, s, tag, { contactName, company: job.company, role: active.role, pitch: active.pitch, redirected: active.redirected });
     } else {
       // Unknown phase — nothing to do.
       await guardedThreadUpdate(threadId, { nextActionAt: null });
@@ -413,7 +418,7 @@ async function doSendFirstDm(
   budget: SendBudgetMut,
   s: AppSettingsData,
   tag: string,
-  ctx: { contactName: string; company: string; role: string },
+  ctx: { contactName: string; company: string; role: string; pitch?: string | null; redirected?: boolean },
 ): Promise<void> {
   if (thread.lastMessageAt) {
     // DM already sent (we somehow re-entered) — move to MESSAGED.
@@ -428,11 +433,13 @@ async function doSendFirstDm(
   if (!(await verifyStillSendable(thread.id))) return;
   if (!(await markPendingSend(thread.id))) return;
 
-  const rendered = await renderMessages({ name: ctx.contactName, company: ctx.company, role: ctx.role });
+  const rendered = await renderMessages({ name: ctx.contactName, company: ctx.company, role: ctx.role, pitch: ctx.pitch });
   // Prefer the per-thread draft (set at enqueue time, editable in the confirm
   // drawer). Fall back to the live template so global template edits still
   // propagate to auto-queued threads that were never individually reviewed.
-  const text = ps.firstDm?.trim() || rendered.firstDm;
+  // EXCEPTION: when the posting closed and we're re-pitching on a different open
+  // role, the stored draft names the wrong (closed) role — re-render instead.
+  const text = (!ctx.redirected && ps.firstDm?.trim()) || rendered.firstDm;
 
   const resumeKey =
     (await prisma.channelThread.findUnique({
@@ -509,7 +516,7 @@ async function doFollowup(
   budget: SendBudgetMut,
   s: AppSettingsData,
   tag: string,
-  ctx: { contactName: string; company: string; role: string },
+  ctx: { contactName: string; company: string; role: string; pitch?: string | null; redirected?: boolean },
 ): Promise<void> {
   if (thread.followupsSent >= thread.followupsTotal) {
     await archiveThread(thread.id, "All follow-ups exhausted — no reply");
@@ -526,8 +533,10 @@ async function doFollowup(
   if (!(await verifyStillSendable(thread.id))) return;
   if (!(await markPendingSend(thread.id))) return;
 
-  const rendered = await renderMessages({ name: ctx.contactName, company: ctx.company, role: ctx.role });
-  const text = ps.followup?.trim() || rendered.followup;
+  const rendered = await renderMessages({ name: ctx.contactName, company: ctx.company, role: ctx.role, pitch: ctx.pitch });
+  // A redirected (closed→open) thread's stored follow-up names the closed role —
+  // re-render so the nudge mentions the now-active open role.
+  const text = (!ctx.redirected && ps.followup?.trim()) || rendered.followup;
   const { messageId } = await sendChatMessage(accountId, thread.providerChatId, text);
 
   budget.dmsLeft -= 1;

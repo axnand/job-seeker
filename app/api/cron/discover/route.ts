@@ -150,6 +150,12 @@ async function runDiscover() {
 
     // Persist
     const toEmail: Job[] = [];
+    // Friend digest pool — owner-passing jobs PLUS jobs skipped ONLY for salary
+    // (skipCategory "salary"). Those are fine roles that just pay below the
+    // owner's floor; each friend's own floor is applied in sendFriendDigest.
+    // Salary-only skips need a confirmed figure (salaryAnnualBase) so a friend's
+    // floor can actually be checked; owner-passing jobs may have unknown salary.
+    const friendPool: Job[] = [];
     for (const { raw, result } of scored) {
       const appStage: AppStage = result.skipReason ? "SKIPPED" : "NEW";
       const normalized = await normalizeSalary(result.salary, settings.search.baseCurrency).catch(() => null);
@@ -197,10 +203,13 @@ async function runDiscover() {
 
       if (appStage === "NEW") {
         toEmail.push(job);
+        friendPool.push(job);
         // FULLY AUTOMATIC: auto-approve and kick off outreach immediately.
         await prisma.job.update({ where: { id: job.id }, data: { appStage: "APPROVED", approvedAt: new Date() } });
         await enqueueOutreach({ ...job, appStage: "APPROVED" }).catch(e =>
           console.error(`[discover] auto-enqueue failed for ${job.id}:`, e));
+      } else if (result.skipCategory === "salary" && job.salaryAnnualBase !== null) {
+        friendPool.push(job);
       }
     }
 
@@ -210,16 +219,17 @@ async function runDiscover() {
     if (toEmail.length > 0) {
       await sendDailyDigest(toEmail);
       console.log(`[discover] digest sent with ${toEmail.length} jobs`);
-      const friendDigestRecipients = [
-        "mmayank.connect@gmail.com",
-        "rastogivani15@gmail.com",
-        "mohdsamiullah149@gmail.com"
-      ];
-      
+    }
+
+    // Friend digests are independent of the owner's digest: they draw from the
+    // wider friendPool, so friends still get mail on days when nothing beats
+    // the owner's floor.
+    if (friendPool.length > 0) {
+      console.log(`[discover] friend pool: ${friendPool.length} jobs (${friendPool.length - toEmail.length} salary-only skips)`);
       await Promise.all(
-        friendDigestRecipients.map(email =>
-          sendFriendDigest(toEmail, email).catch(e =>
-            console.error(`[discover] friend digest failed for ${email}:`, e))
+        config.friendDigest.recipients.map(recipient =>
+          sendFriendDigest(friendPool, recipient).catch(e =>
+            console.error(`[discover] friend digest failed for ${recipient.email}:`, e))
         )
       );
     }
@@ -240,6 +250,7 @@ async function runDiscover() {
       eligible: eligible.length,
       scored: scored.length,
       emailed: toEmail.length,
+      friendPool: friendPool.length,
       staleClosed: swept.closedNew + swept.closedApproved,
       prunedWebhooks,
     };

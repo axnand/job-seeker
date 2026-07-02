@@ -62,12 +62,19 @@ export interface SalaryGateResult {
 /**
  * Decide whether a job passes the salary gate.
  *
- * Confidence-aware margins (low-confidence estimates that barely clear the
- * floor are likely over-estimates, so we require a buffer):
- *   stated / high  → pass at exactly the floor (we trust the number)
- *   medium         → pass at exactly the floor (reasonably reliable)
- *   low            → pass only if estimate is ≥15% above the floor
- *                    (shaky guess: need headroom before burning outreach quota)
+ * The bug this guards against: an ESTIMATE (a guess from the model's memory) that
+ * lands just above the floor is most likely an over-estimate — and an over-estimate
+ * that lets a low-paying role through is the worst outcome (it burns outreach quota
+ * on a role you'd never take). So estimates must clear the floor by a margin that
+ * grows as confidence drops; only a STATED figure is trusted at the bare floor:
+ *
+ *   basis=stated              → floor × 1.00  (we trust the number)
+ *   estimated + high          → floor × 1.10
+ *   estimated + medium        → floor × 1.20
+ *   estimated + low / unknown → floor × 1.35  (shaky guess: needs real headroom)
+ *
+ * Anything below its effective floor is dropped — there is no "below floor but
+ * keep anyway" path, which is what previously let medium-confidence guesses slip in.
  */
 export function salaryGate(
   salary: NormalizedSalary | null,
@@ -80,25 +87,15 @@ export function salaryGate(
     return { pass: true, reason: "salary_unknown_kept" };
   }
 
-  const isLowConfidence = salary.confidence === "low" && salary.basis !== "stated";
-  const effectiveFloor = isLowConfidence ? minAnnualBase * 1.15 : minAnnualBase;
+  // Margin required above the floor, scaled by how much we trust the figure.
+  const buffer =
+    salary.basis === "stated"      ? 1.00 :
+    salary.confidence === "high"   ? 1.10 :
+    salary.confidence === "medium" ? 1.20 :
+                                     1.35; // low / unknown estimate — needs real headroom
+  const effectiveFloor = minAnnualBase * buffer;
 
-  if (salary.annualBase >= effectiveFloor) {
-    return { pass: true };
-  }
+  if (salary.annualBase >= effectiveFloor) return { pass: true };
 
-  // Below threshold. Drop when we're reasonably sure: stated figure, or
-  // medium/high-confidence estimate. Low-confidence below the effective floor
-  // is also dropped — it's a shaky guess that doesn't clear even the buffered bar.
-  if (salary.basis === "stated" || salary.confidence === "high" || salary.confidence === "medium") {
-    return { pass: false, reason: `salary_below_threshold_${salary.basis}` };
-  }
-
-  // Low-confidence estimate that cleared the base floor but not the 15% buffer
-  if (isLowConfidence) {
-    return { pass: false, reason: "salary_low_confidence_below_buffer" };
-  }
-
-  // Fallback: uncertain estimate below threshold — keep but flag
-  return { pass: true, reason: "salary_uncertain_estimate_flagged" };
+  return { pass: false, reason: `salary_below_threshold_${salary.basis}_${salary.confidence}` };
 }

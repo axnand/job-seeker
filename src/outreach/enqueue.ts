@@ -26,6 +26,9 @@ export interface EnqueueResult {
 }
 
 export async function enqueueOutreach(job: Job): Promise<EnqueueResult> {
+  // Closed postings never start new outreach (the open sibling owns the pool).
+  if (job.closedAt) return { mode: "noop", targetsDrafted: 0 };
+
   // Manual-apply jobs: just email the owner. No threads.
   if (job.applyType === "MANUAL_NOTIFY") {
     await sendManualNotify({
@@ -74,7 +77,7 @@ export async function draftAndQueueTargets(
   let drafted = 0;
   for (const target of targets) {
     try {
-      const messages = await writeMessages({ target, company: job.company, role: job.role });
+      const messages = await writeMessages({ target, company: job.company, role: job.role, pitch: job.tailoredPitch });
 
       // Upsert the shared Contact (one human = one row, keyed by provider id).
       const contact = await prisma.contact.upsert({

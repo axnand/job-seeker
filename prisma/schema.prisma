@@ -102,6 +102,14 @@ model Job {
   appStage       AppStage   @default(NEW)
   appStageNote   String?
 
+  // Posting closed — human-owned, distinct from SKIPPED/blacklist. A closed role
+  // stays on the board (inside its company card, toggled off) and keeps its
+  // contact pool, but no NEW invites/DMs are queued for it. In-flight outreach is
+  // re-pitched on the company's best-fit OPEN role at send time (active-role
+  // routing). Null = open.
+  closedAt       DateTime?
+  closedReason   String?
+
   // Outreach state cache — machine-owned, derived from threads
   outreachState  OutreachState @default(NONE)
   // Last time the replenish loop topped up (or attempted to) this job's outreach.
@@ -124,6 +132,7 @@ model Job {
 
   @@index([appStage])
   @@index([dedupeKey])
+  @@index([company])
   @@index([source])
   @@index([createdAt])
 }

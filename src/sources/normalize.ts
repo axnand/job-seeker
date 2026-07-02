@@ -53,3 +53,17 @@ export function dedupeKey(company: string, role: string, location?: string): str
   const l = location ? normalizeLocation(location) : "";
   return `${c}::${r}::${l}`;
 }
+
+/**
+ * Stable grouping key for a company name. Used to (a) merge a company's postings
+ * into one board card and (b) pool/dedup contacts across all of that company's
+ * roles, so the same person is never cold-contacted twice across roles.
+ * Strips the same legal/descriptive suffixes the people-finder strips, so
+ * "Visa", "Visa Inc.", and "Visa Technologies" collapse to one key.
+ */
+const COMPANY_SUFFIXES =
+  /\b(private limited|pvt\.? ?ltd\.?|p\.?ltd|limited|ltd\.?|llc|inc\.?|incorporated|co\.?|corp\.?|corporation|gmbh|s\.?a\.?|technologies|technology|solutions|systems|global services|services)\b/gi;
+
+export function companyKey(company: string): string {
+  return normalizeText(company.replace(COMPANY_SUFFIXES, " "));
+}

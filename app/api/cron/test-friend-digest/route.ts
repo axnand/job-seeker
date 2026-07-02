@@ -1,41 +1,57 @@
 /**
  * GET /api/cron/test-friend-digest
  * Manual trigger to test the friend digest pipeline end-to-end.
- * Accepts optional ?to=email to override the recipient (for previewing).
+ * Accepts optional ?to=email and ?minLPA=8 to override the recipient (for previewing).
  * Protected by the same Bearer CRON_SECRET as other cron routes.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { sendFriendDigest } from "@/email/friend-digest";
+import { sendFriendDigest, type FriendRecipient } from "@/email/friend-digest";
+import { config } from "@/config";
 
 export async function GET(req: NextRequest) {
   try {
-    const overrideTo = req.nextUrl.searchParams.get("to") ?? undefined;
+    const overrideTo = req.nextUrl.searchParams.get("to");
+    const minLPA = Number(req.nextUrl.searchParams.get("minLPA") || 8);
 
+    // Approximates the live friend pool: owner-passing jobs plus skipped jobs
+    // with a confirmed salary. skipCategory isn't persisted, so unlike the live
+    // run this can't exclude seniority/location skips — preview may over-include.
     const jobs = await prisma.job.findMany({
-      where: { appStage: { in: ["NEW", "APPROVED"] } },
+      where: {
+        OR: [
+          { appStage: { in: ["NEW", "APPROVED"] } },
+          { appStage: "SKIPPED", salaryAnnualBase: { not: null } },
+        ],
+      },
       orderBy: { discoveredAt: "desc" },
       take: 50,
     });
 
+    const minAnnualBase = minLPA * 100_000;
     const salaryBreakdown = {
       total: jobs.length,
       withSalary: jobs.filter(j => j.salaryAnnualBase !== null).length,
       nullSalary: jobs.filter(j => j.salaryAnnualBase === null).length,
-      above8LPA: jobs.filter(j => j.salaryAnnualBase === null || (j.salaryAnnualBase ?? 0) >= 800_000).length,
-      confirmedBelow8LPA: jobs.filter(j => j.salaryAnnualBase !== null && j.salaryAnnualBase < 800_000).length,
+      eligible: jobs.filter(j => j.salaryAnnualBase === null || (j.salaryAnnualBase ?? 0) >= minAnnualBase).length,
+      confirmedBelowFloor: jobs.filter(j => j.salaryAnnualBase !== null && j.salaryAnnualBase < minAnnualBase).length,
     };
 
-    if (salaryBreakdown.above8LPA === 0) {
-      return NextResponse.json({ ok: false, reason: "no eligible jobs found", salaryBreakdown });
+    if (salaryBreakdown.eligible === 0) {
+      return NextResponse.json({ ok: false, reason: "no eligible jobs found", minLPA, salaryBreakdown });
     }
 
-    await sendFriendDigest(jobs, overrideTo);
+    const recipients: FriendRecipient[] = overrideTo
+      ? [{ email: overrideTo, minBaseLPA: minLPA }]
+      : config.friendDigest.recipients;
+
+    await Promise.all(recipients.map(r => sendFriendDigest(jobs, r)));
 
     return NextResponse.json({
       ok: true,
-      emailSentTo: overrideTo ?? "mmayank.connect@gmail.com",
+      emailSentTo: recipients.map(r => r.email),
+      minLPA,
       salaryBreakdown,
     });
   } catch (err) {

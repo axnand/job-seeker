@@ -22,6 +22,7 @@ import {
 import { prisma } from "@/lib/prisma";
 import { getSettings } from "@/lib/settings";
 import { getCachedCompanyId, setCachedCompanyId } from "@/lib/id-cache";
+import { companyKey } from "@/sources/normalize";
 import { config } from "@/config";
 
 export interface OutreachTarget {
@@ -279,6 +280,11 @@ export async function findTargets(job: Job, opts: FindTargetsOpts = {}): Promise
   const exclude = opts.exclude ?? new Set<string>();
   if (max <= 0) return [];
 
+  // Pooled company dedup: never cold-contact someone already in this company's
+  // contact pool (any role, any posting). One person = one outreach across the
+  // company's postings — the merged-card promise.
+  await excludeCompanyContacts(job, exclude);
+
   // 1. dm_author short-circuit — the author is the only target for a post job.
   if (job.sourcePostAuthorUrl) {
     const author = await targetFromPostAuthor(job, accountId);
@@ -299,6 +305,35 @@ export async function findTargets(job: Job, opts: FindTargetsOpts = {}): Promise
   pool.sort((a, b) => (a.role === "RECRUITER" ? 0 : 1) - (b.role === "RECRUITER" ? 0 : 1));
 
   return dedupeAndFilter(pool, cooldownDays, max, exclude);
+}
+
+/**
+ * Add to `exclude` the LinkedIn provider ids of everyone already in this
+ * COMPANY's contact pool — anyone with an outreach under ANY of the company's
+ * postings. Unlike the time-boxed recontact cooldown, this is permanent for the
+ * life of the pool, so a person sourced for one role is never cold-contacted
+ * again for a sibling role (incl. after a role closes and we top up the open one).
+ *
+ * Narrowed in SQL by the company's brand token, then confirmed in JS with the
+ * same companyKey() used to merge postings into a card, so the dedup boundary and
+ * the visual grouping always agree.
+ */
+async function excludeCompanyContacts(job: Job, exclude: Set<string>): Promise<void> {
+  const token = brandToken(job.company);
+  if (!token || token.length < 3) return; // too generic to scope safely — cooldown still applies
+  const key = companyKey(job.company);
+  const pooled = await prisma.outreach.findMany({
+    where: { job: { company: { contains: token, mode: "insensitive" } } },
+    select: {
+      contact: { select: { linkedinProviderId: true } },
+      job: { select: { company: true } },
+    },
+  });
+  for (const o of pooled) {
+    if (o.contact?.linkedinProviderId && companyKey(o.job.company) === key) {
+      exclude.add(o.contact.linkedinProviderId);
+    }
+  }
 }
 
 async function dedupeAndFilter(

@@ -17,7 +17,8 @@ type Job = {
   salaryAnnualBase: number | null; salaryCurrency: string | null;
   salaryBasis: string | null; salaryConfidence: string | null;
   salaryFlagReason: string | null; applyUrl: string; location: string | null;
-  jdText: string; createdAt: string; appStageNote: string | null;
+  jdText: string; createdAt: string; postedAt: string | null; appStageNote: string | null;
+  closedAt: string | null; closedReason: string | null;
   needsTailoring: boolean; tailoringSuggestions: string | null; tailoredResumeKey: string | null;
   // Pre-computed by the list API so the board never receives raw providerState JSON.
   outreachCounts?: { sent: number; connected: number; replied: number };
@@ -89,6 +90,29 @@ const fmtSalary = (base: number | null, cur: string | null) =>
   !base ? null : new Intl.NumberFormat("en-IN", {
     style:"currency", currency: cur ?? "INR", maximumFractionDigits:0, notation:"compact",
   }).format(base);
+
+// Mirrors src/sources/normalize.companyKey so the board's company grouping lands
+// on the exact same boundary the engine uses to pool + dedup contacts.
+const COMPANY_SUFFIX_RE = /\b(private limited|pvt\.? ?ltd\.?|p\.?ltd|limited|ltd\.?|llc|inc\.?|incorporated|co\.?|corp\.?|corporation|gmbh|s\.?a\.?|technologies|technology|solutions|systems|global services|services)\b/gi;
+const groupKeyOf = (company: string) =>
+  company.replace(COMPANY_SUFFIX_RE, " ").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 40);
+
+// Relative posting date for the cards (falls back to discovery date via caller).
+const fmtDate = (iso: string | null) => {
+  if (!iso) return null;
+  const d = new Date(iso);
+  const days = Math.floor((Date.now() - d.getTime()) / 86400000);
+  if (days <= 0) return "today";
+  if (days === 1) return "1d ago";
+  if (days < 30) return `${days}d ago`;
+  return d.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+};
+
+// First meaningful segment of a role title, for compact role chips.
+const shortRole = (role: string) => {
+  const seg = (role.split(/[,(]/)[0] ?? role).trim();
+  return seg.length > 26 ? seg.slice(0, 25) + "…" : seg;
+};
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
@@ -208,6 +232,29 @@ export default function BoardPage() {
     setActing(false);
   }, []);
 
+  // Select/clear every job of a company group together (merged-card checkbox).
+  const toggleSelMany = useCallback((ids: string[]) => setSel(prev => {
+    const n = new Set(prev);
+    const allSel = ids.every(id => n.has(id));
+    ids.forEach(id => allSel ? n.delete(id) : n.add(id));
+    return n;
+  }), []);
+
+  // Close or reopen ONE posting. This is NOT a blacklist and NOT a skip: the
+  // company, its other roles, and the shared contact pool all stay. A closed
+  // role just stops getting new invites; its in-flight outreach is re-pitched on
+  // the open sibling automatically (server-side resolveActiveRole).
+  const toggleRoleClosed = useCallback(async (e: React.MouseEvent, jobId: string, closed: boolean) => {
+    e.stopPropagation();
+    setActing(true);
+    await fetch("/api/jobs/close", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobId, closed }) }).catch(() => {});
+    const stamp = closed ? new Date().toISOString() : null;
+    setJobs(prev => prev.map(j => j.id === jobId ? { ...j, closedAt: stamp } : j));
+    setDetail(d => (d && d.id === jobId) ? { ...d, closedAt: stamp } : d);
+    setActing(false);
+    showToast(closed ? "Role closed — outreach now goes out for the open role." : "Role reopened.", "info");
+  }, [showToast]);
+
   // Blacklist the card's company: block future discovery + skip its open jobs now.
   const blacklistCompany = useCallback(async (e: React.MouseEvent, company: string) => {
     e.stopPropagation();
@@ -325,18 +372,6 @@ export default function BoardPage() {
     setActing(false);
     showToast("Job restored to New.", "info");
   }, [showToast]);
-
-  // Compact outreach progress for the card badge — reads the pre-computed counts
-  // from the list API (no raw thread data on the board).
-  const outreachSummary = useCallback((job: Job): string | null => {
-    const c = job.outreachCounts;
-    if (!c || c.sent === 0) return null;
-    const parts: string[] = [];
-    if (c.replied)             parts.push(`${c.replied} replied`);
-    else if (c.connected)      parts.push(`${c.connected} connected`);
-    if (c.sent)                parts.push(`${c.sent} sent`);
-    return parts.join(" · ") || null;
-  }, []);
 
   // Distinct sources present (for the Source filter options)
   const sourceOptions = useMemo(
@@ -526,87 +561,20 @@ export default function BoardPage() {
                       <p className="text-xs text-zinc-300 font-medium">No jobs</p>
                     </div>
                   )}
-                  {cards.map(job => {
-                    const sal     = fmtSalary(job.salaryAnnualBase, job.salaryCurrency);
-                    const outreach = OUTREACH_META[job.outreachState];
-                    const isSel = sel.has(job.id);
-                    return (
-                      <div key={job.id} className="relative group">
-                      <button onClick={(e) => { e.stopPropagation(); toggleSel(job.id); }}
-                        className={`absolute top-2.5 right-2.5 z-10 w-5 h-5 rounded-md border flex items-center justify-center text-[11px] leading-none transition-all ${isSel ? "bg-zinc-900 border-zinc-900 text-white opacity-100" : "bg-white border-zinc-300 text-transparent hover:border-zinc-500 opacity-0 group-hover:opacity-100"}`}>
-                        ✓
-                      </button>
-                      <button onClick={() => openJob(job)}
-                        className={`w-full text-left bg-white rounded-xl p-4 border hover:shadow-md active:scale-[0.99] transition-all shadow-sm ${isSel ? "border-zinc-900 ring-1 ring-zinc-900" : "border-zinc-200 hover:border-zinc-300"}`}>
-
-                        <div className="flex items-start gap-3 mb-3">
-                          <Avatar className={`h-8 w-8 rounded-xl shrink-0 ${avatarClr(job.company)}`}>
-                            <AvatarFallback className={`rounded-xl text-xs font-bold ${avatarClr(job.company)}`}>
-                              {job.company.charAt(0).toUpperCase()}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-sm font-semibold text-zinc-900 truncate leading-tight">{job.company}</p>
-                            <p className="text-xs text-zinc-500 truncate mt-0.5 leading-tight">{job.role}</p>
-                          </div>
-                          {job.aiScore !== null && (
-                            <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-lg shrink-0 ${scoreClr(job.aiScore)}`}>
-                              {job.aiScore}
-                            </span>
-                          )}
-                        </div>
-
-                        {sal && (
-                          <p className={`text-xs font-semibold mb-2.5 ${job.salaryBasis === "ESTIMATED" ? "text-amber-600" : "text-emerald-600"}`}>
-                            {sal}/yr
-                            <span className="text-zinc-400 font-normal ml-1.5">
-                              {job.salaryBasis === "STATED" ? "· stated" : "· est."}
-                            </span>
-                          </p>
-                        )}
-
-                        <div className="flex flex-wrap gap-1.5">
-                          <span className="text-[10px] text-zinc-500 bg-zinc-100 rounded-md px-2 py-1 font-medium">
-                            {SOURCE_LABEL[job.source] ?? job.source}
-                          </span>
-                          {job.applyType === "REFERRAL_FIRST" && (
-                            <span className="text-[10px] text-violet-700 bg-violet-100 rounded-md px-2 py-1 font-medium">
-                              Referral
-                            </span>
-                          )}
-                          {outreach.text && (
-                            <span className={`text-[10px] border rounded-md px-2 py-1 font-medium ${outreach.cls}`}>
-                              {outreach.text}
-                            </span>
-                          )}
-                          {(() => { const s = outreachSummary(job); return s ? (
-                            <span className="text-[10px] text-zinc-400 bg-zinc-50 border border-zinc-200 rounded-md px-2 py-1">{s}</span>
-                          ) : null; })()}
-                        </div>
-                      </button>
-
-                      {/* Hover quick-actions — sit above the card, never nested in it */}
-                      <div className="absolute bottom-2 right-2 z-10 flex items-center gap-1 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity">
-                        {job.appStage === "NEW" && (
-                          <button title="Approve & queue outreach" disabled={acting}
-                            onClick={(e) => quickAct(e, job.id, "approve")}
-                            className="w-7 h-7 rounded-lg bg-white/95 backdrop-blur border border-zinc-200 shadow-sm flex items-center justify-center text-xs text-zinc-500 hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-600 disabled:opacity-50 transition-colors">✓</button>
-                        )}
-                        {(job.appStage === "APPROVED" || job.appStage === "OUTREACH") && (
-                          <button title="Mark replied" disabled={acting}
-                            onClick={(e) => quickAct(e, job.id, "replied")}
-                            className="w-7 h-7 rounded-lg bg-white/95 backdrop-blur border border-zinc-200 shadow-sm flex items-center justify-center text-xs text-zinc-500 hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-600 disabled:opacity-50 transition-colors">↩</button>
-                        )}
-                        <button title="Skip / remove from board" disabled={acting}
-                          onClick={(e) => quickAct(e, job.id, "skip")}
-                          className="w-7 h-7 rounded-lg bg-white/95 backdrop-blur border border-zinc-200 shadow-sm flex items-center justify-center text-xs text-zinc-500 hover:bg-zinc-100 hover:border-zinc-400 hover:text-zinc-700 disabled:opacity-50 transition-colors">✕</button>
-                        <button title={`Blacklist ${job.company}`} disabled={acting}
-                          onClick={(e) => blacklistCompany(e, job.company)}
-                          className="w-7 h-7 rounded-lg bg-white/95 backdrop-blur border border-zinc-200 shadow-sm flex items-center justify-center text-sm text-zinc-500 hover:bg-red-50 hover:border-red-300 hover:text-red-600 disabled:opacity-50 transition-colors">⊘</button>
-                      </div>
-                      </div>
-                    );
-                  })}
+                  {buildCompanyGroups(cards).map(group => (
+                    <CompanyCard
+                      key={group.key}
+                      group={group}
+                      selected={sel}
+                      acting={acting}
+                      openJob={openJob}
+                      toggleSel={toggleSel}
+                      toggleSelMany={toggleSelMany}
+                      quickAct={quickAct}
+                      blacklistCompany={blacklistCompany}
+                      toggleRoleClosed={toggleRoleClosed}
+                    />
+                  ))}
                 </div>
               </div>
             );
@@ -765,11 +733,17 @@ export default function BoardPage() {
                     {job.applyType === "REFERRAL_FIRST" && (
                       <span className="text-[10px] bg-violet-100 text-violet-700 rounded-md px-2 py-1 font-medium">Referral First</span>
                     )}
+                    {job.closedAt && (
+                      <span className="text-[10px] bg-zinc-200 text-zinc-600 rounded-md px-2 py-1 font-medium">Role closed</span>
+                    )}
                     {job.outreachState !== "NONE" && OUTREACH_META[job.outreachState].text && (
                       <span className={`text-[10px] border rounded-md px-2 py-1 font-medium ${OUTREACH_META[job.outreachState].cls}`}>
                         {OUTREACH_META[job.outreachState].text}
                       </span>
                     )}
+                    {(() => { const d = fmtDate(job.postedAt ?? job.createdAt); return d ? (
+                      <span className="text-[10px] text-zinc-400 px-1 py-1">Posted {d}</span>
+                    ) : null; })()}
                   </div>
                 )}
               </div>
@@ -891,11 +865,20 @@ export default function BoardPage() {
               )}
 
               {job.appStage !== "SKIPPED" && (
-                <Button onClick={(e) => blacklistCompany(e, job.company)} disabled={acting}
-                  variant="outline" size="sm"
-                  className="text-xs h-9 w-full text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700">
-                  ⊘ Blacklist {job.company} &amp; stop outreach
-                </Button>
+                <div className="space-y-2">
+                  <Button onClick={(e) => toggleRoleClosed(e, job.id, !job.closedAt)} disabled={acting}
+                    variant="outline" size="sm"
+                    className="text-xs h-9 w-full text-zinc-600 hover:bg-zinc-50">
+                    {job.closedAt
+                      ? "↺ Reopen this role"
+                      : "⊘ Close this role (keep contacts, redirect outreach to the open role)"}
+                  </Button>
+                  <Button onClick={(e) => blacklistCompany(e, job.company)} disabled={acting}
+                    variant="outline" size="sm"
+                    className="text-xs h-9 w-full text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700">
+                    ⊘ Blacklist {job.company} &amp; stop outreach
+                  </Button>
+                </div>
               )}
 
               {(job.outreaches?.length ?? 0) > 0 && (
@@ -997,6 +980,183 @@ function DraftField({ label, value, rows, maxLength, onChange }: {
         onChange={e => onChange(e.target.value)}
         className="mt-1 w-full border border-zinc-200 rounded-lg px-3 py-2 text-xs bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-300 focus:border-transparent leading-relaxed"
       />
+    </div>
+  );
+}
+
+// ─── Company grouping ───────────────────────────────────────────────────────
+// Same-company postings (within a stage column) collapse into ONE card. The
+// shared candidate pool, dedup, and active-role routing all happen server-side;
+// this is the visual half of the merge.
+
+type CompanyGroup = { key: string; company: string; jobs: Job[] };
+
+function buildCompanyGroups(cards: Job[]): CompanyGroup[] {
+  const map = new Map<string, CompanyGroup>();
+  for (const job of cards) {
+    const key = groupKeyOf(job.company) || job.company.toLowerCase();
+    const g = map.get(key);
+    if (g) g.jobs.push(job);
+    else map.set(key, { key, company: job.company, jobs: [job] });
+  }
+  // cards are already sorted; first-seen order preserves that sort across groups.
+  return [...map.values()];
+}
+
+function CompanyCard({
+  group, selected, acting, openJob, toggleSel, toggleSelMany, quickAct, blacklistCompany, toggleRoleClosed,
+}: {
+  group: CompanyGroup;
+  selected: Set<string>;
+  acting: boolean;
+  openJob: (job: Job) => void;
+  toggleSel: (id: string) => void;
+  toggleSelMany: (ids: string[]) => void;
+  quickAct: (e: React.MouseEvent, jobId: string, action: string) => void;
+  blacklistCompany: (e: React.MouseEvent, company: string) => void;
+  toggleRoleClosed: (e: React.MouseEvent, jobId: string, closed: boolean) => void;
+}) {
+  const jobs = group.jobs;
+  const multi = jobs.length > 1;
+  const ids = jobs.map(j => j.id);
+  const allSel = ids.every(id => selected.has(id));
+  const someSel = !allSel && ids.some(id => selected.has(id));
+
+  // Representative role for the header + hover actions: prefer an OPEN role, then
+  // the highest score — so clicking the card lands on the role you'd actually pitch.
+  const primary = [...jobs].sort((a, b) => {
+    const ao = a.closedAt ? 1 : 0, bo = b.closedAt ? 1 : 0;
+    return ao - bo || (b.aiScore ?? -1) - (a.aiScore ?? -1);
+  })[0];
+
+  const maxScore = jobs.reduce<number | null>(
+    (m, j) => j.aiScore == null ? m : Math.max(m ?? -1, j.aiScore), null);
+
+  const sals = jobs.map(j => j.salaryAnnualBase).filter((n): n is number => n != null);
+  const cur = jobs.find(j => j.salaryCurrency)?.salaryCurrency ?? null;
+  const salText = sals.length === 0 ? null
+    : Math.min(...sals) === Math.max(...sals) ? `${fmtSalary(Math.min(...sals), cur)}/yr`
+    : `${fmtSalary(Math.min(...sals), cur)}–${fmtSalary(Math.max(...sals), cur)}/yr`;
+
+  const dateText = fmtDate(jobs.map(j => j.postedAt ?? j.createdAt).sort().slice(-1)[0] ?? null);
+
+  const pooled = jobs.reduce((a, j) => {
+    const c = j.outreachCounts;
+    if (c) { a.sent += c.sent; a.connected += c.connected; a.replied += c.replied; }
+    return a;
+  }, { sent: 0, connected: 0, replied: 0 });
+  const poolText = pooled.sent === 0 ? null
+    : [pooled.replied ? `${pooled.replied} replied` : pooled.connected ? `${pooled.connected} connected` : "",
+       `${pooled.sent} sent`].filter(Boolean).join(" · ");
+
+  const sources = Array.from(new Set(jobs.map(j => SOURCE_LABEL[j.source] ?? j.source)));
+  const anyReferral = jobs.some(j => j.applyType === "REFERRAL_FIRST");
+  const openCount = jobs.filter(j => !j.closedAt).length;
+
+  return (
+    <div className="relative group">
+      <button onClick={(e) => { e.stopPropagation(); multi ? toggleSelMany(ids) : toggleSel(ids[0]); }}
+        className={`absolute top-2.5 right-2.5 z-10 w-5 h-5 rounded-md border flex items-center justify-center text-[11px] leading-none transition-all ${allSel ? "bg-zinc-900 border-zinc-900 text-white opacity-100" : someSel ? "bg-zinc-400 border-zinc-400 text-white opacity-100" : "bg-white border-zinc-300 text-transparent hover:border-zinc-500 opacity-0 group-hover:opacity-100"}`}>
+        ✓
+      </button>
+
+      <div className={`w-full bg-white rounded-xl p-4 border shadow-sm transition-all ${allSel ? "border-zinc-900 ring-1 ring-zinc-900" : "border-zinc-200 hover:border-zinc-300 hover:shadow-md"}`}>
+        <button onClick={() => openJob(primary)} className="w-full text-left">
+          <div className="flex items-start gap-3">
+            <Avatar className={`h-8 w-8 rounded-xl shrink-0 ${avatarClr(group.company)}`}>
+              <AvatarFallback className={`rounded-xl text-xs font-bold ${avatarClr(group.company)}`}>
+                {group.company.charAt(0).toUpperCase()}
+              </AvatarFallback>
+            </Avatar>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-zinc-900 truncate leading-tight">{group.company}</p>
+              <p className="text-xs text-zinc-500 truncate mt-0.5 leading-tight">
+                {multi ? `${jobs.length} roles · ${openCount} open` : primary.role}
+              </p>
+            </div>
+            {maxScore !== null && (
+              <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-lg shrink-0 mr-6 ${scoreClr(maxScore)}`}>
+                {maxScore}
+              </span>
+            )}
+          </div>
+          {salText && (
+            <p className="text-xs font-semibold mt-2 text-emerald-600">
+              {salText}<span className="text-zinc-400 font-normal ml-1.5">· est.</span>
+            </p>
+          )}
+        </button>
+
+        {multi && (
+          <div className="space-y-1 mt-2.5">
+            {jobs.map(j => {
+              const closed = !!j.closedAt;
+              const om = OUTREACH_META[j.outreachState];
+              return (
+                <div key={j.id}
+                  className={`flex items-center gap-1.5 rounded-lg border px-2 py-1.5 ${closed ? "bg-zinc-50 border-zinc-200 border-dashed" : "bg-white border-zinc-200"}`}>
+                  <button onClick={(e) => { e.stopPropagation(); openJob(j); }}
+                    className="flex-1 min-w-0 text-left flex items-center gap-1.5">
+                    <span className={`text-[11px] font-medium truncate ${closed ? "text-zinc-400 line-through" : "text-zinc-700"}`}>
+                      {shortRole(j.role)}
+                    </span>
+                    {!closed && om.text && (
+                      <span className={`shrink-0 text-[9px] border rounded px-1 py-0.5 font-medium ${om.cls}`}>{om.text}</span>
+                    )}
+                    {closed && <span className="shrink-0 text-[9px] text-zinc-400 bg-zinc-100 rounded px-1 py-0.5">closed</span>}
+                  </button>
+                  <button title={closed ? "Reopen role" : "Close role — keeps contacts, stops new invites, redirects outreach to the open role"}
+                    disabled={acting}
+                    onClick={(e) => toggleRoleClosed(e, j.id, !closed)}
+                    className={`shrink-0 w-5 h-5 rounded flex items-center justify-center text-[11px] transition-colors disabled:opacity-50 ${closed ? "text-emerald-600 hover:bg-emerald-50" : "text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"}`}>
+                    {closed ? "↺" : "⊘"}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center gap-1.5 mt-2.5">
+          {sources.map(s => (
+            <span key={s} className="text-[10px] text-zinc-500 bg-zinc-100 rounded-md px-2 py-1 font-medium">{s}</span>
+          ))}
+          {anyReferral && (
+            <span className="text-[10px] text-violet-700 bg-violet-100 rounded-md px-2 py-1 font-medium">Referral</span>
+          )}
+          {!multi && OUTREACH_META[primary.outreachState].text && (
+            <span className={`text-[10px] border rounded-md px-2 py-1 font-medium ${OUTREACH_META[primary.outreachState].cls}`}>
+              {OUTREACH_META[primary.outreachState].text}
+            </span>
+          )}
+          {poolText && (
+            <span className="text-[10px] text-zinc-400 bg-zinc-50 border border-zinc-200 rounded-md px-2 py-1">{poolText}</span>
+          )}
+          {dateText && (
+            <span className="text-[10px] text-zinc-400 ml-auto" title="Most recent posting date">{dateText}</span>
+          )}
+        </div>
+      </div>
+
+      {/* Hover quick-actions — operate on the primary (open) role */}
+      <div className="absolute bottom-2 right-2 z-10 flex items-center gap-1 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity">
+        {primary.appStage === "NEW" && (
+          <button title="Approve & queue outreach" disabled={acting}
+            onClick={(e) => quickAct(e, primary.id, "approve")}
+            className="w-7 h-7 rounded-lg bg-white/95 backdrop-blur border border-zinc-200 shadow-sm flex items-center justify-center text-xs text-zinc-500 hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-600 disabled:opacity-50 transition-colors">✓</button>
+        )}
+        {(primary.appStage === "APPROVED" || primary.appStage === "OUTREACH") && (
+          <button title="Mark replied" disabled={acting}
+            onClick={(e) => quickAct(e, primary.id, "replied")}
+            className="w-7 h-7 rounded-lg bg-white/95 backdrop-blur border border-zinc-200 shadow-sm flex items-center justify-center text-xs text-zinc-500 hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-600 disabled:opacity-50 transition-colors">↩</button>
+        )}
+        <button title="Skip / remove from board" disabled={acting}
+          onClick={(e) => quickAct(e, primary.id, "skip")}
+          className="w-7 h-7 rounded-lg bg-white/95 backdrop-blur border border-zinc-200 shadow-sm flex items-center justify-center text-xs text-zinc-500 hover:bg-zinc-100 hover:border-zinc-400 hover:text-zinc-700 disabled:opacity-50 transition-colors">✕</button>
+        <button title={`Blacklist ${group.company}`} disabled={acting}
+          onClick={(e) => blacklistCompany(e, group.company)}
+          className="w-7 h-7 rounded-lg bg-white/95 backdrop-blur border border-zinc-200 shadow-sm flex items-center justify-center text-sm text-zinc-500 hover:bg-red-50 hover:border-red-300 hover:text-red-600 disabled:opacity-50 transition-colors">⊘</button>
+      </div>
     </div>
   );
 }
