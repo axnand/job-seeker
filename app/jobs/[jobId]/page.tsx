@@ -1,6 +1,16 @@
 import { prisma } from "@/lib/prisma";
 import { notFound } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import {
+  ArrowLeft,
+  CircleDollarSign,
+  Sparkles,
+  ExternalLink,
+  Check,
+  X,
+  TriangleAlert,
+} from "lucide-react";
+import { PageHeader } from "@/components/page-header";
 
 const PERIOD_LABEL: Record<string, string> = {
   YEAR: "/yr", MONTH: "/mo", HOUR: "/hr",
@@ -62,7 +72,7 @@ const THREAD_PHASE_LABEL: Record<string, string> = {
   INVITE_PENDING: "Invite sent — awaiting acceptance",
   CONNECTED: "Connected — DM sends next tick",
   MESSAGED: "Messaged — awaiting reply",
-  REPLIED: "Replied 🎉",
+  REPLIED: "Replied",
 };
 
 export default async function JobDetailPage({
@@ -105,14 +115,15 @@ export default async function JobDetailPage({
   const stageStyle = STAGE_STYLE[job.appStage] ?? STAGE_STYLE.NEW;
 
   return (
-    <div className="min-h-screen bg-zinc-50">
-      <div className="max-w-2xl mx-auto px-4 py-8 space-y-4">
-
-        {/* Back */}
-        <a href="/" className="inline-flex items-center gap-1.5 text-sm text-zinc-400 hover:text-zinc-700 transition-colors">
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M9 2L4 7L9 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-          Board
+    <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
+      <PageHeader title={job.company} subtitle={job.role}>
+        <a href="/" className="inline-flex items-center gap-1.5 text-xs font-medium text-zinc-600 border border-zinc-200 rounded-lg px-3 h-8 hover:bg-zinc-50 hover:text-zinc-900 transition-colors">
+          <ArrowLeft className="size-3.5" /> Board
         </a>
+      </PageHeader>
+
+      <div className="flex-1 overflow-y-auto scrollbar-slim">
+      <div className="max-w-2xl mx-auto px-6 py-8 space-y-4">
 
         {/* Hero */}
         <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
@@ -157,10 +168,10 @@ export default async function JobDetailPage({
             <div className="border-t border-zinc-100 px-6 py-4 space-y-2 bg-zinc-50/60">
               {salary && (
                 <div className="flex items-center gap-2">
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="text-emerald-500 shrink-0"><circle cx="7" cy="7" r="6" stroke="currentColor" strokeWidth="1.4"/><path d="M7 4v6M5 8.5c0 .83.67 1.5 2 1.5s2-.67 2-1.5S8.5 7 7 7s-2-.67-2-1.5S5.67 4 7 4s2 .67 2 1.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>
+                  <CircleDollarSign className="size-3.5 text-emerald-500 shrink-0" />
                   <span className="text-sm font-semibold text-emerald-700">{salary}</span>
                   {job.salaryFlagReason && (
-                    <span className="text-xs text-amber-600 ml-1">· ⚠ {job.salaryFlagReason.replace(/_/g, " ")}</span>
+                    <span className="inline-flex items-center gap-1 text-xs text-amber-600 ml-1"><TriangleAlert className="size-3" /> {job.salaryFlagReason.replace(/_/g, " ")}</span>
                   )}
                 </div>
               )}
@@ -173,9 +184,9 @@ export default async function JobDetailPage({
           {/* AI Pitch */}
           {job.tailoredPitch && (
             <div className="border-t border-zinc-100 px-6 py-4">
-              <div className="flex items-center gap-2 mb-2">
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="text-indigo-400"><path d="M7 1L8.8 5.2L13 6L9.5 9.3L10.6 13L7 11L3.4 13L4.5 9.3L1 6L5.2 5.2L7 1Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/></svg>
-                <span className="text-xs font-semibold text-indigo-500 uppercase tracking-widest">AI Pitch</span>
+              <div className="flex items-center gap-1.5 mb-2">
+                <Sparkles className="size-3.5 text-primary" />
+                <span className="text-xs font-semibold text-primary uppercase tracking-widest">AI pitch</span>
               </div>
               <p className="text-sm text-zinc-700 leading-relaxed whitespace-pre-line">{job.tailoredPitch}</p>
             </div>
@@ -188,10 +199,10 @@ export default async function JobDetailPage({
                 href={job.applyUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 text-sm text-indigo-600 hover:text-indigo-800 font-medium transition-colors"
+                className="inline-flex items-center gap-1.5 text-sm text-primary hover:text-indigo-800 font-medium transition-colors"
               >
                 Open application
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 10L10 2M10 2H5M10 2v5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                <ExternalLink className="size-3" />
               </a>
             </div>
           )}
@@ -200,7 +211,7 @@ export default async function JobDetailPage({
         {/* Email action hint */}
         {action && (
           <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 flex items-center gap-2">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="shrink-0"><path d="M7 1L8.8 5.2L13 6L9.5 9.3L10.6 13L7 11L3.4 13L4.5 9.3L1 6L5.2 5.2L7 1Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/></svg>
+            <Sparkles className="size-3.5 shrink-0" />
             {action === "approve"
               ? "Review the pitch above, then approve to queue outreach."
               : "Confirm below to skip this job."}
@@ -217,7 +228,7 @@ export default async function JobDetailPage({
                 type="text"
                 name="note"
                 placeholder="Optional note…"
-                className="flex-1 border border-zinc-200 rounded-lg px-3 py-2 text-sm bg-zinc-50 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-transparent transition"
+                className="flex-1 border border-zinc-200 rounded-lg px-3 py-2 text-sm bg-zinc-50 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-ring/50 focus:border-ring transition"
               />
               <div className="flex gap-2 shrink-0">
                 <button
@@ -226,7 +237,7 @@ export default async function JobDetailPage({
                   value="approve"
                   className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold transition-colors shadow-sm"
                 >
-                  <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M2 6.5L5.5 10L11 3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  <Check className="size-3.5" />
                   Approve
                 </button>
                 <button
@@ -235,7 +246,7 @@ export default async function JobDetailPage({
                   value="skip"
                   className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-600 text-sm font-medium transition-colors"
                 >
-                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 2L10 10M10 2L2 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+                  <X className="size-3.5" />
                   Skip
                 </button>
               </div>
@@ -287,10 +298,10 @@ export default async function JobDetailPage({
                         href={o.contact.linkedinUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="ml-auto shrink-0 text-xs text-indigo-500 hover:text-indigo-700 font-medium flex items-center gap-1 transition-colors"
+                        className="ml-auto shrink-0 text-xs text-primary hover:text-indigo-700 font-medium flex items-center gap-1 transition-colors"
                       >
                         LinkedIn
-                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M1.5 8.5L8.5 1.5M8.5 1.5H4M8.5 1.5V6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                        <ExternalLink className="size-2.5" />
                       </a>
                     </div>
 
@@ -347,15 +358,16 @@ export default async function JobDetailPage({
         {/* Job Description */}
         <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
           <div className="px-6 py-4 border-b border-zinc-100">
-            <h2 className="text-sm font-semibold text-zinc-700">Job Description</h2>
+            <h2 className="text-sm font-semibold text-zinc-700">Job description</h2>
           </div>
-          <div className="px-6 py-4 max-h-[500px] overflow-y-auto">
+          <div className="px-6 py-4 max-h-[500px] overflow-y-auto scrollbar-slim">
             <pre className="text-sm text-zinc-600 whitespace-pre-wrap font-sans leading-relaxed">
               {job.jdText}
             </pre>
           </div>
         </div>
 
+      </div>
       </div>
     </div>
   );
