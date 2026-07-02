@@ -546,7 +546,7 @@ export default function BoardPage() {
               </button>
             )}
           </div>
-          <Select value={fSource} onValueChange={(v: string) => setFSource(v)}>
+          <Select value={fSource} onValueChange={(v: string | null) => setFSource(v ?? "All")}>
             <SelectTrigger className="h-8 text-xs text-zinc-600 shadow-sm">
               {`Source: ${fSource === "All" ? "All" : (SOURCE_LABEL[fSource] ?? fSource)}`}
             </SelectTrigger>
@@ -555,7 +555,7 @@ export default function BoardPage() {
               {sourceOptions.map(src => <SelectItem key={src} value={src}>{SOURCE_LABEL[src] ?? src}</SelectItem>)}
             </SelectContent>
           </Select>
-          <Select value={fApply} onValueChange={(v: string) => setFApply(v)}>
+          <Select value={fApply} onValueChange={(v: string | null) => setFApply(v ?? "All")}>
             <SelectTrigger className="h-8 text-xs text-zinc-600 shadow-sm">
               {`Apply: ${fApply === "All" ? "All" : fApply === "Referral" ? "Referral first" : "Manual apply"}`}
             </SelectTrigger>
@@ -565,7 +565,7 @@ export default function BoardPage() {
               <SelectItem value="Manual">Manual apply</SelectItem>
             </SelectContent>
           </Select>
-          <Select value={fScore} onValueChange={(v: string) => setFScore(v)}>
+          <Select value={fScore} onValueChange={(v: string | null) => setFScore(v ?? "All")}>
             <SelectTrigger className="h-8 text-xs text-zinc-600 shadow-sm">
               {`Score: ${fScore}`}
             </SelectTrigger>
