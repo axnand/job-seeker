@@ -9,7 +9,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { compileLatex } from "@/resume/compile";
+import { compileLatex, pdfPageCount } from "@/resume/compile";
 import { buildVocabulary } from "@/resume/whitelist";
 
 export const maxDuration = 120; // compile check can take a while
@@ -37,6 +37,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       error: "master resume does not compile — fix it and paste again",
       compileLog: compiled.log.slice(-2000),
+    }, { status: 422 });
+  }
+
+  const pages = pdfPageCount(compiled.pdf!);
+  if (compiled.pdf!.length < 10_000 || (pages !== null && pages > 4)) {
+    return NextResponse.json({
+      error: `master compiles but the output looks wrong (${compiled.pdf!.length} bytes, ${pages ?? "?"} pages) — check the document`,
     }, { status: 422 });
   }
 

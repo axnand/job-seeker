@@ -104,3 +104,22 @@ export async function compileLatex(tex: string): Promise<CompileResult> {
 export function isSourceError(result: CompileResult): boolean {
   return /^!|Undefined control sequence|Missing \$|Emergency stop|LaTeX Error|Runaway argument/m.test(result.log);
 }
+
+/**
+ * Page count of a PDF, or null when it can't be determined. pdflatex recovers
+ * from many source errors and still emits a PDF — a sanity check on the output
+ * catches "compiled but mangled" results a green compile status would ship.
+ * Modern pdflatex compresses object streams, so this often returns null and
+ * the caller's byte-size floor is the guard that always applies.
+ */
+export function pdfPageCount(pdf: Buffer): number | null {
+  const text = pdf.toString("latin1");
+  // Prefer the page-tree /Count (max across nested /Pages nodes).
+  let max = 0;
+  for (const m of text.matchAll(/\/Type\s*\/Pages\b[^>]*?\/Count\s+(\d+)/g)) {
+    max = Math.max(max, Number(m[1]));
+  }
+  if (max > 0) return max;
+  const pages = text.match(/\/Type\s*\/Page\b/g)?.length ?? 0;
+  return pages > 0 ? pages : null;
+}

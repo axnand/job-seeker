@@ -32,7 +32,7 @@ services backed by PostgreSQL. Experience with reactive programming, Docker,
 and cloud deployment (AWS) is a strong plus. 0-2 years experience.`;
 
 async function main() {
-  const { compileLatex, isSourceError } = await import("../src/resume/compile");
+  const { compileLatex, isSourceError, pdfPageCount } = await import("../src/resume/compile");
   const { proposeEdits, repairCompileError, MAX_EDITS } = await import("../src/resume/tailor");
   const { buildVocabulary, validateEdits, applyEdits, documentIntroducesClaims } = await import("../src/resume/whitelist");
 
@@ -51,7 +51,10 @@ async function main() {
   if (masterPdf.ok) {
     const p = resolve(__dirname, "fixtures/master-resume.pdf");
     writeFileSync(p, masterPdf.pdf!);
-    console.log(`      provider=${masterPdf.provider}, ${masterPdf.pdf!.length} bytes → ${p}`);
+    const pages = pdfPageCount(masterPdf.pdf!);
+    console.log(`      provider=${masterPdf.provider}, ${masterPdf.pdf!.length} bytes, pages=${pages ?? "unknown"} → ${p}`);
+    check("master PDF passes output sanity (>10KB, ≤4 pages)",
+      masterPdf.pdf!.length >= 10_000 && (pages === null || (pages >= 1 && pages <= 4)));
   }
 
   const vocabulary = buildVocabulary(master);

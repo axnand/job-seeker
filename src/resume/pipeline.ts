@@ -14,7 +14,7 @@
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { uploadResume, isS3Configured } from "@/lib/s3";
-import { compileLatex, isSourceError } from "./compile";
+import { compileLatex, isSourceError, pdfPageCount } from "./compile";
 import { proposeEdits, repairCompileError, MAX_EDITS } from "./tailor";
 import { buildVocabulary, validateEdits, applyEdits, documentIntroducesClaims } from "./whitelist";
 
@@ -114,6 +114,20 @@ export async function tailorResumeForJob(jobId: string): Promise<TailorOutcome> 
         startedAt,
       });
       return { status: "failed", detail: `compile failed after ${repairs} repair(s)` };
+    }
+
+    // Output sanity: pdflatex recovers from many errors and still emits a PDF,
+    // so "compiled" alone can ship a mangled resume. A real one-page resume is
+    // >10KB with 1-4 pages; outside that, don't attach it to outreach.
+    const pages = pdfPageCount(compiled.pdf!);
+    if (compiled.pdf!.length < 10_000 || (pages !== null && (pages < 1 || pages > 4))) {
+      await logOutcome(jobId, {
+        status: "failed",
+        detail: `compiled PDF failed sanity check (${compiled.pdf!.length} bytes, ${pages ?? "?"} pages) — outreach will use the base resume`,
+        edits: proposal.edits,
+        startedAt,
+      });
+      return { status: "failed", detail: "compiled PDF failed sanity check" };
     }
 
     // 3. Upload + persist.
