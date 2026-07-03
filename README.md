@@ -48,6 +48,19 @@ Unipile webhook /api/webhooks/unipile
 | 4 — Resume manager | ✅ Built | Tailoring gate, resume routes, `/resume` page, per-job tailored-PDF upload |
 | 5 — LinkedIn posts | ✅ Built | Feed search, keyword pre-filter, AI extraction, dm_author path |
 | Ops | ✅ Built | External cron (GitHub Actions), staleness auto-archive, cron lock |
+| 6 — Auto resume tailoring | ✅ Built | Paste master `.tex` once; per-job surgical LLM edits gated by a truthfulness whitelist (never invents skills), external LaTeX compile with self-repair, PDF to S3, DMs auto-attach it |
+| 7 — Pipeline + analytics | ✅ Built | APPLIED/INTERVIEWING/OFFER stages after REPLIED, `/analytics` conversion funnel per source, friend digests with per-recipient salary floors |
+
+## Auto resume tailoring (phase 6)
+
+1. Paste your master LaTeX resume on `/resume` (it's compile-checked on save).
+2. Jobs the scorer flags `needsTailoring` get tailored automatically on approve
+   (inline in discover; `/api/cron/tailor` is an optional hourly catch-up you
+   can add to cron-job.org).
+3. Every change is auditable on the job page (find → replace + why), with a
+   Regenerate button. Compile/validation failures fall back to the base PDF —
+   outreach is never blocked.
+4. `npx tsx scripts/sanity-tests.ts` runs the truthfulness/salary-gate tests.
 
 ## Key files
 
@@ -58,7 +71,7 @@ Unipile webhook /api/webhooks/unipile
 | `src/scoring/ai-scorer.ts` | One LLM call → score + salary |
 | `src/salary/normalize.ts` | Annualise + FX convert salary |
 | `src/email/digest.ts` | Daily digest HTML email |
-| `src/lib/tokens.ts` | HMAC signed Approve/Skip tokens |
+| `src/resume/pipeline.ts` | Auto-tailoring: edits → whitelist → compile → S3 |
 | `app/api/cron/discover/route.ts` | Main daily pipeline |
 | `prisma/schema.prisma` | All models |
 
@@ -78,5 +91,8 @@ OPENAI_API_KEY=sk-...   # or add a provider via the dashboard
 1. Push to GitHub
 2. Import in Vercel — add all env vars
 3. Add a Postgres database (Vercel Postgres or external)
-4. Run `npx prisma migrate deploy` in the Vercel build command or a one-off
-5. `vercel.json` already defines the two cron schedules
+4. Schema deploys itself — the build script runs `prisma db push`
+5. Crons are driven externally (cron-job.org / GitHub Actions): `discover`
+   daily, `tick` every 30 min, optionally `tailor` hourly — all with
+   `Authorization: Bearer $CRON_SECRET` (requests are rejected if the secret
+   is unset)
