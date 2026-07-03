@@ -696,10 +696,14 @@ export default function BoardPage() {
       <div className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden px-6 pb-6 scrollbar-slim">
         {/* Board container */}
         <div className="flex h-full w-full rounded-2xl border border-border shadow-sm bg-card overflow-hidden">
-          {BOARD_STAGES.map((stage, i) => {
+          {/* Post-referral pipeline columns only appear once something is in
+              them — permanently-empty columns are dead board space. */}
+          {BOARD_STAGES.filter(s =>
+            !["APPLIED", "INTERVIEWING", "OFFER"].includes(s) || byStage[s].length > 0
+          ).map((stage, i, cols) => {
             const meta  = STAGE_META[stage];
             const cards = byStage[stage];
-            const isLast = i === BOARD_STAGES.length - 1;
+            const isLast = i === cols.length - 1;
             return (
               <div key={stage} className={`flex-1 min-w-[220px] flex flex-col ${!isLast ? "border-r border-border" : ""}`}>
 

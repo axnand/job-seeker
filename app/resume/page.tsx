@@ -87,7 +87,7 @@ export default function ResumePage() {
             version for that job — outreach waits until you do.
           </p>
 
-          <div className="grid items-start gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
+          <div className="grid items-start gap-6 md:grid-cols-[300px_minmax(0,1fr)] xl:grid-cols-[360px_minmax(0,1fr)]">
 
             {/* Left rail — base PDF + how it works */}
             <div className="space-y-6">

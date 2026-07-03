@@ -50,42 +50,46 @@
   }
 
   /* ── Dark theme ──────────────────────────────────────────────────────────
-     Deep zinc-950 canvas, elevated zinc-900 cards, translucent hairline
-     borders, and an indigo accent brightened just enough to hold contrast. */
+     Lifted from near-black after owner feedback ("too dark"): zinc-900-ish
+     canvas, clearly separated elevated cards, visible hairline borders, and
+     an indigo accent brightened just enough to hold contrast. */
   .dark {
-    --background: oklch(0.15 0.005 286);
+    /* Native form controls (textarea/select/input) take UA colors from
+       color-scheme — without this they render glaring white in dark mode. */
+    color-scheme: dark;
+    --background: oklch(0.205 0.006 286);
     --foreground: oklch(0.96 0.003 286);
-    --card: oklch(0.196 0.006 286);
+    --card: oklch(0.245 0.006 286);
     --card-foreground: oklch(0.96 0.003 286);
-    --popover: oklch(0.208 0.006 286);
+    --popover: oklch(0.26 0.006 286);
     --popover-foreground: oklch(0.96 0.003 286);
     /* Indigo-500 — vivid on dark, white text clears AA on it. */
     --primary: oklch(0.585 0.233 277.117);
     --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.255 0.006 286);
+    --secondary: oklch(0.30 0.006 286);
     --secondary-foreground: oklch(0.96 0.003 286);
-    --muted: oklch(0.235 0.006 286);
-    --muted-foreground: oklch(0.688 0.014 286);
+    --muted: oklch(0.285 0.006 286);
+    --muted-foreground: oklch(0.72 0.014 286);
     /* Indigo-tinted elevated surface for hover/active states. */
-    --accent: oklch(0.29 0.045 277);
-    --accent-foreground: oklch(0.82 0.11 276);
+    --accent: oklch(0.33 0.045 277);
+    --accent-foreground: oklch(0.84 0.11 276);
     --destructive: oklch(0.62 0.21 25.5);
     --destructive-foreground: oklch(0.985 0 0);
-    --border: oklch(1 0 0 / 9%);
-    --input: oklch(1 0 0 / 13%);
+    --border: oklch(1 0 0 / 14%);
+    --input: oklch(1 0 0 / 18%);
     --ring: oklch(0.585 0.233 277.117);
     --chart-1: oklch(0.673 0.182 276.9);
     --chart-2: oklch(0.585 0.233 277.117);
     --chart-3: oklch(0.785 0.115 274);
     --chart-4: oklch(0.511 0.262 276.966);
     --chart-5: oklch(0.86 0.06 274);
-    --sidebar: oklch(0.172 0.005 286);
+    --sidebar: oklch(0.225 0.006 286);
     --sidebar-foreground: oklch(0.96 0.003 286);
     --sidebar-primary: oklch(0.585 0.233 277.117);
     --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.28 0.04 277);
-    --sidebar-accent-foreground: oklch(0.85 0.09 276);
-    --sidebar-border: oklch(1 0 0 / 8%);
+    --sidebar-accent: oklch(0.32 0.04 277);
+    --sidebar-accent-foreground: oklch(0.86 0.09 276);
+    --sidebar-border: oklch(1 0 0 / 12%);
     --sidebar-ring: oklch(0.585 0.233 277.117);
   }
 
