@@ -5,7 +5,7 @@ import type { AppStage } from "@prisma/client";
 
 // Stages where a job with this dedupeKey is still being acted on — a new posting
 // with the same key is a genuine duplicate and must be suppressed.
-const ACTIVE_STAGES: AppStage[] = ["NEW", "APPROVED", "OUTREACH", "REPLIED"];
+const ACTIVE_STAGES: AppStage[] = ["NEW", "APPROVED", "OUTREACH", "REPLIED", "APPLIED", "INTERVIEWING", "OFFER"];
 
 /**
  * Filters out jobs we've already seen.

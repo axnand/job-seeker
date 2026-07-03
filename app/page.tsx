@@ -319,10 +319,15 @@ export default function BoardPage() {
   // ⭐ pin — pinned jobs sort first and always make the Apply Today strip.
   const togglePinned = useCallback(async (e: React.MouseEvent, jobId: string, pinned: boolean) => {
     e.stopPropagation();
-    // Optimistic — a star toggle should feel instant.
+    // Optimistic — a star toggle should feel instant. Revert if the write
+    // failed (fetch resolves on 4xx/5xx, so check ok too).
     setJobs(prev => prev.map(j => j.id === jobId ? { ...j, pinned } : j));
     setDetail(d => (d && d.id === jobId) ? { ...d, pinned } : d);
-    await fetch("/api/jobs/pin", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobId, pinned }) }).catch(() => {});
+    const res = await fetch("/api/jobs/pin", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobId, pinned }) }).catch(() => null);
+    if (!res?.ok) {
+      setJobs(prev => prev.map(j => j.id === jobId ? { ...j, pinned: !pinned } : j));
+      setDetail(d => (d && d.id === jobId) ? { ...d, pinned: !pinned } : d);
+    }
   }, []);
 
   // Blacklist the card's company: block future discovery + skip its open jobs now.

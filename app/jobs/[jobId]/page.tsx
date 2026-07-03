@@ -17,6 +17,10 @@ import {
 import { PageHeader } from "@/components/page-header";
 import { TailoringSection } from "@/components/tailoring-section";
 
+// The approve server action runs enqueueOutreach inline (people-search + LLM
+// drafting) — same budget the API route it replaced declared.
+export const maxDuration = 60;
+
 const PERIOD_LABEL: Record<string, string> = {
   YEAR: "/yr", MONTH: "/mo", HOUR: "/hr",
 };

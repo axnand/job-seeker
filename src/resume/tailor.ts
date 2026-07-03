@@ -93,9 +93,12 @@ export async function proposeEdits(input: {
     });
   }
 
-  // Second attempt still has violations → keep only the clean edits.
+  // Second attempt still has violations → keep only the clean edits. Cap at
+  // MAX_EDITS too: a "too many edits" violation references only the first
+  // overflow edit, so filtering alone can still leave an oversized list that
+  // would fail the pipeline's final validation and hard-fail the job.
   const bad = new Set(violations.map(v => v.edit));
-  return { edits: edits.filter(e => !bad.has(e)), rejected: violations };
+  return { edits: edits.filter(e => !bad.has(e)).slice(0, MAX_EDITS), rejected: violations };
 }
 
 /**

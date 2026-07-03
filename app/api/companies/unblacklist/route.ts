@@ -11,7 +11,7 @@ import { prisma } from "@/lib/prisma";
 import { getSettings, updateSettings } from "@/lib/settings";
 import type { AppStage } from "@prisma/client";
 
-const VALID: AppStage[] = ["NEW", "APPROVED", "OUTREACH", "REPLIED", "SKIPPED"];
+const VALID: AppStage[] = ["NEW", "APPROVED", "OUTREACH", "REPLIED", "APPLIED", "INTERVIEWING", "OFFER", "SKIPPED"];
 
 export async function POST(req: NextRequest) {
   const body = (await req.json()) as {

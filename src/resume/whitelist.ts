@@ -32,17 +32,19 @@ function visibleText(tex: string): string {
 
 /**
  * Tokens that could constitute a factual claim: capitalized words, ALL-CAPS
- * acronyms, tech-style tokens (Node.js, CI/CD, C++, k8s, gpt-4), and numbers
- * with units/multipliers (500K, 10,000+, 99.9%). Lowercase plain English words
- * ("designed", "scalable") are not facts by themselves and stay unchecked.
+ * acronyms, tech-style tokens (Node.js, CI/CD, C++, k8s, gpt-4), numbers with
+ * units/multipliers (500K, 10,000+, 99.9%, bare "8"), AND plain lowercase
+ * words of 3+ chars ("kubernetes", "terraform") — lowercase tech names are
+ * claims too; generic resume English is exempted via GENERIC_ALLOW instead.
  */
-const CLAIM_TOKEN = /[A-Za-z][A-Za-z0-9]*(?:[.+/#-][A-Za-z0-9]+)+|\b[A-Z][a-zA-Z0-9]*\b|\b\d[\d,.]*\s*(?:%|\+|[KkMmBb]\b|LPA\b|hrs?\b|x\b)?/g;
+const CLAIM_TOKEN = /[A-Za-z][A-Za-z0-9]*(?:[.+/#-][A-Za-z0-9]+)+|\b[A-Z][a-zA-Z0-9]*\b|\b\d[\d,.]*\s*(?:%|\+|[KkMmBb]\b|LPA\b|hrs?\b|x\b)?|\b[a-z][a-z0-9]{2,}\b/g;
 
 function claimTokens(text: string): Set<string> {
   const out = new Set<string>();
   for (const m of text.match(CLAIM_TOKEN) ?? []) {
     const t = m.trim().toLowerCase().replace(/[,.]+$/, "");
-    if (t.length >= 2) out.add(t);
+    // Single digits are claims ("8 years"); single letters are not.
+    if (t.length >= 2 || /^\d$/.test(t)) out.add(t);
   }
   return out;
 }
@@ -59,6 +61,12 @@ const GENERIC_ALLOW = new Set([
   "software", "engineer", "engineering", "developer", "development", "systems",
   "services", "applications", "features", "solutions", "projects", "impact",
   "scalable", "reliable", "robust", "efficient", "high-performance",
+  // Common resume English that became checkable once lowercase tokens counted
+  // as claims — none of these assert a skill or fact by themselves.
+  "years", "months", "work", "working", "worked", "building", "leading",
+  "managing", "writing", "testing", "ensuring", "improving", "reducing",
+  "code", "codebase", "tools", "workflows", "pipelines", "modern", "strong",
+  "hands", "end-to-end", "cross-functional", "results", "growth", "ownership",
 ]);
 
 /** Build the master vocabulary (store in ResumeProfile.whitelist). */
@@ -118,7 +126,9 @@ export function validateEdits(
 /** Apply validated edits. Caller must have run validateEdits first. */
 export function applyEdits(masterTex: string, edits: TailorEdit[]): string {
   let out = masterTex;
-  for (const e of edits) out = out.replace(e.find, e.replace);
+  // Function replacer: LaTeX is $-heavy and String.replace treats $$/$&/$` in a
+  // string replacement as substitution patterns, silently corrupting the output.
+  for (const e of edits) out = out.replace(e.find, () => e.replace);
   return out;
 }
 

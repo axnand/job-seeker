@@ -432,8 +432,13 @@ async function doSendFirstDm(
   ctx: { contactName: string; company: string; role: string; pitch?: string | null; redirected?: boolean },
 ): Promise<void> {
   if (thread.lastMessageAt) {
-    // DM already sent (we somehow re-entered) — move to MESSAGED.
-    await guardedThreadUpdate(thread.id, { providerState: { ...ps, phase: "MESSAGED" } });
+    // DM already sent (we somehow re-entered) — move to MESSAGED. Also push
+    // nextActionAt to the follow-up cadence: the claim left it at now+15min
+    // (retry marker), which would re-claim this thread and fire a follow-up early.
+    await guardedThreadUpdate(thread.id, {
+      providerState: { ...ps, phase: "MESSAGED" },
+      nextActionAt: daysFromNow(s.outreach.followupAfterDays),
+    });
     return;
   }
   if (budget.dmsLeft <= 0) {

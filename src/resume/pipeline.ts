@@ -148,6 +148,9 @@ export async function tailorResumeForJob(jobId: string): Promise<TailorOutcome> 
  * Small batch per tick — tailoring is LLM+compile heavy.
  */
 export async function sweepPendingTailoring(batchSize = 2): Promise<number> {
+  // Both gates, not just masterTex: with S3 unconfigured every job "skips"
+  // without a tailorLog entry, so the same batch would re-select every sweep.
+  if (!isS3Configured()) return 0;
   const profile = await prisma.resumeProfile.findUnique({ where: { id: "default" } }).catch(() => null);
   if (!profile?.masterTex) return 0; // feature not enabled yet
 
