@@ -13,7 +13,7 @@ import type { AppStage, ApplyType, SalaryBasis, SalaryConfidence, SalaryPeriod }
 
 // Mirrors src/sources/dedupe.ts: a same-key job blocks a re-add while it's
 // still being acted on, or was created recently enough to be the same posting.
-const ACTIVE_STAGES: AppStage[] = ["NEW", "APPROVED", "OUTREACH", "REPLIED"];
+const ACTIVE_STAGES: AppStage[] = ["NEW", "APPROVED", "OUTREACH", "REPLIED", "APPLIED", "INTERVIEWING", "OFFER"];
 const RE_ADMIT_AFTER_DAYS = 30;
 
 const URL_RE = /https?:\/\/[^\s)\]<>"']+/i;

@@ -7,6 +7,10 @@
  * Never closes jobs with active or successful outreach (INVITE_SENT / CONNECTED /
  * MESSAGED / REPLIED) or anything already past NEW/APPROVED. Append-only spirit:
  * sets appStage=SKIPPED with a note — no hard deletes.
+ *
+ * The two updateMany queries below are exact-match on NEW / APPROVED, so the
+ * post-referral pipeline stages (REPLIED / APPLIED / INTERVIEWING / OFFER) are
+ * structurally excluded — a job the owner has moved forward is never swept.
  */
 
 import { prisma } from "@/lib/prisma";

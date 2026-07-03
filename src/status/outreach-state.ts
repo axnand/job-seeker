@@ -57,7 +57,12 @@ export async function recomputeOutreachState(jobId: string): Promise<OutreachSta
 
   // Advance the human-facing appStage to mirror outreach progress
   // (New → Approved → Outreach → Replied). Never downgrade; never touch SKIPPED.
-  const APP_RANK: Record<string, number> = { NEW: 0, APPROVED: 1, OUTREACH: 2, REPLIED: 3, SKIPPED: -1 };
+  // The post-referral stages (Applied/Interviewing/Offer) are human-owned and
+  // outrank REPLIED, so an in-flight thread firing after the owner has advanced a
+  // job can never drag it back to OUTREACH/REPLIED.
+  const APP_RANK: Record<string, number> = {
+    NEW: 0, APPROVED: 1, OUTREACH: 2, REPLIED: 3, APPLIED: 4, INTERVIEWING: 5, OFFER: 6, SKIPPED: -1,
+  };
   const targetStage =
     best === "REPLIED" ? "REPLIED"
     : best === "MESSAGED" || best === "CONNECTED" || best === "INVITE_SENT" || best === "NO_REPLY_ARCHIVED" ? "OUTREACH"

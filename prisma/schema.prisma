@@ -277,11 +277,16 @@ enum ApplyType {
 }
 
 enum AppStage {
-  NEW        // discovered + scored, passed the gates
-  APPROVED   // auto-approved, outreach queued
-  OUTREACH   // connection request / DM sent
-  REPLIED    // target replied — the goal of a referral tool
-  SKIPPED    // failed scoring, blacklisted, or stale
+  NEW          // discovered + scored, passed the gates
+  APPROVED     // auto-approved, outreach queued
+  OUTREACH     // connection request / DM sent
+  REPLIED      // target replied — the goal of a referral tool
+  // Post-referral pipeline — human-owned, tracked after a reply lands. Existing
+  // outreach threads may keep running; these are never swept by staleness.
+  APPLIED      // owner submitted the application
+  INTERVIEWING // in the interview loop
+  OFFER        // offer received
+  SKIPPED      // failed scoring, blacklisted, or stale
 }
 
 enum OutreachState {

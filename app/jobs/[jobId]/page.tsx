@@ -22,12 +22,23 @@ const PERIOD_LABEL: Record<string, string> = {
 };
 
 const STAGE_STYLE: Record<string, { dot: string; pill: string }> = {
-  NEW:      { dot: "bg-slate-400",   pill: "bg-slate-100 text-slate-600 border-slate-200" },
-  APPROVED: { dot: "bg-blue-500",    pill: "bg-blue-50 text-blue-700 border-blue-200" },
-  OUTREACH: { dot: "bg-indigo-500",  pill: "bg-indigo-50 text-indigo-700 border-indigo-200" },
-  REPLIED:  { dot: "bg-emerald-500", pill: "bg-emerald-50 text-emerald-700 border-emerald-200" },
-  SKIPPED:  { dot: "bg-slate-300",   pill: "bg-slate-50 text-slate-400 border-slate-200" },
+  NEW:          { dot: "bg-slate-400",   pill: "bg-slate-100 text-slate-600 border-slate-200" },
+  APPROVED:     { dot: "bg-blue-500",    pill: "bg-blue-50 text-blue-700 border-blue-200" },
+  OUTREACH:     { dot: "bg-indigo-500",  pill: "bg-indigo-50 text-indigo-700 border-indigo-200" },
+  REPLIED:      { dot: "bg-emerald-500", pill: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  APPLIED:      { dot: "bg-violet-500",  pill: "bg-violet-50 text-violet-700 border-violet-200" },
+  INTERVIEWING: { dot: "bg-amber-500",   pill: "bg-amber-50 text-amber-800 border-amber-200" },
+  OFFER:        { dot: "bg-green-500",   pill: "bg-green-50 text-green-800 border-green-200" },
+  SKIPPED:      { dot: "bg-slate-300",   pill: "bg-slate-50 text-slate-400 border-slate-200" },
 };
+
+// Post-referral milestones the owner drives by hand (used by the pipeline control).
+const PIPELINE_STAGES: { stage: AppStage; action: string; label: string }[] = [
+  { stage: "REPLIED",      action: "replied",      label: "Replied" },
+  { stage: "APPLIED",      action: "applied",      label: "Applied" },
+  { stage: "INTERVIEWING", action: "interviewing", label: "Interviewing" },
+  { stage: "OFFER",        action: "offer",        label: "Offer" },
+];
 
 const SCORE_COLOR = (s: number) =>
   s >= 80 ? "text-emerald-600" : s >= 60 ? "text-amber-600" : "text-slate-500";
@@ -38,12 +49,15 @@ const SCORE_COLOR = (s: number) =>
 // the buttons silently no-op'd.)
 
 const STAGE_ACTIONS: Record<string, AppStage> = {
-  approve:  "APPROVED",
-  skip:     "SKIPPED",
-  skipped:  "SKIPPED",
-  replied:  "REPLIED",
-  outreach: "OUTREACH",
-  restore:  "NEW",
+  approve:      "APPROVED",
+  skip:         "SKIPPED",
+  skipped:      "SKIPPED",
+  replied:      "REPLIED",
+  outreach:     "OUTREACH",
+  restore:      "NEW",
+  applied:      "APPLIED",
+  interviewing: "INTERVIEWING",
+  offer:        "OFFER",
 };
 
 async function updateStage(formData: FormData) {
@@ -328,18 +342,27 @@ export default async function JobDetailPage({
           </div>
         )}
 
-        {/* Manual override */}
-        {["APPROVED", "OUTREACH"].includes(job.appStage) && (
+        {/* Pipeline stage — advance the job through the post-referral milestones */}
+        {["APPROVED", "OUTREACH", "REPLIED", "APPLIED", "INTERVIEWING", "OFFER"].includes(job.appStage) && (
           <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm p-6">
-            <h2 className="text-sm font-semibold text-zinc-700 mb-3">Manual override</h2>
-            <form action={updateStage} className="flex flex-wrap gap-2">
+            <h2 className="text-sm font-semibold text-zinc-700 mb-3">Pipeline stage</h2>
+            <form action={updateStage} className="space-y-3">
               <input type="hidden" name="jobId" value={job.id} />
-              {["replied", "skipped"].map(a => (
-                <button key={a} type="submit" name="action" value={a}
-                  className="px-3 py-1.5 rounded-lg border border-zinc-200 bg-zinc-50 hover:bg-zinc-100 text-zinc-600 text-sm font-medium capitalize transition-colors">
-                  {a === "skipped" ? "Skip / stop" : "Mark replied"}
-                </button>
-              ))}
+              <div className="inline-flex w-full rounded-lg border border-zinc-200 bg-zinc-50 p-0.5">
+                {PIPELINE_STAGES.map(({ stage, action, label }) => {
+                  const active = job.appStage === stage;
+                  return (
+                    <button key={stage} type="submit" name="action" value={action} disabled={active}
+                      className={`flex-1 text-xs font-medium h-9 rounded-md transition-colors ${active ? "bg-indigo-600 text-white shadow-sm" : "text-zinc-500 hover:text-zinc-900 hover:bg-white disabled:opacity-50"}`}>
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+              <button type="submit" name="action" value="skipped"
+                className="px-3 py-1.5 rounded-lg border border-zinc-200 bg-zinc-50 hover:bg-zinc-100 text-red-600 text-sm font-medium transition-colors">
+                Skip / stop
+              </button>
             </form>
           </div>
         )}

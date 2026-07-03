@@ -38,6 +38,7 @@ import {
   EyeOff,
   Star,
   Zap,
+  ArrowRight,
 } from "lucide-react";
 import type { AppStage, OutreachState } from "@prisma/client";
 
@@ -83,14 +84,32 @@ const THREAD_PHASE_LABEL: Record<string, string> = {
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
-const STAGES: AppStage[] = ["NEW","APPROVED","OUTREACH","REPLIED"];
+const STAGES: AppStage[] = ["NEW","APPROVED","OUTREACH","REPLIED","APPLIED","INTERVIEWING","OFFER"];
 
-const STAGE_META: Record<AppStage, { label: string; accent: string; headerBorder: string; lane: string }> = {
-  NEW:      { label:"New",      accent:"bg-zinc-400",    headerBorder:"border-l-zinc-300",    lane:"bg-white"         },
-  APPROVED: { label:"Approved", accent:"bg-blue-500",    headerBorder:"border-l-blue-400",    lane:"bg-blue-50/40"    },
-  OUTREACH: { label:"Outreach", accent:"bg-indigo-500",  headerBorder:"border-l-indigo-400",  lane:"bg-indigo-50/40"  },
-  REPLIED:  { label:"Replied",  accent:"bg-emerald-500", headerBorder:"border-l-emerald-400", lane:"bg-emerald-50/40" },
-  SKIPPED:  { label:"Skipped",  accent:"bg-zinc-300",    headerBorder:"border-l-zinc-200",    lane:"bg-white"         },
+// Post-referral milestones the owner drives by hand once a target has replied.
+const PIPELINE_STAGES: { stage: AppStage; action: string; label: string }[] = [
+  { stage:"REPLIED",      action:"replied",      label:"Replied"      },
+  { stage:"APPLIED",      action:"applied",      label:"Applied"      },
+  { stage:"INTERVIEWING", action:"interviewing", label:"Interviewing" },
+  { stage:"OFFER",        action:"offer",        label:"Offer"        },
+];
+
+const STAGE_META: Record<AppStage, { label: string; accent: string; headerBorder: string; lane: string; badge: string }> = {
+  NEW:          { label:"New",          accent:"bg-zinc-400",    headerBorder:"border-l-zinc-300",    lane:"bg-white",         badge:"bg-zinc-100 text-zinc-600"       },
+  APPROVED:     { label:"Approved",     accent:"bg-blue-500",    headerBorder:"border-l-blue-400",    lane:"bg-blue-50/40",    badge:"bg-blue-100 text-blue-700"       },
+  OUTREACH:     { label:"Outreach",     accent:"bg-indigo-500",  headerBorder:"border-l-indigo-400",  lane:"bg-indigo-50/40",  badge:"bg-indigo-100 text-indigo-700"   },
+  REPLIED:      { label:"Replied",      accent:"bg-emerald-500", headerBorder:"border-l-emerald-400", lane:"bg-emerald-50/40", badge:"bg-emerald-100 text-emerald-700" },
+  APPLIED:      { label:"Applied",      accent:"bg-violet-500",  headerBorder:"border-l-violet-400",  lane:"bg-violet-50/40",  badge:"bg-violet-100 text-violet-700"   },
+  INTERVIEWING: { label:"Interviewing", accent:"bg-amber-500",   headerBorder:"border-l-amber-400",   lane:"bg-amber-50/40",   badge:"bg-amber-100 text-amber-800"     },
+  OFFER:        { label:"Offer",        accent:"bg-green-500",   headerBorder:"border-l-green-400",   lane:"bg-green-50/50",   badge:"bg-green-100 text-green-800"     },
+  SKIPPED:      { label:"Skipped",      accent:"bg-zinc-300",    headerBorder:"border-l-zinc-200",    lane:"bg-white",         badge:"bg-zinc-100 text-zinc-500"       },
+};
+
+// Next post-referral milestone for the board's one-click "advance" affordance.
+const NEXT_STAGE: Partial<Record<AppStage, { action: string; label: string }>> = {
+  REPLIED:      { action:"applied",      label:"Mark applied"      },
+  APPLIED:      { action:"interviewing", label:"Mark interviewing" },
+  INTERVIEWING: { action:"offer",        label:"Mark offer"        },
 };
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -876,7 +895,7 @@ export default function BoardPage() {
                 </div>
                 {job && (
                   <div className="flex flex-wrap gap-1.5 mt-3">
-                    <span className="text-[10px] bg-zinc-100 text-zinc-600 rounded-md px-2 py-1 font-medium">
+                    <span className={`text-[10px] rounded-md px-2 py-1 font-medium ${STAGE_META[job.appStage].badge}`}>
                       {STAGE_META[job.appStage].label}
                     </span>
                     <span className="text-[10px] bg-zinc-100 text-zinc-500 rounded-md px-2 py-1">
@@ -1004,15 +1023,25 @@ export default function BoardPage() {
                 </div>
               )}
 
-              {["APPROVED","OUTREACH"].includes(job.appStage) && (
+              {["APPROVED","OUTREACH","REPLIED","APPLIED","INTERVIEWING","OFFER"].includes(job.appStage) && (
                 <div className="space-y-2">
-                  <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest">Manual override</p>
-                  <div className="flex flex-wrap gap-2">
-                    <Button onClick={() => act(job.id, "replied")} disabled={acting}
-                      variant="outline" size="sm" className="text-xs h-9">Mark replied</Button>
-                    <Button onClick={() => act(job.id, "skipped")} disabled={acting}
-                      variant="outline" size="sm" className="text-xs h-9 text-red-600">Skip / stop</Button>
+                  <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest">Pipeline stage</p>
+                  {/* Segmented control — advance the job through the post-referral
+                      milestones. Active stage is filled indigo; the rest are the
+                      next moves the owner can make. */}
+                  <div className="inline-flex w-full rounded-lg border border-zinc-200 bg-zinc-50 p-0.5">
+                    {PIPELINE_STAGES.map(({ stage, action, label }) => {
+                      const active = job.appStage === stage;
+                      return (
+                        <button key={stage} onClick={() => act(job.id, action)} disabled={acting || active}
+                          className={`flex-1 text-[11px] font-medium h-8 rounded-md transition-colors ${active ? "bg-primary text-primary-foreground shadow-sm" : "text-zinc-500 hover:text-zinc-900 hover:bg-white disabled:opacity-50"}`}>
+                          {label}
+                        </button>
+                      );
+                    })}
                   </div>
+                  <Button onClick={() => act(job.id, "skipped")} disabled={acting}
+                    variant="outline" size="sm" className="text-xs h-9 text-red-600">Skip / stop</Button>
                 </div>
               )}
 
@@ -1328,6 +1357,11 @@ function CompanyCard({
           <button title="Mark replied" disabled={acting}
             onClick={(e) => quickAct(e, primary.id, "replied")}
             className="w-7 h-7 rounded-lg bg-white/95 backdrop-blur border border-zinc-200 shadow-sm flex items-center justify-center text-zinc-500 hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-600 disabled:opacity-50 transition-colors"><CornerUpLeft className="size-3.5" /></button>
+        )}
+        {NEXT_STAGE[primary.appStage] && (
+          <button title={NEXT_STAGE[primary.appStage]!.label} disabled={acting}
+            onClick={(e) => quickAct(e, primary.id, NEXT_STAGE[primary.appStage]!.action)}
+            className="w-7 h-7 rounded-lg bg-white/95 backdrop-blur border border-zinc-200 shadow-sm flex items-center justify-center text-zinc-500 hover:bg-primary/10 hover:border-primary/40 hover:text-primary disabled:opacity-50 transition-colors"><ArrowRight className="size-3.5" /></button>
         )}
         <button title="Skip / remove from board" disabled={acting}
           onClick={(e) => quickAct(e, primary.id, "skip")}

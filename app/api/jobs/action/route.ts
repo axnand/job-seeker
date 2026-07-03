@@ -1,6 +1,6 @@
 /**
  * POST /api/jobs/action
- * Body: { jobId, action: "approve" | "skip" | "applied" | "interviewing" | "offer" | "closed", note? }
+ * Body: { jobId, action: "approve" | "skip" | "replied" | "outreach" | "restore" | "applied" | "interviewing" | "offer", note? }
  * Updates appStage. On approve, outreach queuing happens in Phase 2.
  */
 
@@ -15,16 +15,19 @@ export const maxDuration = 60;
 
 const VALID_ACTIONS: AppStage[] = [
   // "NEW" is the target of the "restore" alias (un-skip a job back onto the board).
-  "NEW", "APPROVED", "OUTREACH", "REPLIED", "SKIPPED",
+  "NEW", "APPROVED", "OUTREACH", "REPLIED", "APPLIED", "INTERVIEWING", "OFFER", "SKIPPED",
 ];
 
 // Friendly verbs used by the UI → canonical stage.
 const ACTION_ALIASES: Record<string, AppStage> = {
-  approve:  "APPROVED",
-  skip:     "SKIPPED",
-  replied:  "REPLIED",
-  outreach: "OUTREACH",
-  restore:  "NEW",
+  approve:      "APPROVED",
+  skip:         "SKIPPED",
+  replied:      "REPLIED",
+  outreach:     "OUTREACH",
+  restore:      "NEW",
+  applied:      "APPLIED",
+  interviewing: "INTERVIEWING",
+  offer:        "OFFER",
 };
 
 export async function POST(req: NextRequest) {
