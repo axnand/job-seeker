@@ -78,10 +78,11 @@ export async function chatCompletion(
     ? await callAnthropic(provider, messages, opts)
     : await callOpenAICompatible(provider, messages, opts);
 
-  // Spend ledger — fire-and-forget; never let bookkeeping break the LLM path
-  // (also silently no-ops when the DB is unavailable, e.g. local scripts).
+  // Spend ledger — awaited (a fire-and-forget write can be dropped when the
+  // serverless function freezes after responding) but never allowed to break
+  // the LLM path; silently no-ops when the DB is unavailable (local scripts).
   if (result.usage) {
-    prisma.llmUsage.create({
+    await prisma.llmUsage.create({
       data: {
         model: provider.model,
         purpose: opts.purpose ?? "other",
