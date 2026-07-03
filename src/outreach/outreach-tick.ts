@@ -464,15 +464,32 @@ async function pollReplies(): Promise<number> {
   });
   if (active.length === 0) return 0;
 
-  let replied = 0;
-  for (const t of active) {
-    if (!t.providerChatId || !t.lastMessageAt) continue;
-    const messages = await listChatMessages(accountId, t.providerChatId, 5);
-    const inbound = messages.find((m) => !m.fromMe && m.date && new Date(m.date) > t.lastMessageAt!);
-    if (!inbound) continue;
+  // Bound the work: this poll is a missed-webhook fallback, not the primary
+  // reply channel, and it runs BEFORE the send phase inside the same 60s
+  // function budget. Sequential-unbounded here starves sends as conversation
+  // count grows. Most-recent conversations are the likeliest to have replies;
+  // older ones are still covered by the webhook and by later ticks.
+  const POLL_CAP = 40;
+  const POLL_CONCURRENCY = 5;
+  const toPoll = active
+    .sort((a, b) => (b.lastMessageAt?.getTime() ?? 0) - (a.lastMessageAt?.getTime() ?? 0))
+    .slice(0, POLL_CAP);
 
-    await handleInboundReply(t.id, inbound.text, t.outreach);
-    replied++;
+  let replied = 0;
+  for (let i = 0; i < toPoll.length; i += POLL_CONCURRENCY) {
+    const chunk = toPoll.slice(i, i + POLL_CONCURRENCY);
+    const results = await Promise.allSettled(chunk.map(async (t) => {
+      if (!t.providerChatId || !t.lastMessageAt) return false;
+      const messages = await listChatMessages(accountId, t.providerChatId, 5);
+      const inbound = messages.find((m) => !m.fromMe && m.date && new Date(m.date) > t.lastMessageAt!);
+      if (!inbound) return false;
+      await handleInboundReply(t.id, inbound.text, t.outreach);
+      return true;
+    }));
+    for (const r of results) {
+      if (r.status === "fulfilled" && r.value) replied++;
+      else if (r.status === "rejected") console.error("[tick] pollReplies thread failed:", r.reason);
+    }
   }
   if (replied > 0) console.log(`[tick] pollReplies: ${replied} new replies`);
   return replied;
