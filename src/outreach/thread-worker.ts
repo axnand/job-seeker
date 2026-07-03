@@ -64,8 +64,12 @@ async function guardedThreadUpdate(threadId: string, data: Record<string, unknow
 
 async function markPendingSend(threadId: string): Promise<string | null> {
   const key = crypto.randomUUID();
+  // True compare-and-swap: only claim when NO send is already in flight
+  // (pendingSendKey IS NULL). A thread mid-send can't be claimed a second time,
+  // so an overlapping worker can't fire the same invite/DM twice. The reclaim
+  // sweep in the tick clears a stale key from a crashed send.
   const res = await prisma.channelThread.updateMany({
-    where: { id: threadId, status: { in: ["PENDING", "ACTIVE"] } },
+    where: { id: threadId, status: { in: ["PENDING", "ACTIVE"] }, pendingSendKey: null },
     data: { pendingSendKey: key, pendingSendStartedAt: new Date() },
   });
   return res.count > 0 ? key : null;
@@ -137,20 +141,25 @@ export async function archiveThread(threadId: string, reason: string): Promise<v
  * Mark a thread REPLIED and pause siblings (idempotent):
  *   1. other active threads on the SAME job
  *   2. other active threads for the SAME contact across jobs (one-human rule)
+ *
+ * Returns true only when THIS call performed the transition (updateMany matched a
+ * row). The poll loop and the reply webhook both drive this, so the caller uses
+ * the return value to fire the reply-alert / record the inbound message exactly
+ * once — a losing racer sees false and stays silent.
  */
-export async function markThreadReplied(threadId: string, opts?: { negative?: boolean }): Promise<void> {
-  await prisma.$transaction(async (tx) => {
+export async function markThreadReplied(threadId: string, opts?: { negative?: boolean }): Promise<boolean> {
+  const transitioned = await prisma.$transaction(async (tx) => {
     const flip = await tx.channelThread.updateMany({
       where: { id: threadId, status: { in: ["PENDING", "ACTIVE", "PAUSED"] } },
       data: { status: "REPLIED", nextActionAt: null, lastInboundAt: new Date() },
     });
-    if (flip.count === 0) return; // already terminal
+    if (flip.count === 0) return false; // already terminal — someone else won the race
 
     const outreach = await tx.outreach.findFirst({
       where: { threadId },
       select: { jobId: true, contactId: true },
     });
-    if (!outreach) return;
+    if (!outreach) return true;
 
     // Siblings on the same job + threads for the same contact across jobs.
     const related = await tx.outreach.findMany({
@@ -172,15 +181,17 @@ export async function markThreadReplied(threadId: string, opts?: { negative?: bo
         data: { status: "PAUSED", nextActionAt: null },
       });
     }
+    return true;
   });
 
-  if (opts?.negative) {
+  if (transitioned && opts?.negative) {
     // Negative reply: also archive so the sequence is fully stopped, not just paused.
     await prisma.channelThread.updateMany({
       where: { id: threadId },
       data: { archivedReason: "Negative reply — sequence stopped" },
     });
   }
+  return transitioned;
 }
 
 // ─── Date helpers ───────────────────────────────────────────────────────────

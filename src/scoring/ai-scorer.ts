@@ -203,6 +203,11 @@ function sanitizeSalary(s: RawSalary): RawSalary {
     if (typeof min === "number") min *= 100000;
     if (typeof max === "number") max *= 100000;
   }
+  // The LLM occasionally emits min/max reversed; a min above max would skew the
+  // midpoint the salary gate uses. Order them.
+  if (typeof min === "number" && typeof max === "number" && min > max) {
+    [min, max] = [max, min];
+  }
   return { ...s, min, max, currency, period };
 }
 
@@ -308,7 +313,10 @@ export async function scoreJob(
   );
 
   const minAnnual  = input.minSalaryAmount ?? config.search.minSalary.amount;
-  const normalized = await normalizeSalary(rawSalary, input.minSalaryCurrency ?? config.search.minSalary.currency);
+  // normalizeSalary can throw (unsupported currency / FX fetch failure). Swallow to
+  // null — matching the sibling call in discover — so a salary hiccup never drops the
+  // whole job from the run; salaryGate treats null as "unknown".
+  const normalized = await normalizeSalary(rawSalary, input.minSalaryCurrency ?? config.search.minSalary.currency).catch(() => null);
   const gate       = salaryGate(normalized, minAnnual, input.strictSalary ?? config.search.strictSalary);
 
   let skipReason = parsed.skipReason;

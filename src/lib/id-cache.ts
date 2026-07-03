@@ -12,6 +12,7 @@ import { prisma } from "./prisma";
 
 const COMPANY_TTL_MS      = 7  * 24 * 60 * 60 * 1000;
 const COMPANY_SIZE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const JOB_DETAIL_TTL_MS   = 7  * 24 * 60 * 60 * 1000;
 
 interface CacheEntry { id: string; cachedAt: number }
 type CacheStore = Record<string, CacheEntry>;
@@ -76,4 +77,21 @@ export async function getCachedCompanySize(companyId: string): Promise<number | 
 
 export async function setCachedCompanySize(companyId: string, count: number): Promise<void> {
   await writeEntry(`companySize:${companyId}`, String(count));
+}
+
+/**
+ * Track LinkedIn jobs whose (paid) detail was already fetched, keyed by
+ * jobProviderId (TTL 7 days). A hit means we pulled this job in a prior run and
+ * already persisted it — the DB-dedup would drop it now anyway — so the caller
+ * skips the detail call entirely.
+ */
+export async function hasFetchedJobDetail(jobProviderId: string): Promise<boolean> {
+  const store = await readStore();
+  const entry = store[`jobDetail:${jobProviderId}`];
+  if (!entry) return false;
+  return Date.now() - entry.cachedAt <= JOB_DETAIL_TTL_MS;
+}
+
+export async function markJobDetailFetched(jobProviderId: string): Promise<void> {
+  await writeEntry(`jobDetail:${jobProviderId}`, jobProviderId);
 }

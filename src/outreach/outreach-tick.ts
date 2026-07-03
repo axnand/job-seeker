@@ -16,6 +16,7 @@ import { config } from "@/config";
 import { getSettings } from "@/lib/settings";
 import { getSendBudget, isWithinSendWindow } from "./limits";
 import { processThread, markThreadReplied, type SendBudgetMut } from "./thread-worker";
+import { resetActiveRoleCache } from "./active-role";
 import { replenishOutreach } from "./replenish";
 import { maybeAutoResume } from "./safety";
 import { isNegativeReply } from "./classify-reply";
@@ -28,8 +29,17 @@ import {
 } from "@/unipile/client";
 import { sendReplyAlert } from "@/email/digest";
 
-const MAX_PER_TICK = 50;
+// Kept comfortably servable within the 60s function budget — each thread does a
+// live LinkedIn call plus DB writes, so 50 could time out mid-batch and strand
+// the tail. Claimed threads self-heal (see claimDueThreads) but a smaller batch
+// means far fewer need to.
+const MAX_PER_TICK = 15;
 const RETRY_DELAY_MS = 5 * 60 * 1000;
+// A claimed thread is pushed this far into the future instead of being nulled, so
+// if the function dies before processing it the next tick re-claims it.
+const CLAIM_RETRY_MS = 15 * 60 * 1000;
+// A pending-send marker older than this is from a crashed send — reclaim it.
+const PENDING_SEND_STALE_MS = 10 * 60 * 1000;
 
 export interface TickResult {
   paused?: boolean;
@@ -48,10 +58,16 @@ export async function runOutreachTick(): Promise<TickResult> {
   // Lift a transient (rate-limit) pause once its cooldown elapsed. updateSettings
   // refreshes the cache, so the getSettings below sees the resumed state.
   await maybeAutoResume().catch((e) => console.error("[tick] maybeAutoResume failed:", e));
+  resetActiveRoleCache(); // fresh open-job memo for this pass's closed-role re-pitches
   const settings = await getSettings();
   const base: TickResult = {
     processed: 0, failed: 0, claimed: 0, pollAccepted: 0, pollReplied: 0, staleArchived: 0, replenished: 0,
   };
+
+  // Recover threads stranded mid-send by a crash: pendingSendKey was written but
+  // never cleared and nextActionAt was already nulled by the claim, so nothing
+  // would ever pick them up again. Clear the marker and requeue them shortly.
+  await reclaimStalePendingSends().catch((e) => console.error("[tick] reclaimStalePendingSends failed:", e));
 
   // Invite ACCEPTANCES come from the `users.new_relation` webhook (Unipile's
   // ~8h relations-sync push) — the source of truth. We do NOT poll for them
@@ -129,6 +145,7 @@ export async function sendForJobs(
   sent: number; failed: number; paused?: boolean; capped?: boolean; noThreads?: boolean;
 }> {
   if (jobIds.length === 0) return { sent: 0, failed: 0 };
+  resetActiveRoleCache(); // fresh open-job memo for this pass's closed-role re-pitches
   const settings = await getSettings();
   if (settings.outreach.globalPause) return { sent: 0, failed: 0, paused: true };
 
@@ -270,11 +287,18 @@ export async function clearQueuedForJobs(jobIds: string[]): Promise<number> {
  *
  * Budget-exhausted claims are rescheduled by the worker, so nothing is lost. No
  * FOR UPDATE/SKIP LOCKED is needed — withCronLock serializes ticks and the
- * atomic `SET nextActionAt = NULL` is itself the claim guard (a window function
- * also can't coexist with row locking in Postgres).
+ * atomic bump of nextActionAt out of the due window is itself the claim guard (a
+ * window function also can't coexist with row locking in Postgres).
+ *
+ * The claim pushes nextActionAt to now+CLAIM_RETRY_MS (not NULL): if the 60s
+ * function dies mid-batch, an unprocessed claimed thread self-heals — the next
+ * tick re-claims it once the window passes. A successfully processed thread has
+ * its nextActionAt advanced (or nulled for terminal states) by the worker, so the
+ * retry marker never fires for work that actually completed.
  */
 async function claimDueThreads(limit: number): Promise<string[]> {
   const now = new Date();
+  const reclaimAt = new Date(now.getTime() + CLAIM_RETRY_MS);
   try {
     const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
       WITH ranked AS (
@@ -292,7 +316,7 @@ async function claimDueThreads(limit: number): Promise<string[]> {
       ),
       claimed AS (
         UPDATE "ChannelThread"
-        SET "nextActionAt" = NULL
+        SET "nextActionAt" = ${reclaimAt}
         WHERE id IN (
           SELECT id FROM ranked
           ORDER BY post_accept ASC, job_rank ASC, score DESC NULLS LAST
@@ -307,6 +331,30 @@ async function claimDueThreads(limit: number): Promise<string[]> {
     console.error("[tick] claim failed:", err);
     return [];
   }
+}
+
+/**
+ * Reclaim threads stranded mid-send by a crash. markPendingSend writes
+ * pendingSendKey/pendingSendStartedAt BEFORE the provider call; a crash between
+ * that write and commitSend leaves the marker set with nextActionAt already
+ * nulled by the claim — so nothing ever reprocesses the thread. Clear the marker
+ * and requeue it a few minutes out.
+ */
+async function reclaimStalePendingSends(): Promise<number> {
+  const cutoff = new Date(Date.now() - PENDING_SEND_STALE_MS);
+  const res = await prisma.channelThread.updateMany({
+    where: {
+      status: { in: ["PENDING", "ACTIVE"] },
+      pendingSendStartedAt: { lt: cutoff },
+    },
+    data: {
+      pendingSendKey: null,
+      pendingSendStartedAt: null,
+      nextActionAt: new Date(Date.now() + 3 * 60 * 1000),
+    },
+  });
+  if (res.count > 0) console.log(`[tick] reclaimStalePendingSends: requeued ${res.count} stranded thread(s)`);
+  return res.count;
 }
 
 // ─── Daily reconcile: missed invite acceptances ──────────────────────────────
@@ -440,27 +488,31 @@ export async function handleInboundReply(
   outreach: OutreachWithJobContact,
 ): Promise<void> {
   const negative = isNegativeReply(messageText);
-  await markThreadReplied(threadId, { negative });
+  const transitioned = await markThreadReplied(threadId, { negative });
 
   if (outreach?.job) {
     await recomputeOutreachState(outreach.job.id).catch(() => {});
-    // Record the inbound message for history.
-    await prisma.threadMessage
-      .create({
-        data: { threadId, direction: "INBOUND", kind: "INBOUND_MSG", body: messageText.slice(0, 4000) },
-      })
-      .catch(() => {});
-    // Fire the reply-alert email (skip if it's a clear negative? No — owner still
-    // wants to know, but we note it).
-    await sendReplyAlert({
-      contactName: outreach.contact.name,
-      contactTitle: outreach.contact.title ?? "",
-      company: outreach.job.company,
-      role: outreach.job.role,
-      messageText: negative ? `${messageText}\n\n(Auto-detected as a likely "no" — sequence stopped.)` : messageText,
-      linkedinChatUrl: outreach.contact.linkedinUrl,
-      jobId: outreach.job.id,
-    }).catch((e) => console.error("[tick] reply alert email failed:", e));
+    // Record the inbound + fire the alert ONLY on the first transition. The poll
+    // loop and the webhook both land here for the same reply; without this guard
+    // the owner gets two identical alerts and two INBOUND message rows.
+    if (transitioned) {
+      await prisma.threadMessage
+        .create({
+          data: { threadId, direction: "INBOUND", kind: "INBOUND_MSG", body: messageText.slice(0, 4000) },
+        })
+        .catch(() => {});
+      // Fire the reply-alert email (skip if it's a clear negative? No — owner still
+      // wants to know, but we note it).
+      await sendReplyAlert({
+        contactName: outreach.contact.name,
+        contactTitle: outreach.contact.title ?? "",
+        company: outreach.job.company,
+        role: outreach.job.role,
+        messageText: negative ? `${messageText}\n\n(Auto-detected as a likely "no" — sequence stopped.)` : messageText,
+        linkedinChatUrl: outreach.contact.linkedinUrl,
+        jobId: outreach.job.id,
+      }).catch((e) => console.error("[tick] reply alert email failed:", e));
+    }
   }
 }
 

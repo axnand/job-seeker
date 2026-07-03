@@ -19,6 +19,7 @@ import { findTargets, type OutreachTarget } from "./people-finder";
 import { writeMessages } from "./message-writer";
 import { sendManualNotify } from "@/email/alerts";
 import { recomputeOutreachState } from "@/status/outreach-state";
+import { withCronLock } from "@/lib/cron-lock";
 
 export interface EnqueueResult {
   mode: "manual_notify" | "referral" | "noop" | "no_targets";
@@ -41,21 +42,31 @@ export async function enqueueOutreach(job: Job): Promise<EnqueueResult> {
     return { mode: "manual_notify", targetsDrafted: 0 };
   }
 
-  // Idempotency — already enqueued?
-  const existing = await prisma.outreach.count({ where: { jobId: job.id } });
-  if (existing > 0) return { mode: "noop", targetsDrafted: existing };
+  // Idempotency + double-approve safety. The plain count check below races when a
+  // job is approved twice in quick succession (two requests both read 0 and both
+  // create a full set of threads → double invites). Serialize per-job enqueues
+  // with the codebase's atomic single-runner lock: a concurrent second approval
+  // no-ops (the first is creating the rows), and a later re-approval sees count>0.
+  const locked = await withCronLock(`enqueue:${job.id}`, async (): Promise<EnqueueResult> => {
+    const existing = await prisma.outreach.count({ where: { jobId: job.id } });
+    if (existing > 0) return { mode: "noop", targetsDrafted: existing };
 
-  const settings = await getSettings();
+    const settings = await getSettings();
 
-  const targets = await findTargets(job);
-  if (targets.length === 0) {
-    console.log(`[enqueue] job ${job.id} (${job.company}) — no outreach targets found`);
-    return { mode: "no_targets", targetsDrafted: 0 };
-  }
+    const targets = await findTargets(job);
+    if (targets.length === 0) {
+      console.log(`[enqueue] job ${job.id} (${job.company}) — no outreach targets found`);
+      return { mode: "no_targets", targetsDrafted: 0 };
+    }
 
-  const drafted = await draftAndQueueTargets(job, targets, settings);
-  await recomputeOutreachState(job.id).catch(() => {});
-  return { mode: "referral", targetsDrafted: drafted };
+    const drafted = await draftAndQueueTargets(job, targets, settings);
+    await recomputeOutreachState(job.id).catch(() => {});
+    return { mode: "referral", targetsDrafted: drafted };
+  });
+
+  // Lock held by a concurrent enqueue for this same job — it will create the rows.
+  if (!locked.ran) return { mode: "noop", targetsDrafted: 0 };
+  return locked.result;
 }
 
 /**
@@ -97,39 +108,44 @@ export async function draftAndQueueTargets(
       });
 
       // Outreach ↔ ChannelThread are mutually @unique; create the join first
-      // (threadId null), then the thread, then backfill threadId.
-      const outreach = await prisma.outreach.create({
-        data: { jobId: job.id, contactId: contact.id, role: target.role },
-      });
+      // (threadId null), then the thread, then backfill threadId. Do all three in
+      // one transaction so a crash between them can't leave a threadId-less
+      // Outreach (invisible to the tick) or a thread whose outreach never points
+      // back at it.
+      await prisma.$transaction(async (tx) => {
+        const outreach = await tx.outreach.create({
+          data: { jobId: job.id, contactId: contact.id, role: target.role },
+        });
 
-      const thread = await prisma.channelThread.create({
-        data: {
-          outreachId: outreach.id,
-          status: "PENDING",
-          channel: "linkedin",
-          accountId: config.owner.linkedinAccountId || null,
-          candidateProviderId: target.providerId,
-          followupsTotal,
-          // FULLY AUTOMATIC: queue now so the next tick claims + sends it
-          // (still gated by send window + rate limits + globalPause).
-          nextActionAt: new Date(),
-          providerState: {
-            phase: "QUEUED",
-            // Connection note is OPTIONAL and OFF by default: an empty
-            // connectionNote means the invite is sent with NO note. The drafted
-            // text is kept as connectionNoteDraft so the manual bulk-send can
-            // opt in ("Send with note") without regenerating it.
-            connectionNote: "",
-            connectionNoteDraft: messages.connectionNote,
-            firstDm: messages.firstDm,
-            followup: messages.followup,
+        const thread = await tx.channelThread.create({
+          data: {
+            outreachId: outreach.id,
+            status: "PENDING",
+            channel: "linkedin",
+            accountId: config.owner.linkedinAccountId || null,
+            candidateProviderId: target.providerId,
+            followupsTotal,
+            // FULLY AUTOMATIC: queue now so the next tick claims + sends it
+            // (still gated by send window + rate limits + globalPause).
+            nextActionAt: new Date(),
+            providerState: {
+              phase: "QUEUED",
+              // Connection note is OPTIONAL and OFF by default: an empty
+              // connectionNote means the invite is sent with NO note. The drafted
+              // text is kept as connectionNoteDraft so the manual bulk-send can
+              // opt in ("Send with note") without regenerating it.
+              connectionNote: "",
+              connectionNoteDraft: messages.connectionNote,
+              firstDm: messages.firstDm,
+              followup: messages.followup,
+            },
           },
-        },
-      });
+        });
 
-      await prisma.outreach.update({
-        where: { id: outreach.id },
-        data: { threadId: thread.id },
+        await tx.outreach.update({
+          where: { id: outreach.id },
+          data: { threadId: thread.id },
+        });
       });
 
       drafted++;

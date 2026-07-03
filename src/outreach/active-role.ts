@@ -38,26 +38,46 @@ function roleSimilarity(a: string, b: string): number {
   return hits;
 }
 
-type JobLike = { id: string; company: string; role: string; closedAt: Date | null };
+// The caller already has the loaded Job row (thread.outreach.job), so it passes
+// tailoredPitch through — no need to re-fetch it for the open-role common case.
+type JobLike = { id: string; company: string; role: string; closedAt: Date | null; tailoredPitch: string | null };
+
+type OpenSibling = { id: string; company: string; role: string; aiScore: number | null; tailoredPitch: string | null; createdAt: Date };
+
+// Per-tick memo of every open, non-skipped job. The closed-role path needs the
+// company's open siblings, and re-querying the whole board once per thread is a
+// hot N+1 during a tick. Both entry points (runOutreachTick, sendForJobs) call
+// resetActiveRoleCache() up front and hold the "tick" lock, so the cache is only
+// ever built/read single-threaded within one pass.
+let openJobsCache: OpenSibling[] | null = null;
+
+export function resetActiveRoleCache(): void {
+  openJobsCache = null;
+}
+
+async function getOpenJobs(): Promise<OpenSibling[]> {
+  if (!openJobsCache) {
+    openJobsCache = await prisma.job.findMany({
+      where: { appStage: { not: "SKIPPED" }, closedAt: null },
+      select: { id: true, company: true, role: true, aiScore: true, tailoredPitch: true, createdAt: true },
+    });
+  }
+  return openJobsCache;
+}
 
 export async function resolveActiveRole(job: JobLike): Promise<ActiveRole> {
-  // Open role: speak for itself.
+  // Open role: speak for itself (pitch came in on the loaded job).
   if (!job.closedAt) {
-    const self = await prisma.job.findUnique({ where: { id: job.id }, select: { tailoredPitch: true } });
-    return { jobId: job.id, role: job.role, pitch: self?.tailoredPitch ?? null, redirected: false };
+    return { jobId: job.id, role: job.role, pitch: job.tailoredPitch ?? null, redirected: false };
   }
 
   // Closed role: find the company's open siblings and pick the best fit.
   const key = companyKey(job.company);
-  const candidates = await prisma.job.findMany({
-    where: { appStage: { not: "SKIPPED" }, closedAt: null, id: { not: job.id } },
-    select: { id: true, company: true, role: true, aiScore: true, tailoredPitch: true, createdAt: true },
-  });
-  const siblings = candidates.filter((c) => companyKey(c.company) === key);
+  const candidates = await getOpenJobs();
+  const siblings = candidates.filter((c) => c.id !== job.id && companyKey(c.company) === key);
 
   if (siblings.length === 0) {
-    const self = await prisma.job.findUnique({ where: { id: job.id }, select: { tailoredPitch: true } });
-    return { jobId: job.id, role: job.role, pitch: self?.tailoredPitch ?? null, redirected: false };
+    return { jobId: job.id, role: job.role, pitch: job.tailoredPitch ?? null, redirected: false };
   }
 
   siblings.sort((a, b) => {

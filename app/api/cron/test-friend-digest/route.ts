@@ -15,6 +15,19 @@ export async function GET(req: NextRequest) {
     const overrideTo = req.nextUrl.searchParams.get("to");
     const minLPA = Number(req.nextUrl.searchParams.get("minLPA") || 8);
 
+    // Restrict ?to= to known recipients — otherwise this preview route is an open
+    // relay that will send our job data to any address a caller supplies.
+    if (overrideTo) {
+      const allowed = new Set(
+        [config.owner.email, ...config.friendDigest.recipients.map(r => r.email)]
+          .filter(Boolean)
+          .map(e => e.toLowerCase()),
+      );
+      if (!allowed.has(overrideTo.toLowerCase())) {
+        return NextResponse.json({ ok: false, error: "recipient not allowed" }, { status: 400 });
+      }
+    }
+
     // Approximates the live friend pool: owner-passing jobs plus skipped jobs
     // with a confirmed salary. skipCategory isn't persisted, so unlike the live
     // run this can't exclude seniority/location skips — preview may over-include.

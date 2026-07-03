@@ -19,6 +19,7 @@ import { normalizeSalary } from "@/salary/normalize";
 import { dedupeKey } from "@/sources/normalize";
 import { sendDailyDigest } from "@/email/digest";
 import { sendFriendDigest } from "@/email/friend-digest";
+import { sendScoringFailureAlert } from "@/email/alerts";
 import { enqueueOutreach } from "@/outreach/enqueue";
 import { getSettings } from "@/lib/settings";
 import { withCronLock } from "@/lib/cron-lock";
@@ -150,6 +151,19 @@ async function runDiscover() {
       }
     }
 
+    // Broken AI provider key/endpoint turns every job into {score:0,
+    // skipReason:"scoring_failed"} — a silent mass-skip. Alert the owner once when
+    // it's clearly systemic (not just one flaky generation). Jobs are still
+    // persisted below so nothing is lost once the key is fixed and discovery re-runs.
+    const scoringFailed = scored.filter(s => s.result.skipReason === "scoring_failed").length;
+    if (scored.length >= 5 && scoringFailed / scored.length > 0.6) {
+      try {
+        await sendScoringFailureAlert(scoringFailed, scored.length);
+      } catch (e) {
+        console.error("[discover] scoring-failure alert email failed:", e);
+      }
+    }
+
     // Persist
     const toEmail: Job[] = [];
     // Friend digest pool — owner-passing jobs PLUS jobs skipped ONLY for salary
@@ -228,8 +242,14 @@ async function runDiscover() {
         .sort((a, b) => (a.job.pinned !== b.job.pinned) ? (a.job.pinned ? -1 : 1) : b.score - a.score)
         .slice(0, 5)
         .map(x => x.job);
-      await sendDailyDigest(toEmail, topPicks);
-      console.log(`[discover] digest sent with ${toEmail.length} jobs + ${topPicks.length} top picks`);
+      // Isolate SMTP failures — an unwrapped throw here aborts the friend digests,
+      // staleness sweep, and webhook pruning that follow.
+      try {
+        await sendDailyDigest(toEmail, topPicks);
+        console.log(`[discover] digest sent with ${toEmail.length} jobs + ${topPicks.length} top picks`);
+      } catch (e) {
+        console.error("[discover] daily digest failed:", e);
+      }
     }
 
     // Friend digests are independent of the owner's digest: they draw from the

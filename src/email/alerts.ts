@@ -86,6 +86,34 @@ export async function sendPoolExhaustedBatch(jobs: Array<{
   });
 }
 
+/**
+ * Alert when scoring mass-failed in a discovery run — almost always a broken AI
+ * provider key/endpoint (every job comes back {score:0, skipReason:"scoring_failed"}),
+ * which would otherwise silently drop a whole run's worth of jobs.
+ */
+export async function sendScoringFailureAlert(failed: number, total: number): Promise<void> {
+  if (!config.owner.email) return;
+  const pct = Math.round((failed / total) * 100);
+  const html = `
+<!DOCTYPE html>
+<html>
+<body style="max-width:600px;margin:0 auto;padding:20px;font-family:sans-serif">
+  <h2 style="color:#b91c1c">⚠️ Scoring is failing in bulk</h2>
+  <p><strong>${failed} of ${total}</strong> jobs (${pct}%) in the latest discovery run
+  came back as <code>scoring_failed</code>. This usually means the AI provider key or
+  endpoint is broken — the jobs were saved as SKIPPED and no outreach started for them.</p>
+  <p style="font-size:14px;color:#374151">Check the AI provider config in
+  <a href="${config.app.baseUrl}/settings">Settings</a>, then re-run discovery.</p>
+</body>
+</html>`;
+  await sendMail({
+    to: config.owner.email,
+    subject: "[Job Automation] ⚠️ Scoring failing — check AI provider",
+    html,
+    text: `${failed}/${total} jobs (${pct}%) failed scoring — likely a broken AI provider key.`,
+  });
+}
+
 export async function sendManualNotify(opts: {
   jobId: string;
   company: string;

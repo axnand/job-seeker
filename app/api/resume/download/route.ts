@@ -8,6 +8,11 @@ import { resumeDownloadUrl } from "@/lib/s3";
 export async function GET(req: NextRequest) {
   const key = req.nextUrl.searchParams.get("key");
   if (!key) return NextResponse.json({ error: "key required" }, { status: 400 });
+  // Presign only under the resume/ prefix — otherwise this route is an oracle for
+  // signing arbitrary bucket keys the caller supplies.
+  if (!key.startsWith("resume/")) {
+    return NextResponse.json({ error: "invalid key" }, { status: 400 });
+  }
   const url = await resumeDownloadUrl(key).catch(() => null);
   if (!url) return NextResponse.json({ error: "not found" }, { status: 404 });
   return NextResponse.redirect(url);

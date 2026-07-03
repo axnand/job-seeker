@@ -12,7 +12,12 @@
 
 import { linkedinSearch, getJobDetail, resolveSearchParam } from "@/unipile/client";
 import { config } from "@/config";
-import { getCachedLocationId, setCachedLocationId } from "@/lib/id-cache";
+import {
+  getCachedLocationId,
+  setCachedLocationId,
+  hasFetchedJobDetail,
+  markJobDetailFetched,
+} from "@/lib/id-cache";
 import type { AppSettingsData } from "@/lib/settings";
 import type { RawJob } from "./types";
 
@@ -82,8 +87,16 @@ export async function fetchLinkedinJobs(keyword: string, search: SearchCfg): Pro
   // Fetch JD detail for the top N results (results lack description).
   const top = items.slice(0, MAX_DETAILS_PER_KEYWORD);
   const detailed = await Promise.allSettled(
-    top.map(async (item) => {
+    top.map(async (item): Promise<RawJob | null> => {
+      // getJobDetail is a paid call. Skip ids we already fetched in the last 7
+      // days — those jobs were persisted on a prior run and would just be
+      // DB-deduped now, so drop the item early instead of paying again.
+      if (await hasFetchedJobDetail(item.id).catch(() => false)) return null;
+
       const detail = await getJobDetail(accountId, item.id).catch(() => null);
+      // Only remember ids we actually got detail for, so a transient failure retries.
+      if (detail) await markJobDetailFetched(item.id).catch(() => {});
+
       const company = item.company?.name ?? detail?.company ?? "Unknown";
       const job: RawJob = {
         source: "LINKEDIN_JOB",
@@ -102,6 +115,7 @@ export async function fetchLinkedinJobs(keyword: string, search: SearchCfg): Pro
   );
 
   return detailed
-    .filter((r): r is PromiseFulfilledResult<RawJob> => r.status === "fulfilled")
-    .map(r => r.value);
+    .filter((r): r is PromiseFulfilledResult<RawJob | null> => r.status === "fulfilled")
+    .map(r => r.value)
+    .filter((j): j is RawJob => j !== null);
 }

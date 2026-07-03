@@ -126,8 +126,9 @@ export async function replenishOutreach(settings?: AppSettingsData): Promise<Rep
     if (accepted >= connectTarget) continue;                // goal reached
     if (total >= maxInvites) {                              // ceiling hit — alert once
       res.exhausted++;
+      // poolAlertedAt is stamped AFTER the batch email sends (below), so a failed
+      // send is retried next tick instead of being permanently marked "alerted".
       if (!job.poolAlertedAt) {
-        await prisma.job.update({ where: { id: job.id }, data: { poolAlertedAt: new Date() } }).catch(() => {});
         newlyExhausted.push({ jobId: job.id, company: job.company, role: job.role, accepted, connectTarget, totalSent: total, maxInvites, reason: "ceiling" });
       }
       continue;
@@ -145,7 +146,6 @@ export async function replenishOutreach(settings?: AppSettingsData): Promise<Rep
           `(accepted ${accepted}/${connectTarget}, sent ${total}/${maxInvites})`,
       );
       if (!job.poolAlertedAt) {
-        await prisma.job.update({ where: { id: job.id }, data: { poolAlertedAt: new Date() } }).catch(() => {});
         newlyExhausted.push({ jobId: job.id, company: job.company, role: job.role, accepted, connectTarget, totalSent: total, maxInvites, reason: "no_candidates" });
       }
       continue;
@@ -164,8 +164,17 @@ export async function replenishOutreach(settings?: AppSettingsData): Promise<Rep
   }
 
   if (newlyExhausted.length > 0) {
-    sendPoolExhaustedBatch(newlyExhausted).catch(e =>
-      console.error("[replenish] exhaustion batch email failed:", e));
+    try {
+      // Await the send FIRST — only stamp poolAlertedAt once the email is actually
+      // out the door, so a transient SMTP failure is retried on the next tick.
+      await sendPoolExhaustedBatch(newlyExhausted);
+      await prisma.job.updateMany({
+        where: { id: { in: newlyExhausted.map(j => j.jobId) } },
+        data: { poolAlertedAt: new Date() },
+      }).catch(() => {});
+    } catch (e) {
+      console.error("[replenish] exhaustion batch email failed:", e);
+    }
   }
 
   return res;

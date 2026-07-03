@@ -5,6 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { enqueueOutreach } from "@/outreach/enqueue";
 import type { AppStage } from "@prisma/client";
@@ -13,7 +14,8 @@ import type { AppStage } from "@prisma/client";
 export const maxDuration = 60;
 
 const VALID_ACTIONS: AppStage[] = [
-  "APPROVED", "OUTREACH", "REPLIED", "SKIPPED",
+  // "NEW" is the target of the "restore" alias (un-skip a job back onto the board).
+  "NEW", "APPROVED", "OUTREACH", "REPLIED", "SKIPPED",
 ];
 
 // Friendly verbs used by the UI → canonical stage.
@@ -39,15 +41,23 @@ export async function POST(req: NextRequest) {
   }
 
   const isRestore = body.action?.toLowerCase() === "restore";
-  const job = await prisma.job.update({
-    where: { id: body.jobId },
-    data: {
-      appStage: newStage,
-      // Restore wipes the skip-reason; explicit note overrides both directions.
-      appStageNote: body.note ?? (isRestore ? null : undefined),
-      ...(newStage === "APPROVED" ? { approvedAt: new Date() } : {}),
-    },
-  });
+  let job;
+  try {
+    job = await prisma.job.update({
+      where: { id: body.jobId },
+      data: {
+        appStage: newStage,
+        // Restore wipes the skip-reason; explicit note overrides both directions.
+        appStageNote: body.note ?? (isRestore ? null : undefined),
+        ...(newStage === "APPROVED" ? { approvedAt: new Date() } : {}),
+      },
+    });
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025") {
+      return NextResponse.json({ error: "job not found" }, { status: 404 });
+    }
+    throw err;
+  }
 
   // On approve, kick off the outreach machine: manual-notify email for
   // MANUAL_NOTIFY jobs, or draft referral outreach (people finder → message

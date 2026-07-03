@@ -7,6 +7,7 @@
 import { prisma } from "@/lib/prisma";
 import { config } from "@/config";
 import { getSettings } from "@/lib/settings";
+import { fetchWithRetry } from "@/lib/retry";
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
@@ -92,7 +93,7 @@ async function callOpenAICompatible(
   };
   if (opts.response_format) body.response_format = opts.response_format;
 
-  const res = await fetch(url, {
+  const res = await fetchWithRetry(() => fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -100,7 +101,7 @@ async function callOpenAICompatible(
     },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(60_000),
-  });
+  }));
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");

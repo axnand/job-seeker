@@ -16,6 +16,7 @@ import { linkedinSearch } from "@/unipile/client";
 import { chatCompletion, parseJsonResponse } from "@/ai/ai-adapter";
 import { config } from "@/config";
 import type { AppSettingsData } from "@/lib/settings";
+import { filterUnprocessed, markProcessed } from "./seen-posts";
 import type { RawJob } from "./types";
 
 type SearchCfg = AppSettingsData["search"];
@@ -163,19 +164,35 @@ export async function fetchLinkedinPosts(keyword: string, search: SearchCfg): Pr
   }
 
   // Step 2 — pre-filter for hiring signal (free).
-  const candidates = items.filter((p) => hasHiringSignal(postText(p))).slice(0, MAX_POSTS_PER_KEYWORD);
+  const signalled = items.filter((p) => hasHiringSignal(postText(p)));
+
+  // Skip posts already run through extraction in a previous tick — the keyword
+  // search keeps returning them while they're recent (mirrors linkedin-feed.ts).
+  // Posts without an id can't be deduped, so we always (re)process them. Dedup
+  // BEFORE the cap so the LLM budget is spent on unseen posts.
+  const withId = signalled.filter((p) => p.id);
+  const unprocessedIds = new Set(await filterUnprocessed(withId.map((p) => p.id!)));
+  const candidates = signalled
+    .filter((p) => !p.id || unprocessedIds.has(p.id))
+    .slice(0, MAX_POSTS_PER_KEYWORD);
   if (candidates.length === 0) return [];
 
   // Step 3 — AI extraction on survivors only.
   const extracted = await Promise.allSettled(
     candidates.map(async (p) => {
       const ex = await extractPost(postText(p));
-      return ex ? toRawJob(p, ex) : null;
+      const job = ex ? toRawJob(p, ex) : null;
+      // ex === null is a transient extraction failure — leave it unmarked to retry
+      // next run. A definitive result (job or not) gets marked so we never re-extract.
+      return { id: p.id, marked: ex !== null, job };
     })
   );
 
-  return extracted
-    .filter((r): r is PromiseFulfilledResult<RawJob | null> => r.status === "fulfilled")
-    .map((r) => r.value)
-    .filter((j): j is RawJob => j !== null);
+  const settled = extracted
+    .filter((r): r is PromiseFulfilledResult<{ id: string | undefined; marked: boolean; job: RawJob | null }> => r.status === "fulfilled")
+    .map((r) => r.value);
+
+  await markProcessed(settled.filter((r) => r.marked && r.id).map((r) => r.id!));
+
+  return settled.map((r) => r.job).filter((j): j is RawJob => j !== null);
 }

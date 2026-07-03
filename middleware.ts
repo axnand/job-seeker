@@ -10,7 +10,10 @@ export function middleware(req: NextRequest) {
   // Cron routes: Vercel sends Authorization: Bearer <CRON_SECRET>
   if (pathname.startsWith("/api/cron/")) {
     const auth = req.headers.get("authorization") ?? "";
-    if (CRON_SECRET && auth !== `Bearer ${CRON_SECRET}`) {
+    // Fail closed: an unset CRON_SECRET must REJECT cron requests, not wave them
+    // through. Otherwise a missing/blank secret silently disables auth on every
+    // /api/cron/* route and leaves the whole engine publicly triggerable.
+    if (!CRON_SECRET || auth !== `Bearer ${CRON_SECRET}`) {
       return new NextResponse("Unauthorized", { status: 401 });
     }
     return NextResponse.next();

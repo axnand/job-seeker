@@ -17,6 +17,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
 export async function POST(req: NextRequest) {
@@ -25,13 +26,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "jobId and closed (boolean) required" }, { status: 400 });
   }
 
-  const job = await prisma.job.update({
-    where: { id: body.jobId },
-    data: body.closed
-      ? { closedAt: new Date(), closedReason: body.reason ?? "Role closed by owner" }
-      : { closedAt: null, closedReason: null },
-    select: { id: true, company: true, role: true, closedAt: true, closedReason: true, appStage: true },
-  });
+  let job;
+  try {
+    job = await prisma.job.update({
+      where: { id: body.jobId },
+      data: body.closed
+        ? { closedAt: new Date(), closedReason: body.reason ?? "Role closed by owner" }
+        : { closedAt: null, closedReason: null },
+      select: { id: true, company: true, role: true, closedAt: true, closedReason: true, appStage: true },
+    });
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025") {
+      return NextResponse.json({ error: "job not found" }, { status: 404 });
+    }
+    throw err;
+  }
 
   return NextResponse.json({ ok: true, job });
 }
