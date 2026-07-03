@@ -4,6 +4,8 @@ import { sendMail } from "./mailer";
 export interface FriendRecipient {
   email: string;
   minBaseLPA: number;
+  /** Optional role/JD keyword filter — any match keeps the job; absent = keep all. */
+  keywords?: string[];
 }
 
 function formatSalary(job: Job): string {
@@ -45,7 +47,13 @@ function jobCard(job: Job): string {
  */
 export async function sendFriendDigest(jobs: Job[], recipient: FriendRecipient): Promise<void> {
   const minAnnualBase = recipient.minBaseLPA * 100_000;
-  const eligible = jobs.filter(j => j.salaryAnnualBase === null || j.salaryAnnualBase >= minAnnualBase);
+  const kws = (recipient.keywords ?? []).map(k => k.trim().toLowerCase()).filter(Boolean);
+  const eligible = jobs.filter(j => {
+    if (j.salaryAnnualBase !== null && j.salaryAnnualBase < minAnnualBase) return false;
+    if (kws.length === 0) return true;
+    const haystack = `${j.role} ${j.jdText}`.toLowerCase();
+    return kws.some(k => haystack.includes(k));
+  });
   if (eligible.length === 0) return;
 
   const floorLabel = `${recipient.minBaseLPA} LPA`;

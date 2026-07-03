@@ -97,12 +97,15 @@ Targeting: entry-level / SDE-1 / junior software engineering roles at strong pro
   // floor, including jobs the owner's pipeline skipped for pay alone
   // (skipCategory "salary"). Jobs skipped for seniority / location / role fit
   // are still excluded for everyone.
+  // keywords (optional): only send jobs whose role/JD matches at least one
+  // keyword — for friends whose stack differs from the owner's. Empty/absent
+  // means no keyword filter.
   friendDigest: {
     recipients: [
       { email: "mmayank.connect@gmail.com",  minBaseLPA: 8 },
       { email: "rastogivani15@gmail.com",    minBaseLPA: 8 },
       { email: "mohdsamiullah149@gmail.com", minBaseLPA: 8 },
-    ] as Array<{ email: string; minBaseLPA: number }>,
+    ] as Array<{ email: string; minBaseLPA: number; keywords?: string[] }>,
   },
 
   outreach: {
