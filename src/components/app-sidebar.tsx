@@ -10,6 +10,7 @@ import {
   PanelLeftClose,
   PanelLeft,
   Target,
+  BarChart3,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -21,6 +22,7 @@ type NavItem = { href: string; label: string; icon: LucideIcon };
 const NAV: NavItem[] = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/add", label: "Add job", icon: Plus },
+  { href: "/analytics", label: "Analytics", icon: BarChart3 },
   { href: "/resume", label: "Resume", icon: FileText },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
