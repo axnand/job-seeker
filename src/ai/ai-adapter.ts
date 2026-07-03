@@ -18,6 +18,8 @@ export interface ChatCompletionOptions {
   temperature?: number;
   max_tokens?: number;
   response_format?: { type: "json_object" | "text" };
+  /** Spend-ledger label ("scoring", "tailoring", …) — recorded in LlmUsage. */
+  purpose?: string;
 }
 
 export interface ChatCompletionResult {
@@ -72,10 +74,24 @@ export async function chatCompletion(
 ): Promise<ChatCompletionResult> {
   const provider = await loadProvider(providerId);
 
-  if (provider.providerType === "anthropic") {
-    return callAnthropic(provider, messages, opts);
+  const result = provider.providerType === "anthropic"
+    ? await callAnthropic(provider, messages, opts)
+    : await callOpenAICompatible(provider, messages, opts);
+
+  // Spend ledger — fire-and-forget; never let bookkeeping break the LLM path
+  // (also silently no-ops when the DB is unavailable, e.g. local scripts).
+  if (result.usage) {
+    prisma.llmUsage.create({
+      data: {
+        model: provider.model,
+        purpose: opts.purpose ?? "other",
+        promptTokens: result.usage.prompt_tokens,
+        completionTokens: result.usage.completion_tokens,
+      },
+    }).catch(() => {});
   }
-  return callOpenAICompatible(provider, messages, opts);
+
+  return result;
 }
 
 async function callOpenAICompatible(

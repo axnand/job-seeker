@@ -91,7 +91,7 @@ export async function extractPost(postText: string): Promise<Extraction | null> 
         { role: "system", content: EXTRACT_SYSTEM },
         { role: "user", content: extractPrompt(postText) },
       ],
-      { temperature: 0.1, response_format: { type: "json_object" } }
+      { temperature: 0.1, response_format: { type: "json_object" }, purpose: "post_extraction" }
     );
     return parseJsonResponse<Extraction>(res.text);
   } catch (err) {

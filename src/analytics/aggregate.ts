@@ -38,6 +38,15 @@ export interface SourceRow {
   replied: number;
 }
 
+export interface LlmSpendRow {
+  purpose: string;
+  calls: number;
+  promptTokens: number;
+  completionTokens: number;
+  /** USD estimate from the pricing map, or null for unknown models. */
+  estCostUsd: number | null;
+}
+
 export interface AnalyticsData {
   totals: {
     jobs: number;
@@ -54,12 +63,24 @@ export interface AnalyticsData {
   };
   pipeline: Record<AppStage, number>;
   bySource: SourceRow[];
+  /** Last-30-day LLM spend by purpose (empty until LlmUsage rows accumulate). */
+  llmSpend: LlmSpendRow[];
 }
+
+// USD per 1M tokens (input, output) for models we know; estimates only.
+const MODEL_PRICING: Record<string, [number, number]> = {
+  "gpt-4.1":      [2.00, 8.00],
+  "gpt-4.1-mini": [0.40, 1.60],
+  "gpt-4o":       [2.50, 10.00],
+  "gpt-4o-mini":  [0.15, 0.60],
+  "o4-mini":      [1.10, 4.40],
+};
 
 const rate = (num: number, den: number): number | null => (den > 0 ? num / den : null);
 
 export async function computeAnalytics(): Promise<AnalyticsData> {
-  const [stageGroups, outreaches] = await Promise.all([
+  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const [stageGroups, outreaches, usage] = await Promise.all([
     prisma.job.groupBy({
       by: ["source", "appStage"],
       _count: { _all: true },
@@ -70,6 +91,13 @@ export async function computeAnalytics(): Promise<AnalyticsData> {
         thread: { select: { status: true, providerState: true } },
       },
     }),
+    // Ledger may predate the LlmUsage table on old DBs — treat errors as empty.
+    prisma.llmUsage.groupBy({
+      by: ["purpose", "model"],
+      where: { createdAt: { gte: since } },
+      _count: { _all: true },
+      _sum: { promptTokens: true, completionTokens: true },
+    }).catch(() => []),
   ]);
 
   // ── Per-source + overall pipeline from the job stage groups ────────────────
@@ -122,6 +150,28 @@ export async function computeAnalytics(): Promise<AnalyticsData> {
   }
   const inPipeline = IN_PIPELINE.reduce((a, s) => a + pipeline[s], 0);
 
+  // ── LLM spend (30d), rolled up per purpose across models ───────────────────
+  const spendByPurpose = new Map<string, LlmSpendRow>();
+  for (const g of usage) {
+    let r = spendByPurpose.get(g.purpose);
+    if (!r) {
+      r = { purpose: g.purpose, calls: 0, promptTokens: 0, completionTokens: 0, estCostUsd: 0 };
+      spendByPurpose.set(g.purpose, r);
+    }
+    const inTok = g._sum.promptTokens ?? 0;
+    const outTok = g._sum.completionTokens ?? 0;
+    r.calls += g._count._all;
+    r.promptTokens += inTok;
+    r.completionTokens += outTok;
+    const pricing = MODEL_PRICING[g.model];
+    // One unknown model makes the purpose's estimate unreliable → null it out.
+    if (pricing && r.estCostUsd !== null) {
+      r.estCostUsd += (inTok * pricing[0] + outTok * pricing[1]) / 1_000_000;
+    } else {
+      r.estCostUsd = null;
+    }
+  }
+
   return {
     totals: {
       ...totals,
@@ -133,5 +183,6 @@ export async function computeAnalytics(): Promise<AnalyticsData> {
     pipeline,
     // Most-discovered source first; the funnel table reads top-down.
     bySource: [...bySource.values()].sort((a, b) => b.jobs - a.jobs),
+    llmSpend: [...spendByPurpose.values()].sort((a, b) => b.promptTokens + b.completionTokens - (a.promptTokens + a.completionTokens)),
   };
 }

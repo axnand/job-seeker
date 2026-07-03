@@ -244,7 +244,7 @@ async function completeScoring(
     try {
       const result = await chatCompletion(
         messages,
-        { temperature: 0.2, response_format: { type: "json_object" } },
+        { temperature: 0.2, response_format: { type: "json_object" }, purpose: "scoring" },
         providerId
       );
       const parsed = parseJsonResponse<Partial<ParsedScoring>>(result.text);

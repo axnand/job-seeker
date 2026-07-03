@@ -78,7 +78,7 @@ export async function proposeEdits(input: {
   for (let attempt = 0; attempt < 2; attempt++) {
     const result = await chatCompletion(
       messages,
-      { temperature: 0.2, response_format: { type: "json_object" } },
+      { temperature: 0.2, response_format: { type: "json_object" }, purpose: "tailoring" },
       input.providerId
     );
     edits = coerce(parseJsonResponse<RawProposal>(result.text));
@@ -119,7 +119,7 @@ export async function repairCompileError(
       },
       { role: "user", content: `## Compiler log\n${compilerLog.slice(0, 3000)}\n\n## Document\n${brokenTex}` },
     ],
-    { temperature: 0, response_format: { type: "json_object" }, max_tokens: 8192 },
+    { temperature: 0, response_format: { type: "json_object" }, max_tokens: 8192, purpose: "tailor_repair" },
     providerId
   );
   try {

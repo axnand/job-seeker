@@ -25,8 +25,19 @@ const STAGE_DOT: Record<AppStage, string> = {
 const pct = (n: number | null) => (n === null ? "—" : `${Math.round(n * 100)}%`);
 const ratio = (num: number, den: number) => (den > 0 ? `${Math.round((num / den) * 100)}%` : "—");
 
+const PURPOSE_LABEL: Record<string, string> = {
+  scoring: "Job scoring",
+  tailoring: "Resume tailoring",
+  tailor_repair: "Tailoring repairs",
+  post_extraction: "Post extraction",
+  other: "Other",
+};
+
+const usd = (v: number | null) => (v === null ? "—" : `$${v.toFixed(2)}`);
+const tok = (v: number) => (v >= 1_000_000 ? `${(v / 1_000_000).toFixed(1)}M` : v >= 1_000 ? `${(v / 1_000).toFixed(1)}K` : String(v));
+
 export default async function AnalyticsPage() {
-  const { totals, pipeline, bySource } = await computeAnalytics();
+  const { totals, pipeline, bySource, llmSpend } = await computeAnalytics();
 
   const tiles: { label: string; value: string; color: string }[] = [
     { label: "Total jobs",       value: totals.jobs.toLocaleString(),   color: "text-zinc-900" },
@@ -121,6 +132,42 @@ export default async function AnalyticsPage() {
                       <td className="px-3 py-2.5 text-right text-indigo-600 font-medium">{r.accepted.toLocaleString()}</td>
                       <td className="px-3 py-2.5 text-right text-emerald-600 font-semibold">{r.replied.toLocaleString()}</td>
                       <td className="px-5 py-2.5 text-right text-zinc-600">{ratio(r.replied, r.invitesSent)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* ── LLM spend (30 days) ─────────────────────────────────────── */}
+        <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-zinc-100">
+            <h2 className="text-sm font-semibold text-zinc-700">LLM spend — last 30 days</h2>
+            <p className="text-xs text-zinc-400 mt-0.5">Token usage per purpose; cost is an estimate from public pricing.</p>
+          </div>
+          {llmSpend.length === 0 ? (
+            <p className="px-5 py-6 text-xs text-zinc-400">No usage recorded yet — the ledger fills as LLM calls run.</p>
+          ) : (
+            <div className="overflow-x-auto scrollbar-slim">
+              <table className="w-full text-sm tabular-nums">
+                <thead>
+                  <tr className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest border-b border-zinc-100">
+                    <th className="text-left font-semibold px-5 py-2.5">Purpose</th>
+                    <th className="text-right font-semibold px-3 py-2.5">Calls</th>
+                    <th className="text-right font-semibold px-3 py-2.5">Input tokens</th>
+                    <th className="text-right font-semibold px-3 py-2.5">Output tokens</th>
+                    <th className="text-right font-semibold px-5 py-2.5">Est. cost</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-50">
+                  {llmSpend.map((r) => (
+                    <tr key={r.purpose} className="hover:bg-zinc-50/60 transition-colors">
+                      <td className="px-5 py-2.5 text-left font-medium text-zinc-800">{PURPOSE_LABEL[r.purpose] ?? r.purpose}</td>
+                      <td className="px-3 py-2.5 text-right text-zinc-700">{r.calls.toLocaleString()}</td>
+                      <td className="px-3 py-2.5 text-right text-zinc-500">{tok(r.promptTokens)}</td>
+                      <td className="px-3 py-2.5 text-right text-zinc-500">{tok(r.completionTokens)}</td>
+                      <td className="px-5 py-2.5 text-right text-indigo-600 font-medium">{usd(r.estCostUsd)}</td>
                     </tr>
                   ))}
                 </tbody>

@@ -46,6 +46,20 @@ model AiProvider {
   updatedAt    DateTime @updatedAt
 }
 
+// ─── LLM usage ledger (one row per successful completion call) ───────────────
+
+model LlmUsage {
+  id               String   @id @default(cuid())
+  createdAt        DateTime @default(now())
+  model            String
+  purpose          String   // "scoring" | "tailoring" | "tailor_repair" | "post_extraction" | "other"
+  promptTokens     Int
+  completionTokens Int
+
+  @@index([createdAt])
+  @@index([purpose])
+}
+
 // ─── Contact (one row per LinkedIn human) ────────────────────────────────────
 
 model Contact {
