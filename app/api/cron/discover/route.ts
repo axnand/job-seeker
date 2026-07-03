@@ -14,6 +14,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { discoverJobs } from "@/sources/registry";
 import { scoreJob } from "@/scoring/ai-scorer";
+import { triageJob } from "@/scoring/triage";
 import { computePriority } from "@/scoring/priority";
 import { normalizeSalary } from "@/salary/normalize";
 import { dedupeKey } from "@/sources/normalize";
@@ -39,6 +40,12 @@ const NON_ENG = /\b(sales|account executive|recruiter|talent|copywriter|content 
 // it even when NON_ENG also matches — so "Backend Engineer, Sales Platform" or
 // "Software Engineer (Marketing Tools)" aren't wrongly dropped before scoring.
 const ENG_OVERRIDE = /\b(software|back.?end|front.?end|full.?stack|sde|sdet|developer|programmer|devops|platform engineer|infrastructure|data engineer|ml engineer|machine learning|software development)\b/i;
+
+// Title-level hard rejects — pure noise for an early-career candidate; the AI
+// rubric would score these 0-25 anyway, so dropping them here saves the whole
+// LLM call. Titles only (a JD *mentioning* "senior engineers" is fine).
+// NOTE: "SDE II"/"Engineer II" stay (acceptable per profile); III+ rejects.
+const TITLE_REJECT = /\b(senior|staff|principal|lead|architect|manager|director|head of|vp|vice president|chief|sr\.?)\b|\b(?:iii|iv)\b|\b(1[0-9]|[5-9])\s*\+\s*(?:years|yrs)\b|\b(intern|internship|apprentice|trainee|part.?time|freelance|contract(?:or)?)\b/i;
 
 export const maxDuration = 300; // allow long runs on Vercel Pro; hobby caps at 60s
 
@@ -104,12 +111,17 @@ async function runDiscover() {
     // Freshness window — only score jobs posted within recencyDays.
     const maxPostedAge = settings.search.recencyDays * 24 * 60 * 60 * 1000;
 
-    // Drop old postings + obvious non-engineering roles before scoring
+    // Drop old postings + obvious non-engineering/seniority-mismatched roles
+    // before scoring — every drop here is a whole LLM call saved.
     const afterTitleFilter = rawJobs.filter(job => {
       if (NON_ENG.test(job.role) && !ENG_OVERRIDE.test(job.role)) return false;
+      if (TITLE_REJECT.test(job.role)) return false;
       if (!job.postedAt) return true;                       // unknown age — keep
       return now.getTime() - job.postedAt.getTime() < maxPostedAge;
     });
+    if (afterTitleFilter.length < rawJobs.length) {
+      console.log(`[discover] title filters dropped ${rawJobs.length - afterTitleFilter.length} of ${rawJobs.length}`);
+    }
 
     // Blacklist — companies explicitly excluded (low pay, bad fit, etc.)
     const blacklist = settings.search.blacklistedCompanies.map(c => c.toLowerCase());
@@ -126,12 +138,60 @@ async function runDiscover() {
     // only what we can confirm is too small.
     const eligible = await filterByCompanySize(afterBlacklist);
 
-    console.log(`[discover] scoring all ${eligible.length} eligible jobs (concurrency ${SCORE_CONCURRENCY})`);
+    // Cheap-model triage — rejects obvious mismatches (seniority/role/location,
+    // never pay) before the expensive scoring call. Fails open per job.
+    const triagePassed: typeof eligible = [];
+    const triageRejected: Array<{ raw: typeof eligible[number]; reason: string }> = [];
+    const TRIAGE_CONCURRENCY = 8;
+    for (let i = 0; i < eligible.length; i += TRIAGE_CONCURRENCY) {
+      const chunk = eligible.slice(i, i + TRIAGE_CONCURRENCY);
+      const verdicts = await Promise.all(chunk.map(raw =>
+        triageJob({
+          company: raw.company,
+          role: raw.role,
+          location: raw.location ?? null,
+          jdText: raw.jdText,
+          profile: { seniorityLevel: settings.profile.seniorityLevel, targetRoles: settings.profile.targetRoles },
+          model: settings.ai.triageModel,
+        }).then(v => ({ raw, v }))
+      ));
+      for (const { raw, v } of verdicts) {
+        if (v.pass) triagePassed.push(raw);
+        else triageRejected.push({ raw, reason: v.reason });
+      }
+    }
 
-    // Score EVERYTHING — no cap. Run in small parallel chunks for speed.
+    // Persist triage rejects as SKIPPED (keeps cross-run dedupe working) —
+    // minimal rows, no pitch/salary, ~1/50th the LLM cost of a full score.
+    for (const { raw, reason } of triageRejected) {
+      await prisma.job.create({
+        data: {
+          source: raw.source,
+          company: raw.company,
+          role: raw.role,
+          jdText: raw.jdText,
+          applyUrl: raw.applyUrl,
+          location: raw.location,
+          jobProviderId: raw.jobProviderId,
+          sourcePostUrl: raw.sourcePostUrl,
+          dedupeKey: dedupeKey(raw.company, raw.role, raw.location),
+          applyType: raw.applyType,
+          sourcePostAuthorUrl: raw.sourcePostAuthorUrl,
+          sourcePostAuthorName: raw.sourcePostAuthorName,
+          externalJobId: raw.externalJobId,
+          postedAt: raw.postedAt,
+          aiReason: `Triage (cheap-model pre-filter): ${reason}`,
+          appStage: "SKIPPED",
+        },
+      }).catch(e => console.error(`[discover] persisting triage reject failed:`, e));
+    }
+
+    console.log(`[discover] triage: ${triagePassed.length} passed, ${triageRejected.length} rejected; scoring survivors (concurrency ${SCORE_CONCURRENCY})`);
+
+    // Full scoring for triage survivors. Run in small parallel chunks for speed.
     const scored: Array<{ raw: typeof eligible[number]; result: Awaited<ReturnType<typeof scoreJob>> }> = [];
-    for (let i = 0; i < eligible.length; i += SCORE_CONCURRENCY) {
-      const chunk = eligible.slice(i, i + SCORE_CONCURRENCY);
+    for (let i = 0; i < triagePassed.length; i += SCORE_CONCURRENCY) {
+      const chunk = triagePassed.slice(i, i + SCORE_CONCURRENCY);
       const results = await Promise.allSettled(
         chunk.map(raw => scoreJob({
           jdText: raw.jdText,

@@ -174,6 +174,10 @@ Targeting: entry-level / SDE-1 / junior software engineering roles at strong pro
     // gpt-4.1 (not 4o-mini): far better world-knowledge of company pay bands, so
     // salary estimates for unstated-pay roles are calibrated instead of optimistic.
     defaultModel: "gpt-4.1" as string,
+    // Cheap model for the pre-scoring triage pass (seniority/role/location only,
+    // never pay) — most discovered jobs are rejects, so they die at ~1/10th the
+    // tokens on a ~5x cheaper model instead of paying the flagship price.
+    triageModel: process.env.TRIAGE_MODEL ?? "gpt-4.1-mini",
     fallbackApiKey: process.env.OPENAI_API_KEY ?? "",
     enableResumeTailoring: false,
   },

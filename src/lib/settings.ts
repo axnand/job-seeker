@@ -64,6 +64,7 @@ export interface AppSettingsData {
   ai: {
     enableResumeTailoring: boolean;
     defaultModel:          string;
+    triageModel:           string; // cheap pre-scoring pass (see src/scoring/triage.ts)
   };
   // Machine-owned operational markers (not user-facing settings).
   ops: {
@@ -126,6 +127,7 @@ function defaults(): AppSettingsData {
     ai: {
       enableResumeTailoring: c.ai.enableResumeTailoring,
       defaultModel:          c.ai.defaultModel,
+      triageModel:           c.ai.triageModel,
     },
     ops: {
       lastWeeklyReportAt: null,

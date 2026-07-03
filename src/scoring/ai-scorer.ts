@@ -244,7 +244,10 @@ async function completeScoring(
     try {
       const result = await chatCompletion(
         messages,
-        { temperature: 0.2, response_format: { type: "json_object" }, purpose: "scoring" },
+        // max_tokens caps runaway JSON (normal output is ~400-500 tokens).
+        // The static system prompt is >1024 tokens, so OpenAI auto-caches it
+        // across the run's calls (50-75% off cached input) — keep it byte-stable.
+        { temperature: 0.2, response_format: { type: "json_object" }, purpose: "scoring", max_tokens: 900 },
         providerId
       );
       const parsed = parseJsonResponse<Partial<ParsedScoring>>(result.text);

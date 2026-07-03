@@ -20,6 +20,8 @@ export interface ChatCompletionOptions {
   response_format?: { type: "json_object" | "text" };
   /** Spend-ledger label ("scoring", "tailoring", …) — recorded in LlmUsage. */
   purpose?: string;
+  /** Override the provider's model for this call (e.g. cheap triage model). */
+  model?: string;
 }
 
 export interface ChatCompletionResult {
@@ -73,6 +75,7 @@ export async function chatCompletion(
   providerId?: string
 ): Promise<ChatCompletionResult> {
   const provider = await loadProvider(providerId);
+  if (opts.model) provider.model = opts.model;
 
   const result = provider.providerType === "anthropic"
     ? await callAnthropic(provider, messages, opts)

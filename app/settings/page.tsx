@@ -403,6 +403,9 @@ export default function SettingsPage() {
             <Field label="Default model" hint="Used for scoring + salary extraction on every job. Ignored if a default AI provider is configured in the database (AiProvider table) — that provider's model wins.">
               <ModelPicker value={s.ai.defaultModel} onChange={v => ai({ defaultModel: v })} />
             </Field>
+            <Field label="Triage model" hint="Cheap pre-filter that rejects obvious mismatches (seniority/role/location — never pay) before the expensive scoring call. Most jobs are rejects, so this is where the cost savings live.">
+              <ModelPicker value={s.ai.triageModel} onChange={v => ai({ triageModel: v })} />
+            </Field>
           </div>
         </Section>
       )}
@@ -438,6 +441,7 @@ function normalizeSlug(input: string): string {
 const MODEL_OPTIONS: { value: string; label: string }[] = [
   { value: "gpt-4.1",      label: "gpt-4.1 — best salary calibration (recommended)" },
   { value: "gpt-4.1-mini", label: "gpt-4.1-mini — cheaper, weaker pay-band knowledge" },
+  { value: "gpt-4.1-nano", label: "gpt-4.1-nano — cheapest, triage-grade only" },
   { value: "gpt-4o",       label: "gpt-4o" },
   { value: "gpt-4o-mini",  label: "gpt-4o-mini — cheapest, optimistic salary guesses" },
   { value: "o4-mini",      label: "o4-mini — reasoning model, slower" },
