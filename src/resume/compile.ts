@@ -24,12 +24,17 @@ function trimLog(log: string, max = 4000): string {
   return slice.length <= max ? slice : slice.slice(-max);
 }
 
+/** fontspec/\setmainfont documents hard-fail under pdflatex — they need XeLaTeX. */
+function compilerFor(tex: string): "pdflatex" | "xelatex" {
+  return /\\usepackage(\[[^\]]*\])?\{fontspec\}|\\setmainfont/.test(tex) ? "xelatex" : "pdflatex";
+}
+
 async function compileViaYtotech(tex: string): Promise<CompileResult> {
   const res = await fetch(YTOTECH_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      compiler: "pdflatex",
+      compiler: compilerFor(tex),
       resources: [{ main: true, content: tex }],
     }),
     signal: AbortSignal.timeout(90_000),
@@ -60,7 +65,7 @@ async function compileViaLatexOnline(tex: string): Promise<CompileResult> {
   if (tex.length > 6000) {
     return { ok: false, log: "latexonline fallback skipped: document too large for GET", provider: "latexonline" };
   }
-  const url = `${LATEXONLINE_URL}?text=${encodeURIComponent(tex)}`;
+  const url = `${LATEXONLINE_URL}?text=${encodeURIComponent(tex)}&command=${compilerFor(tex)}`;
   const res = await fetch(url, { signal: AbortSignal.timeout(90_000) });
   if (res.ok) {
     const buf = Buffer.from(await res.arrayBuffer());
