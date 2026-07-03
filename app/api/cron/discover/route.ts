@@ -21,7 +21,7 @@ import { sendDailyDigest } from "@/email/digest";
 import { sendFriendDigest } from "@/email/friend-digest";
 import { sendScoringFailureAlert } from "@/email/alerts";
 import { enqueueOutreach } from "@/outreach/enqueue";
-import { getSettings } from "@/lib/settings";
+import { getSettings, updateSettings } from "@/lib/settings";
 import { withCronLock } from "@/lib/cron-lock";
 import { sweepStaleJobs } from "@/status/staleness";
 import { sweepPendingTailoring } from "@/resume/pipeline";
@@ -263,6 +263,23 @@ async function runDiscover() {
             console.error(`[discover] friend digest failed for ${recipient.email}:`, e))
         )
       );
+    }
+
+    // Weekly analytics report — first discover run of an IST Monday. Gated by
+    // ops.lastWeeklyReportAt so re-runs and multiple daily runs don't double-send.
+    try {
+      const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+      const last = settings.ops.lastWeeklyReportAt ? new Date(settings.ops.lastWeeklyReportAt) : null;
+      const daysSince = last ? (Date.now() - last.getTime()) / 86_400_000 : Infinity;
+      if (istNow.getUTCDay() === 1 && daysSince > 6) {
+        const { computeAnalytics } = await import("@/analytics/aggregate");
+        const { sendWeeklyReport } = await import("@/email/weekly-report");
+        await sendWeeklyReport(await computeAnalytics());
+        await updateSettings({ ops: { lastWeeklyReportAt: new Date().toISOString() } });
+        console.log("[discover] weekly report sent");
+      }
+    } catch (e) {
+      console.error("[discover] weekly report failed:", e);
     }
 
     // Auto-tailor resumes for this run's needsTailoring jobs (they were just

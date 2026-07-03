@@ -65,6 +65,10 @@ export interface AppSettingsData {
     enableResumeTailoring: boolean;
     defaultModel:          string;
   };
+  // Machine-owned operational markers (not user-facing settings).
+  ops: {
+    lastWeeklyReportAt?: string | null; // ISO — gates the Monday analytics email
+  };
 }
 
 function defaults(): AppSettingsData {
@@ -123,6 +127,9 @@ function defaults(): AppSettingsData {
       enableResumeTailoring: c.ai.enableResumeTailoring,
       defaultModel:          c.ai.defaultModel,
     },
+    ops: {
+      lastWeeklyReportAt: null,
+    },
   };
 }
 
@@ -138,6 +145,7 @@ function merge(base: AppSettingsData, db: Partial<AppSettingsData>): AppSettings
     feedAuthors:     db.feedAuthors ?? base.feedAuthors,
     templates:       { ...base.templates,  ...(db.templates ?? {}) },
     ai:              { ...base.ai,        ...(db.ai        ?? {}) },
+    ops:             { ...base.ops,       ...(db.ops       ?? {}) },
   };
 }
 
