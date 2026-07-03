@@ -5,7 +5,7 @@
   "description": "Personal job-search automation tool",
   "scripts": {
     "dev": "next dev",
-    "build": "prisma db push && next build",
+    "build": "prisma generate && (prisma db push || echo '[build] prisma db push failed (DB unreachable or DIRECT_URL unset) — deploying with the existing DB schema') && next build",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
