@@ -6,7 +6,9 @@ import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Pause, Play, Clock, Lock } from "lucide-react";
+import { Select, SelectTrigger, SelectContent, SelectItem } from "@/components/ui/select";
+import { PageHeader } from "@/components/page-header";
+import { Pause, Play, Clock, Lock, SlidersHorizontal, Check, X, CircleX } from "lucide-react";
 import type { AppSettingsData } from "@/lib/settings";
 
 type Tab = "sources" | "search" | "outreach" | "ai";
@@ -52,8 +54,8 @@ export default function SettingsPage() {
   }, []);
 
   if (!s) return (
-    <div className="flex items-center justify-center h-64">
-      <div className="w-6 h-6 rounded-full border-2 border-zinc-200 border-t-zinc-800 animate-spin" />
+    <div className="flex flex-1 items-center justify-center">
+      <div className="w-6 h-6 rounded-full border-2 border-zinc-200 border-t-primary animate-spin" />
     </div>
   );
 
@@ -66,13 +68,11 @@ export default function SettingsPage() {
   const tpl = (v: Partial<typeof s.templates>) => save({ ...s, templates: { ...s.templates, ...v } });
 
   return (
-    <div className="max-w-3xl mx-auto px-6 py-8 space-y-6">
+    <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
+      <PageHeader title="Settings" subtitle="Changes save instantly" icon={<SlidersHorizontal className="size-4" />} />
 
-      {/* Title */}
-      <div>
-        <h1 className="text-xl font-bold text-zinc-900">Settings</h1>
-        <p className="text-sm text-zinc-400 mt-0.5">Changes save instantly.</p>
-      </div>
+      <div className="flex-1 overflow-y-auto scrollbar-slim">
+        <div className="max-w-3xl mx-auto px-6 py-8 space-y-6">
 
       {/* Tab bar */}
       <div className="flex items-center gap-0.5 border-b border-zinc-200">
@@ -82,7 +82,7 @@ export default function SettingsPage() {
             onClick={() => setTab(t.key)}
             className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
               tab === t.key
-                ? "border-zinc-900 text-zinc-900"
+                ? "border-primary text-primary"
                 : "border-transparent text-zinc-400 hover:text-zinc-700"
             }`}
           >
@@ -129,20 +129,22 @@ export default function SettingsPage() {
                 <span className="font-medium text-zinc-800">{c.name}</span>
                 <span className="text-[10px] uppercase tracking-wide text-zinc-400 bg-zinc-100 rounded px-1.5 py-0.5">{c.ats}</span>
                 <span className="text-xs text-zinc-400 font-mono truncate">{c.boardToken}</span>
-                <button onClick={() => tc(s.targetCompanies.filter((_, j) => j !== i))}
-                  className="ml-auto text-zinc-400 hover:text-red-600 transition-colors shrink-0">×</button>
+                <button onClick={() => tc(s.targetCompanies.filter((_, j) => j !== i))} aria-label="Remove"
+                  className="ml-auto text-zinc-400 hover:text-red-600 transition-colors shrink-0"><X className="size-3.5" /></button>
               </div>
             ))}
           </div>
           <div className="flex gap-2">
             <Input value={tcForm.name} onChange={e => setTcForm(f => ({ ...f, name: e.target.value }))}
               placeholder="Company" className="text-sm flex-1" />
-            <select value={tcForm.ats} onChange={e => setTcForm(f => ({ ...f, ats: e.target.value as typeof f.ats }))}
-              className="text-sm border border-zinc-200 rounded-md px-2 bg-white text-zinc-600 cursor-pointer">
-              <option value="greenhouse">Greenhouse</option>
-              <option value="lever">Lever</option>
-              <option value="ashby">Ashby</option>
-            </select>
+            <Select value={tcForm.ats} onValueChange={(v: string | null) => { if (v) setTcForm(f => ({ ...f, ats: v as typeof f.ats })); }}>
+              <SelectTrigger className="text-sm capitalize">{tcForm.ats}</SelectTrigger>
+              <SelectContent>
+                <SelectItem value="greenhouse">Greenhouse</SelectItem>
+                <SelectItem value="lever">Lever</SelectItem>
+                <SelectItem value="ashby">Ashby</SelectItem>
+              </SelectContent>
+            </Select>
             <Input value={tcForm.boardToken} onChange={e => setTcForm(f => ({ ...f, boardToken: e.target.value }))}
               placeholder="board token" className="text-sm w-32 font-mono" />
             <Button variant="outline" size="sm"
@@ -169,8 +171,8 @@ export default function SettingsPage() {
               <div key={`${a.publicId}:${i}`} className="flex items-center gap-2 text-sm bg-zinc-50 border border-zinc-100 rounded-lg px-3 py-2">
                 <span className="font-medium text-zinc-800">{a.name}</span>
                 <span className="text-xs text-zinc-400 font-mono truncate">linkedin.com/in/{a.publicId}</span>
-                <button onClick={() => fa(s.feedAuthors.filter((_, j) => j !== i))}
-                  className="ml-auto text-zinc-400 hover:text-red-600 transition-colors shrink-0">×</button>
+                <button onClick={() => fa(s.feedAuthors.filter((_, j) => j !== i))} aria-label="Remove"
+                  className="ml-auto text-zinc-400 hover:text-red-600 transition-colors shrink-0"><X className="size-3.5" /></button>
               </div>
             ))}
           </div>
@@ -201,8 +203,8 @@ export default function SettingsPage() {
               {s.search.keywords.map(k => (
                 <span key={k} className="inline-flex items-center gap-1 text-xs bg-zinc-100 text-zinc-700 rounded-lg px-2.5 py-1.5 font-medium">
                   {k}
-                  <button onClick={() => sch({ keywords: s.search.keywords.filter(x => x !== k) })}
-                    className="text-zinc-400 hover:text-zinc-700 ml-0.5">×</button>
+                  <button onClick={() => sch({ keywords: s.search.keywords.filter(x => x !== k) })} aria-label="Remove"
+                    className="text-zinc-400 hover:text-zinc-700 ml-0.5 inline-flex"><X className="size-3" /></button>
                 </span>
               ))}
             </div>
@@ -253,8 +255,8 @@ export default function SettingsPage() {
                   {s.search.blacklistedCompanies.map(c => (
                     <span key={c} className="inline-flex items-center gap-1 text-xs bg-red-50 text-red-700 border border-red-200 rounded-lg px-2.5 py-1.5">
                       {c}
-                      <button onClick={() => sch({ blacklistedCompanies: s.search.blacklistedCompanies.filter(x=>x!==c) })}
-                        className="text-red-400 hover:text-red-700 ml-0.5">×</button>
+                      <button onClick={() => sch({ blacklistedCompanies: s.search.blacklistedCompanies.filter(x=>x!==c) })} aria-label="Remove"
+                        className="text-red-400 hover:text-red-700 ml-0.5 inline-flex"><X className="size-3" /></button>
                     </span>
                   ))}
                   {s.search.blacklistedCompanies.length === 0 && <p className="text-xs text-zinc-400">No companies blocked</p>}
@@ -410,11 +412,13 @@ export default function SettingsPage() {
         <div className={`fixed bottom-6 right-6 flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium shadow-lg z-50 transition-all ${saveError ? "bg-red-600 text-white" : saved ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-600"}`}>
           {saving
             ? <><div className="w-3.5 h-3.5 rounded-full border-2 border-zinc-300 border-t-zinc-600 animate-spin" /> Saving…</>
-            : saveError ? "✗ Save failed — check your connection"
-            : "✓ Saved"
+            : saveError ? <><CircleX className="size-4" /> Save failed — check your connection</>
+            : <><Check className="size-4" /> Saved</>
           }
         </div>
       )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -443,20 +447,29 @@ function ModelPicker({ value, onChange }: { value: string; onChange: (v: string)
   const isPreset = MODEL_OPTIONS.some(o => o.value === value);
   const [custom, setCustom] = useState(!isPreset);
 
+  const currentLabel = custom
+    ? "Custom…"
+    : (MODEL_OPTIONS.find(o => o.value === value)?.label ?? value);
+
   return (
     <div className="space-y-2">
-      <select
+      <Select
         value={custom ? "__custom__" : value}
-        onChange={e => {
-          if (e.target.value === "__custom__") { setCustom(true); return; }
+        onValueChange={(v: string | null) => {
+          if (!v) return;
+          if (v === "__custom__") { setCustom(true); return; }
           setCustom(false);
-          onChange(e.target.value);
+          onChange(v);
         }}
-        className="w-full h-9 border border-zinc-200 rounded-lg px-3 text-sm bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-300 focus:border-transparent"
       >
-        {MODEL_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-        <option value="__custom__">Custom…</option>
-      </select>
+        <SelectTrigger className="w-full h-9 text-sm">
+          <span className="truncate">{currentLabel}</span>
+        </SelectTrigger>
+        <SelectContent>
+          {MODEL_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+          <SelectItem value="__custom__">Custom…</SelectItem>
+        </SelectContent>
+      </Select>
       {custom && (
         <Input
           defaultValue={isPreset ? "" : value}
@@ -498,7 +511,7 @@ function TemplateField({ label, hint, defaultValue, maxLength, onCommit }: {
         maxLength={maxLength}
         rows={label === "Connection note" ? 3 : 5}
         onBlur={e => { if (e.target.value !== defaultValue) onCommit(e.target.value); }}
-        className="w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-300 focus:border-transparent leading-relaxed font-mono"
+        className="w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-ring/50 focus:border-ring leading-relaxed font-mono"
       />
     </div>
   );
