@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { CircleX, X, Upload, FileUp, FileText, Info } from "lucide-react";
+import { CircleX, X, Upload, FileUp, FileText, FileCode2, Info, Check, Loader2 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 
 type BaseResume = { baseResumeKey: string | null; name: string | null; url: string | null };
+type MasterInfo = { hasMasterTex: boolean; vocabularySize: number; updatedAt: string | null };
 
 export default function ResumePage() {
   const [resume, setResume] = useState<BaseResume | null>(null);
@@ -12,9 +13,46 @@ export default function ResumePage() {
   const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // Master LaTeX resume (source for automated tailoring)
+  const [master, setMaster] = useState<MasterInfo | null>(null);
+  const [masterTex, setMasterTex] = useState("");
+  const [savingTex, setSavingTex] = useState(false);
+  const [texSaved, setTexSaved] = useState(false);
+  const [texError, setTexError] = useState<string | null>(null);
+  const [compileLog, setCompileLog] = useState<string | null>(null);
+
   useEffect(() => {
     fetch("/api/resume/base").then(r => r.json()).then(setResume).catch(() => setResume({ baseResumeKey: null, name: null, url: null }));
+    fetch("/api/resume/master").then(r => r.json()).then(setMaster).catch(() => setMaster({ hasMasterTex: false, vocabularySize: 0, updatedAt: null }));
   }, []);
+
+  async function saveMasterTex() {
+    if (!masterTex.trim()) return;
+    setSavingTex(true);
+    setTexError(null);
+    setCompileLog(null);
+    setTexSaved(false);
+    try {
+      const res = await fetch("/api/resume/master", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ masterTex }),
+      });
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.ok) {
+        setMaster({ hasMasterTex: true, vocabularySize: data.vocabularySize ?? 0, updatedAt: new Date().toISOString() });
+        setTexSaved(true);
+        setTimeout(() => setTexSaved(false), 6000);
+      } else {
+        setTexError(data?.error ?? `Save failed (HTTP ${res.status}).`);
+        if (data?.compileLog) setCompileLog(data.compileLog);
+      }
+    } catch {
+      setTexError("Save failed — check your connection and try again.");
+    } finally {
+      setSavingTex(false);
+    }
+  }
 
   async function upload(file: File) {
     setUploading(true);
@@ -90,6 +128,73 @@ export default function ResumePage() {
 
             <input ref={fileRef} type="file" accept="application/pdf" className="hidden"
               onChange={e => { const f = e.target.files?.[0]; if (f) upload(f); }} />
+
+            <p className="text-xs text-zinc-400 mt-3">
+              The PDF stays as the outreach fallback — it&apos;s what gets sent when a job needs no tailoring
+              (or tailoring fails).
+            </p>
+          </div>
+
+          {/* Master LaTeX resume card — source for automated tailoring */}
+          <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm p-6">
+            <div className="flex items-center justify-between gap-3 mb-1.5">
+              <p className="flex items-center gap-1.5 text-xs font-semibold text-zinc-400 uppercase tracking-widest">
+                <FileCode2 className="size-3.5 text-primary" /> Master LaTeX resume
+              </p>
+              {master?.hasMasterTex && (
+                <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md px-2 py-0.5">
+                  <Check className="size-3" /> Saved
+                  {master.vocabularySize > 0 && ` · ${master.vocabularySize.toLocaleString()} vocabulary terms`}
+                  {master.updatedAt && ` · ${new Date(master.updatedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}`}
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-zinc-500 leading-relaxed mb-4">
+              Paste the complete .tex source. It&apos;s compile-checked before saving, and its wording becomes the
+              truthfulness vocabulary — auto-tailoring can only rephrase what&apos;s already here, never invent claims.
+            </p>
+
+            <textarea
+              value={masterTex}
+              onChange={e => setMasterTex(e.target.value)}
+              rows={12}
+              spellCheck={false}
+              placeholder={"\\documentclass{article}\n…paste your full LaTeX resume source…\n\\begin{document}\n…\n\\end{document}"}
+              className="w-full rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-xs font-mono leading-relaxed resize-y outline-none focus:ring-2 focus:ring-ring/40 focus:border-ring placeholder:text-zinc-400 transition"
+            />
+
+            <div className="flex items-center gap-3 mt-3">
+              <button
+                onClick={saveMasterTex}
+                disabled={savingTex || !masterTex.trim()}
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-primary-foreground bg-primary hover:bg-primary/90 rounded-lg px-3 py-2 transition-colors disabled:opacity-60"
+              >
+                {savingTex
+                  ? <><Loader2 className="size-3.5 animate-spin" /> Compiling…</>
+                  : <><Upload className="size-3.5" /> {master?.hasMasterTex ? "Replace master .tex" : "Save master .tex"}</>}
+              </button>
+              {texSaved && master && (
+                <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700">
+                  <Check className="size-3.5" /> Compiled &amp; saved — {master.vocabularySize.toLocaleString()} vocabulary terms
+                </span>
+              )}
+              {texError && !compileLog && (
+                <span className="inline-flex items-center gap-1 text-xs font-medium text-red-600">
+                  <CircleX className="size-3.5" /> {texError}
+                </span>
+              )}
+            </div>
+
+            {compileLog && (
+              <div className="mt-3 rounded-xl border border-red-200 bg-red-50 overflow-hidden">
+                <p className="flex items-center gap-1.5 text-xs font-semibold text-red-700 px-4 pt-3">
+                  <CircleX className="size-3.5 shrink-0" /> {texError ?? "Master resume does not compile"}
+                </p>
+                <pre className="text-[11px] text-red-900/80 font-mono leading-relaxed whitespace-pre-wrap px-4 py-3 max-h-64 overflow-y-auto scrollbar-slim">
+                  {compileLog}
+                </pre>
+              </div>
+            )}
           </div>
 
           <div className="flex gap-3 bg-indigo-50/60 border border-indigo-100 rounded-xl p-4">

@@ -15,6 +15,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
+import { TailoringSection } from "@/components/tailoring-section";
 
 const PERIOD_LABEL: Record<string, string> = {
   YEAR: "/yr", MONTH: "/mo", HOUR: "/hr",
@@ -341,6 +342,15 @@ export default async function JobDetailPage({
               ))}
             </form>
           </div>
+        )}
+
+        {/* Auto-tailoring — surgical resume edits for this JD */}
+        {job.needsTailoring && (
+          <TailoringSection
+            jobId={job.id}
+            tailorLog={job.tailorLog}
+            tailoredResumeKey={job.tailoredResumeKey}
+          />
         )}
 
         {/* Outreach — review drafts + track threads */}
