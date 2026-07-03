@@ -84,7 +84,16 @@ const THREAD_PHASE_LABEL: Record<string, string> = {
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
+// Full stage list, kept for safety / type coverage. NEW is never its own board
+// column (discover auto-approves, so NEW is permanently empty) — any stray NEW
+// job folds into the Approved column via boardStageOf below.
 const STAGES: AppStage[] = ["NEW","APPROVED","OUTREACH","REPLIED","APPLIED","INTERVIEWING","OFFER"];
+
+// The columns actually rendered on the board.
+const BOARD_STAGES: AppStage[] = ["APPROVED","OUTREACH","REPLIED","APPLIED","INTERVIEWING","OFFER"];
+
+// Which board column a job lands in — NEW is folded into Approved.
+const boardStageOf = (stage: AppStage): AppStage => (stage === "NEW" ? "APPROVED" : stage);
 
 // Post-referral milestones the owner drives by hand once a target has replied.
 const PIPELINE_STAGES: { stage: AppStage; action: string; label: string }[] = [
@@ -95,14 +104,14 @@ const PIPELINE_STAGES: { stage: AppStage; action: string; label: string }[] = [
 ];
 
 const STAGE_META: Record<AppStage, { label: string; accent: string; headerBorder: string; lane: string; badge: string }> = {
-  NEW:          { label:"New",          accent:"bg-zinc-400",    headerBorder:"border-l-zinc-300",    lane:"bg-white",         badge:"bg-zinc-100 text-zinc-600"       },
-  APPROVED:     { label:"Approved",     accent:"bg-blue-500",    headerBorder:"border-l-blue-400",    lane:"bg-blue-50/40",    badge:"bg-blue-100 text-blue-700"       },
-  OUTREACH:     { label:"Outreach",     accent:"bg-indigo-500",  headerBorder:"border-l-indigo-400",  lane:"bg-indigo-50/40",  badge:"bg-indigo-100 text-indigo-700"   },
-  REPLIED:      { label:"Replied",      accent:"bg-emerald-500", headerBorder:"border-l-emerald-400", lane:"bg-emerald-50/40", badge:"bg-emerald-100 text-emerald-700" },
-  APPLIED:      { label:"Applied",      accent:"bg-violet-500",  headerBorder:"border-l-violet-400",  lane:"bg-violet-50/40",  badge:"bg-violet-100 text-violet-700"   },
-  INTERVIEWING: { label:"Interviewing", accent:"bg-amber-500",   headerBorder:"border-l-amber-400",   lane:"bg-amber-50/40",   badge:"bg-amber-100 text-amber-800"     },
-  OFFER:        { label:"Offer",        accent:"bg-green-500",   headerBorder:"border-l-green-400",   lane:"bg-green-50/50",   badge:"bg-green-100 text-green-800"     },
-  SKIPPED:      { label:"Skipped",      accent:"bg-zinc-300",    headerBorder:"border-l-zinc-200",    lane:"bg-white",         badge:"bg-zinc-100 text-zinc-500"       },
+  NEW:          { label:"New",          accent:"bg-zinc-400",    headerBorder:"border-l-zinc-300",    lane:"bg-transparent",   badge:"bg-muted text-muted-foreground" },
+  APPROVED:     { label:"Approved",     accent:"bg-blue-500",    headerBorder:"border-l-blue-400",    lane:"bg-blue-50/40 dark:bg-blue-500/[0.06]",    badge:"bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300"       },
+  OUTREACH:     { label:"Outreach",     accent:"bg-indigo-500",  headerBorder:"border-l-indigo-400",  lane:"bg-indigo-50/40 dark:bg-indigo-500/[0.06]",  badge:"bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300"   },
+  REPLIED:      { label:"Replied",      accent:"bg-emerald-500", headerBorder:"border-l-emerald-400", lane:"bg-emerald-50/40 dark:bg-emerald-500/[0.06]", badge:"bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" },
+  APPLIED:      { label:"Applied",      accent:"bg-violet-500",  headerBorder:"border-l-violet-400",  lane:"bg-violet-50/40 dark:bg-violet-500/[0.06]",  badge:"bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300"   },
+  INTERVIEWING: { label:"Interviewing", accent:"bg-amber-500",   headerBorder:"border-l-amber-400",   lane:"bg-amber-50/40 dark:bg-amber-500/[0.06]",   badge:"bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300"     },
+  OFFER:        { label:"Offer",        accent:"bg-green-500",   headerBorder:"border-l-green-400",   lane:"bg-green-50/50 dark:bg-green-500/[0.06]",   badge:"bg-green-100 text-green-800 dark:bg-green-500/15 dark:text-green-300"     },
+  SKIPPED:      { label:"Skipped",      accent:"bg-zinc-300",    headerBorder:"border-l-zinc-200",    lane:"bg-transparent",   badge:"bg-muted text-muted-foreground" },
 };
 
 // Next post-referral milestone for the board's one-click "advance" affordance.
@@ -120,25 +129,25 @@ const SOURCE_LABEL: Record<string, string> = {
 
 const OUTREACH_META: Record<string, { text: string; cls: string }> = {
   NONE:              { text:"",          cls:"" },
-  INVITE_SENT:       { text:"Invite sent", cls:"text-blue-600 bg-blue-50 border-blue-200" },
-  CONNECTED:         { text:"Connected",   cls:"text-blue-600 bg-blue-50 border-blue-200" },
-  MESSAGED:          { text:"Messaged",    cls:"text-indigo-600 bg-indigo-50 border-indigo-200" },
-  REPLIED:           { text:"Replied",     cls:"text-emerald-700 bg-emerald-50 border-emerald-200" },
-  NO_REPLY_ARCHIVED: { text:"No reply",    cls:"text-zinc-500 bg-zinc-100 border-zinc-200" },
+  INVITE_SENT:       { text:"Invite sent", cls:"text-blue-600 bg-blue-50 border-blue-200 dark:text-blue-300 dark:bg-blue-500/10 dark:border-blue-500/30" },
+  CONNECTED:         { text:"Connected",   cls:"text-blue-600 bg-blue-50 border-blue-200 dark:text-blue-300 dark:bg-blue-500/10 dark:border-blue-500/30" },
+  MESSAGED:          { text:"Messaged",    cls:"text-indigo-600 bg-indigo-50 border-indigo-200 dark:text-indigo-300 dark:bg-indigo-500/10 dark:border-indigo-500/30" },
+  REPLIED:           { text:"Replied",     cls:"text-emerald-700 bg-emerald-50 border-emerald-200 dark:text-emerald-300 dark:bg-emerald-500/10 dark:border-emerald-500/30" },
+  NO_REPLY_ARCHIVED: { text:"No reply",    cls:"text-muted-foreground bg-muted border-border" },
 };
 
 // ─── Utils ────────────────────────────────────────────────────────────────────
 
 const scoreClr = (n: number | null) =>
-  n === null ? "bg-zinc-100 text-zinc-400" :
-  n >= 80 ? "bg-green-100 text-green-800" :
-  n >= 60 ? "bg-amber-100 text-amber-800" : "bg-red-100 text-red-700";
+  n === null ? "bg-muted text-muted-foreground" :
+  n >= 80 ? "bg-green-100 text-green-800 dark:bg-green-500/15 dark:text-green-300" :
+  n >= 60 ? "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300" : "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300";
 
 const AVATAR_COLORS = [
-  "bg-blue-100 text-blue-700","bg-violet-100 text-violet-700",
-  "bg-emerald-100 text-emerald-700","bg-amber-100 text-amber-800",
-  "bg-rose-100 text-rose-700","bg-cyan-100 text-cyan-700",
-  "bg-indigo-100 text-indigo-700","bg-orange-100 text-orange-800",
+  "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300","bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300",
+  "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300","bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300",
+  "bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300","bg-cyan-100 text-cyan-700 dark:bg-cyan-500/20 dark:text-cyan-300",
+  "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300","bg-orange-100 text-orange-800 dark:bg-orange-500/20 dark:text-orange-300",
 ];
 const avatarClr = (name: string) => AVATAR_COLORS[name.charCodeAt(0) % 8];
 
@@ -511,21 +520,21 @@ export default function BoardPage() {
       .slice(0, 5);
   }, [jobs]);
 
-  const byStage = STAGES.reduce<Record<string, Job[]>>((a,s) => { a[s]=[]; return a; }, {});
-  for (const j of visible) if (j.appStage !== "SKIPPED" && byStage[j.appStage]) byStage[j.appStage].push(j);
+  // Buckets are keyed by board column; NEW folds into Approved (see boardStageOf).
+  const byStage = BOARD_STAGES.reduce<Record<string, Job[]>>((a,s) => { a[s]=[]; return a; }, {});
+  for (const j of visible) if (j.appStage !== "SKIPPED") byStage[boardStageOf(j.appStage)]?.push(j);
 
   const tw      = Date.now() - 7*24*60*60*1000;
   const replied = jobs.filter(j => j.outreachState === "REPLIED").length;
   const sent    = jobs.filter(j => j.outreachState !== "NONE").length;
 
+  // Five tiles, no overlap: intake → approved → outreach volume → replies → rate.
   const stats = [
-    { label:"Found this week", value: jobs.filter(j => j.appStage !== "SKIPPED" && new Date(j.createdAt).getTime() > tw).length, color:"text-zinc-900" },
-    { label:"Approved",        value: jobs.filter(j => j.appStage === "APPROVED").length,             color:"text-blue-600" },
-    { label:"Outreach sent",   value: sent,                                                            color:"text-indigo-600" },
-    { label:"Replies",         value: replied,                                                         color:"text-emerald-600" },
-    { label:"In outreach",     value: jobs.filter(j => j.appStage === "OUTREACH").length,             color:"text-indigo-600" },
-    { label:"Replied",         value: jobs.filter(j => j.appStage === "REPLIED").length,              color:"text-emerald-600" },
-    { label:"Response rate",   value: sent > 0 ? `${Math.round(replied/sent*100)}%` : "—",            color:"text-zinc-900" },
+    { label:"Found this week", value: jobs.filter(j => j.appStage !== "SKIPPED" && new Date(j.createdAt).getTime() > tw).length, color:"text-foreground" },
+    { label:"Approved",        value: jobs.filter(j => j.appStage === "APPROVED" || j.appStage === "NEW").length, color:"text-blue-600 dark:text-blue-400" },
+    { label:"Outreach sent",   value: sent,                                                            color:"text-indigo-600 dark:text-indigo-400" },
+    { label:"Replies",         value: replied,                                                         color:"text-emerald-600 dark:text-emerald-400" },
+    { label:"Response rate",   value: sent > 0 ? `${Math.round(replied/sent*100)}%` : "—",            color:"text-foreground" },
   ];
 
   const job = detail ?? selected;
@@ -539,11 +548,11 @@ export default function BoardPage() {
   );
 
   return (
-    <div className="flex flex-1 flex-col min-h-0 overflow-hidden bg-zinc-50">
+    <div className="flex flex-1 flex-col min-h-0 overflow-hidden bg-background">
 
       <PageHeader title="Dashboard" subtitle="Your job-search pipeline, end to end">
         <button onClick={toggleSkipped}
-          className={`inline-flex items-center gap-1.5 text-xs font-medium px-3 h-8 rounded-lg border transition-colors ${showSkipped ? "bg-zinc-900 text-white border-zinc-900" : "bg-white text-zinc-600 border-zinc-200 hover:bg-zinc-50 hover:text-zinc-900"}`}>
+          className={`inline-flex items-center gap-1.5 text-xs font-medium px-3 h-8 rounded-lg border transition-colors ${showSkipped ? "bg-foreground text-background border-foreground" : "bg-card text-muted-foreground border-border hover:bg-accent hover:text-foreground"}`}>
           {showSkipped ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
           {showSkipped ? "Hide skipped" : "Skipped"}
         </button>
@@ -557,11 +566,11 @@ export default function BoardPage() {
       <div className="flex-shrink-0 px-6 pt-5 pb-4 space-y-4">
 
         {/* Stat cards */}
-        <div className="grid grid-cols-7 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           {stats.map(({ label, value, color }) => (
-            <div key={label} className="bg-white rounded-xl border border-zinc-200 shadow-sm px-4 py-3">
-              <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest mb-1">{label}</p>
-              <p className={`text-2xl font-semibold tabular-nums ${loading ? "text-zinc-200 animate-pulse" : color}`}>
+            <div key={label} className="bg-card rounded-xl border border-border shadow-sm px-4 py-3">
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-1">{label}</p>
+              <p className={`text-2xl font-semibold tabular-nums ${loading ? "text-muted animate-pulse" : color}`}>
                 {loading ? "0" : value}
               </p>
             </div>
@@ -570,12 +579,12 @@ export default function BoardPage() {
 
         {/* Pause banner */}
         {paused && (
-          <div className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-red-50 border border-red-200 text-red-700">
+          <div className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-red-50 border border-red-200 text-red-700 dark:bg-red-500/10 dark:border-red-500/30 dark:text-red-300">
             <div className="flex items-center gap-2 text-sm font-medium">
               <Pause className="size-4 shrink-0" />
               Outreach is paused — no invites or DMs will be sent until you turn it back on.
             </div>
-            <a href="/settings" className="text-xs font-semibold underline underline-offset-2 whitespace-nowrap hover:text-red-900">
+            <a href="/settings" className="text-xs font-semibold underline underline-offset-2 whitespace-nowrap hover:text-red-900 dark:hover:text-red-100">
               Settings → Outreach
             </a>
           </div>
@@ -584,22 +593,22 @@ export default function BoardPage() {
         {/* Filter bar */}
         <div className="flex items-center gap-2">
           <div className="relative w-56">
-            <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-zinc-400 pointer-events-none" />
+            <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground pointer-events-none" />
             <Input
               value={fQuery}
               onChange={e => setFQuery(e.target.value)}
               placeholder="Search company or role…"
-              className="h-8 pl-8 pr-7 text-xs bg-white border-zinc-200 shadow-sm rounded-lg"
+              className="h-8 pl-8 pr-7 text-xs bg-card border-border shadow-sm rounded-lg"
             />
             {fQuery && (
               <button onClick={() => setFQuery("")} aria-label="Clear search"
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-700">
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
                 <X className="size-3.5" />
               </button>
             )}
           </div>
           <Select value={fSource} onValueChange={(v: string | null) => setFSource(v ?? "All")}>
-            <SelectTrigger className="h-8 text-xs text-zinc-600 shadow-sm">
+            <SelectTrigger className="h-8 text-xs text-muted-foreground shadow-sm">
               {`Source: ${fSource === "All" ? "All" : (SOURCE_LABEL[fSource] ?? fSource)}`}
             </SelectTrigger>
             <SelectContent>
@@ -608,7 +617,7 @@ export default function BoardPage() {
             </SelectContent>
           </Select>
           <Select value={fApply} onValueChange={(v: string | null) => setFApply(v ?? "All")}>
-            <SelectTrigger className="h-8 text-xs text-zinc-600 shadow-sm">
+            <SelectTrigger className="h-8 text-xs text-muted-foreground shadow-sm">
               {`Apply: ${fApply === "All" ? "All" : fApply === "Referral" ? "Referral first" : "Manual apply"}`}
             </SelectTrigger>
             <SelectContent>
@@ -618,7 +627,7 @@ export default function BoardPage() {
             </SelectContent>
           </Select>
           <Select value={fScore} onValueChange={(v: string | null) => setFScore(v ?? "All")}>
-            <SelectTrigger className="h-8 text-xs text-zinc-600 shadow-sm">
+            <SelectTrigger className="h-8 text-xs text-muted-foreground shadow-sm">
               {`Score: ${fScore}`}
             </SelectTrigger>
             <SelectContent>
@@ -630,13 +639,13 @@ export default function BoardPage() {
           </Select>
           {(fQuery !== "" || fSource !== "All" || fApply !== "All" || fScore !== "All") && (
             <button onClick={() => { setFQuery(""); setFSource("All"); setFApply("All"); setFScore("All"); }}
-              className="text-xs text-zinc-400 hover:text-zinc-700 px-2 py-1.5 transition-colors">Clear</button>
+              className="text-xs text-muted-foreground hover:text-foreground px-2 py-1.5 transition-colors">Clear</button>
           )}
-          <div className="ml-auto flex items-center gap-1 text-xs text-zinc-400">
+          <div className="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
             <span className="mr-1 font-medium">Sort</span>
             {(["Priority","Score","Salary","Date"] as const).map(sortKey => (
               <button key={sortKey} onClick={() => setSort(sortKey)}
-                className={`px-2.5 py-1.5 rounded-lg transition-all ${sort === sortKey ? "bg-white text-zinc-900 shadow-sm font-medium ring-1 ring-zinc-200" : "hover:bg-white hover:text-zinc-700 hover:shadow-sm"}`}>
+                className={`px-2.5 py-1.5 rounded-lg transition-all ${sort === sortKey ? "bg-card text-foreground shadow-sm font-medium ring-1 ring-border" : "hover:bg-card hover:text-foreground hover:shadow-sm"}`}>
                 {sortKey}
               </button>
             ))}
@@ -645,30 +654,30 @@ export default function BoardPage() {
 
         {/* ── Apply Today — top 5 by priority (pinned always first) ────── */}
         {!loading && applyToday.length > 0 && (
-          <div className="bg-white rounded-xl border border-zinc-200 shadow-sm px-4 py-3">
+          <div className="bg-card rounded-xl border border-border shadow-sm px-4 py-3">
             <div className="flex items-center gap-2 mb-2.5">
-              <p className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-zinc-400 uppercase tracking-widest">
+              <p className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
                 <Zap className="size-3 text-primary" /> Apply Today
               </p>
-              <p className="text-[10px] text-zinc-300">fit · pay · reach · freshness</p>
+              <p className="text-[10px] text-muted-foreground/70">fit · pay · reach · freshness</p>
             </div>
             <div className="flex gap-2.5 overflow-x-auto pb-0.5 scrollbar-slim">
               {applyToday.map((j, i) => (
                 <button key={j.id} onClick={() => openJob(j)}
                   title={j.priorityWhy}
-                  className="flex items-center gap-2.5 min-w-[210px] max-w-[260px] text-left bg-zinc-50 hover:bg-white border border-zinc-200 hover:border-zinc-300 hover:shadow-sm rounded-lg px-3 py-2 transition-all">
-                  <span className="text-sm font-bold text-zinc-300 tabular-nums shrink-0">{i + 1}</span>
+                  className="flex items-center gap-2.5 min-w-[210px] max-w-[260px] text-left bg-muted/50 hover:bg-card border border-border hover:border-foreground/20 hover:shadow-sm rounded-lg px-3 py-2 transition-all">
+                  <span className="text-sm font-bold text-muted-foreground/50 tabular-nums shrink-0">{i + 1}</span>
                   <Avatar className={`h-7 w-7 rounded-lg shrink-0 ${avatarClr(j.company)}`}>
                     <AvatarFallback className={`rounded-lg text-[11px] font-bold ${avatarClr(j.company)}`}>
                       {j.company.charAt(0).toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
                   <div className="min-w-0 flex-1">
-                    <p className="flex items-center gap-1 text-xs font-semibold text-zinc-800 truncate leading-tight">
+                    <p className="flex items-center gap-1 text-xs font-semibold text-foreground truncate leading-tight">
                       {j.pinned && <Star className="size-3 shrink-0 text-primary fill-primary" />}
                       <span className="truncate">{j.company}</span>
                     </p>
-                    <p className="text-[11px] text-zinc-400 truncate leading-tight">{shortRole(j.role)}</p>
+                    <p className="text-[11px] text-muted-foreground truncate leading-tight">{shortRole(j.role)}</p>
                   </div>
                   <span className={`shrink-0 text-[11px] font-bold px-1.5 py-0.5 rounded-md ${scoreClr(j.priority ?? null)}`}>
                     {j.priority ?? "—"}
@@ -681,21 +690,24 @@ export default function BoardPage() {
       </div>
 
       {/* ── Kanban ────────────────────────────────────────────────────── */}
-      <div className="flex-1 overflow-x-auto overflow-y-hidden px-6 pb-6 scrollbar-slim">
-        {/* White board container */}
-        <div className="flex h-full w-full rounded-2xl border border-zinc-200 shadow-sm bg-white overflow-hidden">
-          {STAGES.map((stage, i) => {
+      {/* min-h-0 lets this flex child shrink to the viewport so the columns
+          inside can own the vertical scroll (without it the board grows past
+          the screen and everything clips — the "nothing scrolls" bug). */}
+      <div className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden px-6 pb-6 scrollbar-slim">
+        {/* Board container */}
+        <div className="flex h-full w-full rounded-2xl border border-border shadow-sm bg-card overflow-hidden">
+          {BOARD_STAGES.map((stage, i) => {
             const meta  = STAGE_META[stage];
             const cards = byStage[stage];
-            const isLast = i === STAGES.length - 1;
+            const isLast = i === BOARD_STAGES.length - 1;
             return (
-              <div key={stage} className={`flex-1 min-w-[220px] flex flex-col ${!isLast ? "border-r border-zinc-100" : ""}`}>
+              <div key={stage} className={`flex-1 min-w-[220px] flex flex-col ${!isLast ? "border-r border-border" : ""}`}>
 
                 {/* Column header */}
-                <div className={`flex-shrink-0 flex items-center gap-2.5 px-5 py-4 border-b border-zinc-100 border-l-[3px] ${meta.headerBorder} bg-white`}>
+                <div className={`flex-shrink-0 flex items-center gap-2.5 px-5 py-4 border-b border-border border-l-[3px] ${meta.headerBorder} bg-card`}>
                   <div className={`w-2 h-2 rounded-full shrink-0 ${meta.accent}`} />
-                  <span className="text-sm font-semibold text-zinc-800">{meta.label}</span>
-                  <span className="ml-auto text-xs font-semibold text-zinc-400 tabular-nums bg-zinc-100 rounded-full px-2 py-0.5 min-w-[24px] text-center">
+                  <span className="text-sm font-semibold text-foreground">{meta.label}</span>
+                  <span className="ml-auto text-xs font-semibold text-muted-foreground tabular-nums bg-muted rounded-full px-2 py-0.5 min-w-[24px] text-center">
                     {cards.length}
                   </span>
                   {cards.length > 0 && (
@@ -707,25 +719,23 @@ export default function BoardPage() {
                         ids.forEach(id => allSel ? n.delete(id) : n.add(id));
                         return n;
                       })}
-                      className="text-[11px] text-zinc-400 hover:text-zinc-700 font-medium ml-1"
+                      className="text-[11px] text-muted-foreground hover:text-foreground font-medium ml-1"
                     >
                       {cards.every(c => sel.has(c.id)) ? "Clear" : "Select all"}
                     </button>
                   )}
                 </div>
 
-                {/* Cards */}
-                <div className={`flex-1 overflow-y-auto p-4 space-y-3 scrollbar-slim ${meta.lane}`}>
+                {/* Cards — min-h-0 so this pane, not the column, takes the scroll */}
+                <div className={`min-h-0 flex-1 overflow-y-auto p-4 space-y-3 scrollbar-slim ${meta.lane}`}>
                   {loading && (
                     <>
-                      <div className="bg-zinc-100 rounded-xl h-24 animate-pulse" />
-                      <div className="bg-zinc-100 rounded-xl h-20 animate-pulse opacity-60" />
+                      <div className="bg-muted rounded-xl h-24 animate-pulse" />
+                      <div className="bg-muted rounded-xl h-20 animate-pulse opacity-60" />
                     </>
                   )}
                   {!loading && cards.length === 0 && (
-                    <div className="flex flex-col items-center justify-center h-20 rounded-xl border-2 border-dashed border-zinc-200">
-                      <p className="text-xs text-zinc-300 font-medium">No jobs</p>
-                    </div>
+                    <p className="px-1 py-2 text-xs text-muted-foreground/60">No jobs</p>
                   )}
                   {buildCompanyGroups(cards).map(group => (
                     <CompanyCard
@@ -752,26 +762,26 @@ export default function BoardPage() {
       {/* ── Skipped panel ─────────────────────────────────────────────── */}
       {showSkipped && (
         <div className="flex-shrink-0 px-6 pb-6">
-          <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
-            <div className="flex items-center gap-2.5 px-5 py-3.5 border-b border-zinc-100 border-l-[3px] border-l-zinc-300">
-              <div className="w-2 h-2 rounded-full bg-zinc-300" />
-              <span className="text-sm font-semibold text-zinc-600">Skipped</span>
-              <span className="text-xs font-semibold text-zinc-400 bg-zinc-100 rounded-full px-2 py-0.5">{loadingSkipped ? "…" : skippedJobs.length}</span>
+          <div className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
+            <div className="flex items-center gap-2.5 px-5 py-3.5 border-b border-border border-l-[3px] border-l-zinc-300 dark:border-l-zinc-600">
+              <div className="w-2 h-2 rounded-full bg-zinc-300 dark:bg-zinc-600" />
+              <span className="text-sm font-semibold text-muted-foreground">Skipped</span>
+              <span className="text-xs font-semibold text-muted-foreground bg-muted rounded-full px-2 py-0.5">{loadingSkipped ? "…" : skippedJobs.length}</span>
             </div>
             <div className="p-4">
               {loadingSkipped && (
                 <div className="grid grid-cols-4 gap-3">
-                  <div className="bg-zinc-100 rounded-xl h-20 animate-pulse" />
-                  <div className="bg-zinc-100 rounded-xl h-20 animate-pulse opacity-60" />
+                  <div className="bg-muted rounded-xl h-20 animate-pulse" />
+                  <div className="bg-muted rounded-xl h-20 animate-pulse opacity-60" />
                 </div>
               )}
               {!loadingSkipped && skippedJobs.length === 0 && (
-                <p className="text-sm text-zinc-400 py-2">No skipped jobs.</p>
+                <p className="text-sm text-muted-foreground py-2">No skipped jobs.</p>
               )}
               {!loadingSkipped && skippedJobs.length > 0 && (
                 <div className="grid grid-cols-4 gap-3 max-h-64 overflow-y-auto">
                   {skippedJobs.map(sj => (
-                    <div key={sj.id} className="relative group bg-zinc-50 border border-zinc-200 rounded-xl p-3 flex flex-col gap-1">
+                    <div key={sj.id} className="relative group bg-muted/50 border border-border rounded-xl p-3 flex flex-col gap-1">
                       <div className="flex items-start gap-2">
                         <Avatar className={`h-7 w-7 rounded-lg shrink-0 ${avatarClr(sj.company)}`}>
                           <AvatarFallback className={`rounded-lg text-[11px] font-bold ${avatarClr(sj.company)}`}>
@@ -779,20 +789,20 @@ export default function BoardPage() {
                           </AvatarFallback>
                         </Avatar>
                         <div className="min-w-0 flex-1">
-                          <p className="text-xs font-semibold text-zinc-700 truncate">{sj.company}</p>
-                          <p className="text-[11px] text-zinc-400 truncate">{sj.role}</p>
+                          <p className="text-xs font-semibold text-foreground truncate">{sj.company}</p>
+                          <p className="text-[11px] text-muted-foreground truncate">{sj.role}</p>
                         </div>
                         {sj.aiScore !== null && (
                           <span className={`text-[10px] font-bold px-1 py-0.5 rounded shrink-0 ${scoreClr(sj.aiScore)}`}>{sj.aiScore}</span>
                         )}
                       </div>
                       {sj.appStageNote && (
-                        <p className="text-[10px] text-zinc-400 truncate">{sj.appStageNote}</p>
+                        <p className="text-[10px] text-muted-foreground truncate">{sj.appStageNote}</p>
                       )}
                       <button
                         onClick={(e) => restoreJob(e, sj.id)}
                         disabled={acting}
-                        className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-zinc-500 hover:text-zinc-900 hover:bg-white border border-zinc-200 rounded-lg px-2 py-1 transition-colors self-start">
+                        className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-card border border-border rounded-lg px-2 py-1 transition-colors self-start">
                         <RotateCcw className="size-3" /> Restore
                       </button>
                     </div>
@@ -807,9 +817,9 @@ export default function BoardPage() {
       {/* ── Toast ─────────────────────────────────────────────────────── */}
       {toast && (
         <div className={`fixed top-6 left-1/2 -translate-x-1/2 z-[60] flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium shadow-lg border animate-in fade-in slide-in-from-top-2 ${
-          toast.tone === "error" ? "bg-red-50 border-red-200 text-red-700"
-          : toast.tone === "warn" ? "bg-amber-50 border-amber-200 text-amber-800"
-          : "bg-zinc-900 border-zinc-800 text-white"
+          toast.tone === "error" ? "bg-red-50 border-red-200 text-red-700 dark:bg-red-500/15 dark:border-red-500/30 dark:text-red-200"
+          : toast.tone === "warn" ? "bg-amber-50 border-amber-200 text-amber-800 dark:bg-amber-500/15 dark:border-amber-500/30 dark:text-amber-200"
+          : "bg-zinc-900 border-zinc-800 text-white dark:bg-zinc-800 dark:border-zinc-700"
         }`}>
           {toast.tone === "error" ? <CircleX className="size-4 shrink-0" /> : toast.tone === "warn" ? <TriangleAlert className="size-4 shrink-0" /> : <Check className="size-4 shrink-0" />}
           {toast.msg}
@@ -825,7 +835,7 @@ export default function BoardPage() {
 
       {/* ── Bulk action bar ───────────────────────────────────────────── */}
       {sel.size > 0 && !askNote && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-zinc-900 text-white rounded-full shadow-xl pl-5 pr-2 py-2">
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-zinc-900 text-white rounded-full shadow-xl pl-5 pr-2 py-2 dark:bg-zinc-800 dark:ring-1 dark:ring-white/10">
           <span className="text-sm font-medium">{sel.size} selected</span>
           <button onClick={() => setSel(new Set())} className="text-xs text-zinc-300 hover:text-white mr-1">Clear</button>
           <button onClick={findPeople} disabled={finding || sending || acting}
@@ -847,7 +857,7 @@ export default function BoardPage() {
 
       {/* Connection-note choice for the manual bulk send */}
       {sel.size > 0 && askNote && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-zinc-900 text-white rounded-2xl shadow-xl px-4 py-3">
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-zinc-900 text-white rounded-2xl shadow-xl px-4 py-3 dark:bg-zinc-800 dark:ring-1 dark:ring-white/10">
           <span className="text-sm font-medium mr-1">Add a connection note to {selSendableCount} invite{selSendableCount !== 1 ? "s" : ""}?</span>
           <button onClick={() => sendSelected(true)} disabled={sending}
             className="bg-white text-zinc-900 text-sm font-semibold rounded-full px-4 py-1.5 hover:bg-zinc-100 disabled:opacity-60">
@@ -864,9 +874,9 @@ export default function BoardPage() {
 
       {/* ── Job Drawer ────────────────────────────────────────────────── */}
       <Sheet open={!!selected} onOpenChange={v => { if (!v) { setSelected(null); setDetail(null); } }}>
-        <SheetContent className="!w-[500px] !max-w-[500px] p-0 flex flex-col bg-white" showCloseButton>
+        <SheetContent className="!w-[500px] !max-w-[500px] p-0 flex flex-col bg-card" showCloseButton>
 
-          <SheetHeader className="px-6 pt-6 pb-5 border-b border-zinc-100 flex-shrink-0">
+          <SheetHeader className="px-6 pt-6 pb-5 border-b border-border flex-shrink-0">
             <div className="flex items-start gap-3 pr-8">
               {job && (
                 <Avatar className={`h-10 w-10 rounded-xl shrink-0 ${avatarClr(job.company)}`}>
@@ -878,15 +888,15 @@ export default function BoardPage() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="font-bold text-base text-zinc-900 leading-tight">{job?.company}</p>
-                    <p className="text-sm text-zinc-500 mt-0.5">{job?.role}</p>
-                    {job?.location && <p className="text-xs text-zinc-400 mt-0.5">{job.location}</p>}
+                    <p className="font-bold text-base text-foreground leading-tight">{job?.company}</p>
+                    <p className="text-sm text-muted-foreground mt-0.5">{job?.role}</p>
+                    {job?.location && <p className="text-xs text-muted-foreground/70 mt-0.5">{job.location}</p>}
                   </div>
                   <div className="shrink-0 flex items-start gap-1.5">
                     {job && (
                       <button title={job.pinned ? "Unpin" : "Pin — always show in Apply Today"}
                         onClick={(e) => togglePinned(e, job.id, !job.pinned)}
-                        className={`w-8 h-8 rounded-xl border flex items-center justify-center transition-colors ${job.pinned ? "border-primary/40 text-primary bg-primary/10" : "border-zinc-200 text-zinc-300 hover:text-primary hover:border-primary/40 hover:bg-primary/10"}`}>
+                        className={`w-8 h-8 rounded-xl border flex items-center justify-center transition-colors ${job.pinned ? "border-primary/40 text-primary bg-primary/10" : "border-border text-muted-foreground/60 hover:text-primary hover:border-primary/40 hover:bg-primary/10"}`}>
                         <Star className={`size-4 ${job.pinned ? "fill-primary" : ""}`} />
                       </button>
                     )}
@@ -903,14 +913,14 @@ export default function BoardPage() {
                     <span className={`text-[10px] rounded-md px-2 py-1 font-medium ${STAGE_META[job.appStage].badge}`}>
                       {STAGE_META[job.appStage].label}
                     </span>
-                    <span className="text-[10px] bg-zinc-100 text-zinc-500 rounded-md px-2 py-1">
+                    <span className="text-[10px] bg-muted text-muted-foreground rounded-md px-2 py-1">
                       {SOURCE_LABEL[job.source] ?? job.source}
                     </span>
                     {job.applyType === "REFERRAL_FIRST" && (
-                      <span className="text-[10px] bg-violet-100 text-violet-700 rounded-md px-2 py-1 font-medium">Referral First</span>
+                      <span className="text-[10px] bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300 rounded-md px-2 py-1 font-medium">Referral First</span>
                     )}
                     {job.closedAt && (
-                      <span className="text-[10px] bg-zinc-200 text-zinc-600 rounded-md px-2 py-1 font-medium">Role closed</span>
+                      <span className="text-[10px] bg-muted text-muted-foreground rounded-md px-2 py-1 font-medium">Role closed</span>
                     )}
                     {job.outreachState !== "NONE" && OUTREACH_META[job.outreachState].text && (
                       <span className={`text-[10px] border rounded-md px-2 py-1 font-medium ${OUTREACH_META[job.outreachState].cls}`}>
@@ -918,7 +928,7 @@ export default function BoardPage() {
                       </span>
                     )}
                     {(() => { const d = fmtDate(job.postedAt ?? job.createdAt); return d ? (
-                      <span className="text-[10px] text-zinc-400 px-1 py-1">Posted {d}</span>
+                      <span className="text-[10px] text-muted-foreground px-1 py-1">Posted {d}</span>
                     ) : null; })()}
                   </div>
                 )}
@@ -931,43 +941,43 @@ export default function BoardPage() {
 
               {job.aiReason && (
                 <div>
-                  <p className="flex items-center gap-1.5 text-[10px] font-semibold text-zinc-400 uppercase tracking-widest mb-2"><Sparkles className="size-3 text-primary" /> AI analysis</p>
-                  <p className="text-sm text-zinc-700 leading-relaxed">{job.aiReason}</p>
+                  <p className="flex items-center gap-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2"><Sparkles className="size-3 text-primary" /> AI analysis</p>
+                  <p className="text-sm text-foreground/90 leading-relaxed">{job.aiReason}</p>
                 </div>
               )}
 
               {job.tailoredPitch && (
-                <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-4">
+                <div className="bg-muted/50 border border-border rounded-xl p-4">
                   <div className="flex items-center justify-between mb-2.5">
-                    <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest">Generated pitch</p>
+                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Generated pitch</p>
                     <button
                       onClick={() => { navigator.clipboard.writeText(job.tailoredPitch!); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
-                      className="inline-flex items-center gap-1 text-xs font-medium text-zinc-400 hover:text-zinc-700 transition-colors">
+                      className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors">
                       {copied ? <><Check className="size-3" /> Copied</> : <><Copy className="size-3" /> Copy</>}
                     </button>
                   </div>
-                  <p className="text-sm text-zinc-700 leading-relaxed italic whitespace-pre-line">
+                  <p className="text-sm text-foreground/90 leading-relaxed italic whitespace-pre-line">
                     &ldquo;{job.tailoredPitch}&rdquo;
                   </p>
                 </div>
               )}
 
-              <Separator className="bg-zinc-100" />
+              <Separator className="bg-border" />
 
               {/* Salary + Apply */}
               <div className="flex items-center justify-between">
                 <div>
                   {job.salaryAnnualBase ? (
                     <>
-                      <p className={`text-xl font-bold ${job.salaryBasis === "ESTIMATED" ? "text-amber-700" : "text-zinc-900"}`}>
+                      <p className={`text-xl font-bold ${job.salaryBasis === "ESTIMATED" ? "text-amber-700 dark:text-amber-400" : "text-foreground"}`}>
                         {fmtSalary(job.salaryAnnualBase, job.salaryCurrency)}/yr
                       </p>
-                      <p className="text-xs text-zinc-400 mt-0.5">
+                      <p className="text-xs text-muted-foreground mt-0.5">
                         {job.salaryBasis === "STATED" ? "Stated salary" : `Estimated · ${job.salaryConfidence?.toLowerCase() ?? "low"} confidence`}
                       </p>
                     </>
                   ) : (
-                    <p className="text-sm text-zinc-400">Salary unknown</p>
+                    <p className="text-sm text-muted-foreground">Salary unknown</p>
                   )}
                 </div>
                 {job.applyUrl && (
@@ -978,26 +988,26 @@ export default function BoardPage() {
                 )}
               </div>
 
-              <Separator className="bg-zinc-100" />
+              <Separator className="bg-border" />
 
               {/* Resume gate */}
               <div>
-                <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest mb-2">Resume</p>
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2">Resume</p>
                 {!job.needsTailoring ? (
-                  <div className="flex items-center gap-2 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2.5">
+                  <div className="flex items-center gap-2 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 dark:text-emerald-300 dark:bg-emerald-500/10 dark:border-emerald-500/30 rounded-xl px-3 py-2.5">
                     <Check className="size-4 shrink-0" /> Base resume is a good fit — no tailoring needed.
                   </div>
                 ) : job.tailoredResumeKey ? (
-                  <div className="flex items-center justify-between gap-2 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2.5">
+                  <div className="flex items-center justify-between gap-2 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 dark:text-emerald-300 dark:bg-emerald-500/10 dark:border-emerald-500/30 rounded-xl px-3 py-2.5">
                     <span className="flex items-center gap-2"><Check className="size-4 shrink-0" /> Tailored resume uploaded</span>
                     <a href={`/api/resume/download?key=${encodeURIComponent(job.tailoredResumeKey)}`} target="_blank" rel="noopener noreferrer"
                       className="text-xs font-medium underline">View</a>
                   </div>
                 ) : (
-                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5 space-y-2.5">
-                    <p className="flex items-center gap-1.5 text-sm font-semibold text-amber-800"><TriangleAlert className="size-4 shrink-0" /> Tailoring recommended before outreach</p>
+                  <div className="bg-amber-50 border border-amber-200 dark:bg-amber-500/10 dark:border-amber-500/30 rounded-xl p-3.5 space-y-2.5">
+                    <p className="flex items-center gap-1.5 text-sm font-semibold text-amber-800 dark:text-amber-300"><TriangleAlert className="size-4 shrink-0" /> Tailoring recommended before outreach</p>
                     {job.tailoringSuggestions && (
-                      <p className="text-xs text-amber-700 leading-relaxed whitespace-pre-line">{job.tailoringSuggestions}</p>
+                      <p className="text-xs text-amber-700 dark:text-amber-400/90 leading-relaxed whitespace-pre-line">{job.tailoringSuggestions}</p>
                     )}
                     <button
                       onClick={() => resumeFileRef.current?.click()}
@@ -1011,11 +1021,11 @@ export default function BoardPage() {
                 )}
               </div>
 
-              <Separator className="bg-zinc-100" />
+              <Separator className="bg-border" />
 
               {job.appStage === "NEW" && (
                 <div className="space-y-2">
-                  <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest">Actions</p>
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Actions</p>
                   <div className="flex gap-2">
                     <Button onClick={() => act(job.id,"approve")} disabled={acting} size="sm"
                       className="flex-1 text-xs h-9">
@@ -1030,23 +1040,23 @@ export default function BoardPage() {
 
               {["APPROVED","OUTREACH","REPLIED","APPLIED","INTERVIEWING","OFFER"].includes(job.appStage) && (
                 <div className="space-y-2">
-                  <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest">Pipeline stage</p>
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">Pipeline stage</p>
                   {/* Segmented control — advance the job through the post-referral
                       milestones. Active stage is filled indigo; the rest are the
                       next moves the owner can make. */}
-                  <div className="inline-flex w-full rounded-lg border border-zinc-200 bg-zinc-50 p-0.5">
+                  <div className="inline-flex w-full rounded-lg border border-border bg-muted/50 p-0.5">
                     {PIPELINE_STAGES.map(({ stage, action, label }) => {
                       const active = job.appStage === stage;
                       return (
                         <button key={stage} onClick={() => act(job.id, action)} disabled={acting || active}
-                          className={`flex-1 text-[11px] font-medium h-8 rounded-md transition-colors ${active ? "bg-primary text-primary-foreground shadow-sm" : "text-zinc-500 hover:text-zinc-900 hover:bg-white disabled:opacity-50"}`}>
+                          className={`flex-1 text-[11px] font-medium h-8 rounded-md transition-colors ${active ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground hover:bg-card disabled:opacity-50"}`}>
                           {label}
                         </button>
                       );
                     })}
                   </div>
                   <Button onClick={() => act(job.id, "skipped")} disabled={acting}
-                    variant="outline" size="sm" className="text-xs h-9 text-red-600">Skip / stop</Button>
+                    variant="outline" size="sm" className="text-xs h-9 text-red-600 dark:text-red-400">Skip / stop</Button>
                 </div>
               )}
 
@@ -1054,14 +1064,14 @@ export default function BoardPage() {
                 <div className="space-y-2">
                   <Button onClick={(e) => toggleRoleClosed(e, job.id, !job.closedAt)} disabled={acting}
                     variant="outline" size="sm"
-                    className="text-xs h-9 w-full justify-start text-zinc-600 hover:bg-zinc-50">
+                    className="text-xs h-9 w-full justify-start text-muted-foreground hover:bg-accent">
                     {job.closedAt
                       ? <><RotateCcw className="size-3.5" /> Reopen this role</>
                       : <><Ban className="size-3.5" /> Close this role (keep contacts, redirect outreach)</>}
                   </Button>
                   <Button onClick={(e) => blacklistCompany(e, job.company)} disabled={acting}
                     variant="outline" size="sm"
-                    className="text-xs h-9 w-full justify-start text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700">
+                    className="text-xs h-9 w-full justify-start text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:border-red-500/30 dark:hover:bg-red-500/10 dark:hover:text-red-300">
                     <Ban className="size-3.5" /> Blacklist {job.company} &amp; stop outreach
                   </Button>
                 </div>
@@ -1069,9 +1079,9 @@ export default function BoardPage() {
 
               {(job.outreaches?.length ?? 0) > 0 && (
                 <>
-                  <Separator className="bg-zinc-100" />
+                  <Separator className="bg-border" />
                   <div>
-                    <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest mb-3">Outreach</p>
+                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-3">Outreach</p>
                     <div className="space-y-3">
                       {job.outreaches!.map(o => {
                         const t = o.thread;
@@ -1084,27 +1094,27 @@ export default function BoardPage() {
                           : (THREAD_PHASE_LABEL[phase] ?? "");
 
                         return (
-                          <div key={o.id} className="bg-zinc-50 rounded-xl border border-zinc-100 overflow-hidden">
+                          <div key={o.id} className="bg-muted/50 rounded-xl border border-border overflow-hidden">
                             <div className="flex gap-3 items-start p-3">
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center justify-between gap-2">
-                                  <p className="text-xs font-semibold text-zinc-900 truncate">
+                                  <p className="text-xs font-semibold text-foreground truncate">
                                     {o.contact.name}
-                                    {o.contact.title && <span className="font-normal text-zinc-500"> · {o.contact.title}</span>}
+                                    {o.contact.title && <span className="font-normal text-muted-foreground"> · {o.contact.title}</span>}
                                   </p>
                                   <a href={o.contact.linkedinUrl} target="_blank" rel="noopener noreferrer"
                                     className="inline-flex items-center gap-0.5 text-[10px] font-medium text-primary hover:underline shrink-0">LinkedIn <ExternalLink className="size-2.5" /></a>
                                 </div>
-                                <p className="text-[10px] text-zinc-400 mt-0.5">
+                                <p className="text-[10px] text-muted-foreground mt-0.5">
                                   <span className="capitalize">{o.role.toLowerCase()}</span>
-                                  {label && <span className="text-zinc-500"> · {label}</span>}
+                                  {label && <span className="text-foreground/70"> · {label}</span>}
                                 </p>
                               </div>
                             </div>
 
                             {isDraft && t && (
-                              <div className="border-t border-zinc-200 bg-white p-3 space-y-2.5">
-                                <p className="text-[10px] text-amber-600 font-medium">Review &amp; edit — nothing sends until you confirm.</p>
+                              <div className="border-t border-border bg-card p-3 space-y-2.5">
+                                <p className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">Review &amp; edit — nothing sends until you confirm.</p>
                                 <DraftField label="Connection note (≤300)" rows={3} maxLength={300}
                                   value={edit.connectionNote}
                                   onChange={v => setDrafts(d => ({ ...d, [t.id]: { ...edit, connectionNote: v } }))} />
@@ -1133,15 +1143,15 @@ export default function BoardPage() {
               )}
 
               {job.appStage === "APPROVED" && job.applyType === "REFERRAL_FIRST" && (job.outreaches?.length ?? 0) === 0 && (
-                <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-700">
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
                   Approved — no LinkedIn targets were found for this role yet. You can still apply directly via the link above.
                 </div>
               )}
 
-              <Separator className="bg-zinc-100" />
+              <Separator className="bg-border" />
               <div>
-                <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest mb-3">Job description</p>
-                <pre className="text-xs text-zinc-500 whitespace-pre-wrap font-sans leading-relaxed max-h-72 overflow-y-auto bg-zinc-50 rounded-xl p-4 border border-zinc-100">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-3">Job description</p>
+                <pre className="text-xs text-muted-foreground whitespace-pre-wrap font-sans leading-relaxed max-h-72 overflow-y-auto bg-muted/50 rounded-xl p-4 border border-border">
                   {job.jdText}
                 </pre>
               </div>
@@ -1175,13 +1185,13 @@ function DraftField({ label, value, rows, maxLength, onChange }: {
 }) {
   return (
     <div>
-      <label className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wide">{label}</label>
+      <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">{label}</label>
       <textarea
         value={value}
         rows={rows}
         maxLength={maxLength}
         onChange={e => onChange(e.target.value)}
-        className="mt-1 w-full border border-zinc-200 rounded-lg px-3 py-2 text-xs bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-ring/50 focus:border-ring leading-relaxed"
+        className="mt-1 w-full border border-border rounded-lg px-3 py-2 text-xs bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 focus:border-ring leading-relaxed"
       />
     </div>
   );
@@ -1261,11 +1271,11 @@ function CompanyCard({
     <div className="relative group">
       <button onClick={(e) => { e.stopPropagation(); multi ? toggleSelMany(ids) : toggleSel(ids[0]); }}
         aria-label={allSel ? "Deselect" : "Select"}
-        className={`absolute top-2.5 right-2.5 z-10 w-5 h-5 rounded-md border flex items-center justify-center transition-all ${allSel ? "bg-primary border-primary text-primary-foreground opacity-100" : someSel ? "bg-primary/60 border-primary/60 text-primary-foreground opacity-100" : "bg-white border-zinc-300 text-transparent hover:border-primary opacity-0 group-hover:opacity-100"}`}>
+        className={`absolute top-2.5 right-2.5 z-10 w-5 h-5 rounded-md border flex items-center justify-center transition-all ${allSel ? "bg-primary border-primary text-primary-foreground opacity-100" : someSel ? "bg-primary/60 border-primary/60 text-primary-foreground opacity-100" : "bg-card border-input text-transparent hover:border-primary opacity-0 group-hover:opacity-100"}`}>
         <Check className="size-3" />
       </button>
 
-      <div className={`w-full bg-white rounded-xl p-4 border shadow-sm transition-all ${allSel ? "border-primary ring-1 ring-primary" : "border-zinc-200 hover:border-zinc-300 hover:shadow-md"}`}>
+      <div className={`w-full bg-card rounded-xl p-4 border shadow-sm transition-all ${allSel ? "border-primary ring-1 ring-primary" : "border-border hover:border-foreground/20 hover:shadow-md"}`}>
         <button onClick={() => openJob(primary)} className="w-full text-left">
           <div className="flex items-start gap-3">
             <Avatar className={`h-8 w-8 rounded-xl shrink-0 ${avatarClr(group.company)}`}>
@@ -1274,11 +1284,11 @@ function CompanyCard({
               </AvatarFallback>
             </Avatar>
             <div className="min-w-0 flex-1">
-              <p className="flex items-center gap-1 text-sm font-semibold text-zinc-900 truncate leading-tight">
+              <p className="flex items-center gap-1 text-sm font-semibold text-foreground truncate leading-tight">
                 {jobs.some(j => j.pinned) && <Star className="size-3.5 shrink-0 text-primary fill-primary" />}
                 <span className="truncate">{group.company}</span>
               </p>
-              <p className="text-xs text-zinc-500 truncate mt-0.5 leading-tight">
+              <p className="text-xs text-muted-foreground truncate mt-0.5 leading-tight">
                 {multi ? `${jobs.length} roles · ${openCount} open` : primary.role}
               </p>
             </div>
@@ -1289,8 +1299,8 @@ function CompanyCard({
             )}
           </div>
           {salText && (
-            <p className="text-xs font-semibold mt-2 text-emerald-600">
-              {salText}<span className="text-zinc-400 font-normal ml-1.5">· est.</span>
+            <p className="text-xs font-semibold mt-2 text-emerald-600 dark:text-emerald-400">
+              {salText}<span className="text-muted-foreground font-normal ml-1.5">· est.</span>
             </p>
           )}
         </button>
@@ -1302,21 +1312,21 @@ function CompanyCard({
               const om = OUTREACH_META[j.outreachState];
               return (
                 <div key={j.id}
-                  className={`flex items-center gap-1.5 rounded-lg border px-2 py-1.5 ${closed ? "bg-zinc-50 border-zinc-200 border-dashed" : "bg-white border-zinc-200"}`}>
+                  className={`flex items-center gap-1.5 rounded-lg border px-2 py-1.5 ${closed ? "bg-muted/50 border-border border-dashed" : "bg-card border-border"}`}>
                   <button onClick={(e) => { e.stopPropagation(); openJob(j); }}
                     className="flex-1 min-w-0 text-left flex items-center gap-1.5">
-                    <span className={`text-[11px] font-medium truncate ${closed ? "text-zinc-400 line-through" : "text-zinc-700"}`}>
+                    <span className={`text-[11px] font-medium truncate ${closed ? "text-muted-foreground line-through" : "text-foreground/80"}`}>
                       {shortRole(j.role)}
                     </span>
                     {!closed && om.text && (
                       <span className={`shrink-0 text-[9px] border rounded px-1 py-0.5 font-medium ${om.cls}`}>{om.text}</span>
                     )}
-                    {closed && <span className="shrink-0 text-[9px] text-zinc-400 bg-zinc-100 rounded px-1 py-0.5">closed</span>}
+                    {closed && <span className="shrink-0 text-[9px] text-muted-foreground bg-muted rounded px-1 py-0.5">closed</span>}
                   </button>
                   <button title={closed ? "Reopen role" : "Close role — keeps contacts, stops new invites, redirects outreach to the open role"}
                     disabled={acting}
                     onClick={(e) => toggleRoleClosed(e, j.id, !closed)}
-                    className={`shrink-0 w-5 h-5 rounded flex items-center justify-center transition-colors disabled:opacity-50 ${closed ? "text-emerald-600 hover:bg-emerald-50" : "text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"}`}>
+                    className={`shrink-0 w-5 h-5 rounded flex items-center justify-center transition-colors disabled:opacity-50 ${closed ? "text-emerald-600 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-500/10" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}>
                     {closed ? <RotateCcw className="size-3" /> : <Ban className="size-3" />}
                   </button>
                 </div>
@@ -1327,10 +1337,10 @@ function CompanyCard({
 
         <div className="flex flex-wrap items-center gap-1.5 mt-2.5">
           {sources.map(s => (
-            <span key={s} className="text-[10px] text-zinc-500 bg-zinc-100 rounded-md px-2 py-1 font-medium">{s}</span>
+            <span key={s} className="text-[10px] text-muted-foreground bg-muted rounded-md px-2 py-1 font-medium">{s}</span>
           ))}
           {anyReferral && (
-            <span className="text-[10px] text-violet-700 bg-violet-100 rounded-md px-2 py-1 font-medium">Referral</span>
+            <span className="text-[10px] text-violet-700 bg-violet-100 dark:text-violet-300 dark:bg-violet-500/15 rounded-md px-2 py-1 font-medium">Referral</span>
           )}
           {!multi && OUTREACH_META[primary.outreachState].text && (
             <span className={`text-[10px] border rounded-md px-2 py-1 font-medium ${OUTREACH_META[primary.outreachState].cls}`}>
@@ -1338,10 +1348,10 @@ function CompanyCard({
             </span>
           )}
           {poolText && (
-            <span className="text-[10px] text-zinc-400 bg-zinc-50 border border-zinc-200 rounded-md px-2 py-1">{poolText}</span>
+            <span className="text-[10px] text-muted-foreground bg-muted/50 border border-border rounded-md px-2 py-1">{poolText}</span>
           )}
           {dateText && (
-            <span className="text-[10px] text-zinc-400 ml-auto" title="Most recent posting date">{dateText}</span>
+            <span className="text-[10px] text-muted-foreground ml-auto" title="Most recent posting date">{dateText}</span>
           )}
         </div>
       </div>
@@ -1350,30 +1360,30 @@ function CompanyCard({
       <div className="absolute bottom-2 right-2 z-10 flex items-center gap-1 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity">
         <button title={primary.pinned ? "Unpin" : "Pin — always show in Apply Today"} disabled={acting}
           onClick={(e) => togglePinned(e, primary.id, !primary.pinned)}
-          className={`w-7 h-7 rounded-lg bg-white/95 backdrop-blur border shadow-sm flex items-center justify-center disabled:opacity-50 transition-colors ${primary.pinned ? "border-primary/40 text-primary hover:bg-primary/10" : "border-zinc-200 text-zinc-400 hover:bg-primary/10 hover:border-primary/40 hover:text-primary"}`}>
+          className={`w-7 h-7 rounded-lg bg-white/95 dark:bg-zinc-800/95 backdrop-blur border shadow-sm flex items-center justify-center disabled:opacity-50 transition-colors ${primary.pinned ? "border-primary/40 text-primary hover:bg-primary/10" : "border-border text-muted-foreground hover:bg-primary/10 hover:border-primary/40 hover:text-primary"}`}>
           <Star className={`size-3.5 ${primary.pinned ? "fill-primary" : ""}`} />
         </button>
         {primary.appStage === "NEW" && (
           <button title="Approve & queue outreach" disabled={acting}
             onClick={(e) => quickAct(e, primary.id, "approve")}
-            className="w-7 h-7 rounded-lg bg-white/95 backdrop-blur border border-zinc-200 shadow-sm flex items-center justify-center text-zinc-500 hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-600 disabled:opacity-50 transition-colors"><Check className="size-3.5" /></button>
+            className="w-7 h-7 rounded-lg bg-white/95 dark:bg-zinc-800/95 backdrop-blur border border-border shadow-sm flex items-center justify-center text-muted-foreground hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-600 dark:hover:bg-emerald-500/15 dark:hover:border-emerald-500/40 dark:hover:text-emerald-300 disabled:opacity-50 transition-colors"><Check className="size-3.5" /></button>
         )}
         {(primary.appStage === "APPROVED" || primary.appStage === "OUTREACH") && (
           <button title="Mark replied" disabled={acting}
             onClick={(e) => quickAct(e, primary.id, "replied")}
-            className="w-7 h-7 rounded-lg bg-white/95 backdrop-blur border border-zinc-200 shadow-sm flex items-center justify-center text-zinc-500 hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-600 disabled:opacity-50 transition-colors"><CornerUpLeft className="size-3.5" /></button>
+            className="w-7 h-7 rounded-lg bg-white/95 dark:bg-zinc-800/95 backdrop-blur border border-border shadow-sm flex items-center justify-center text-muted-foreground hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-600 dark:hover:bg-emerald-500/15 dark:hover:border-emerald-500/40 dark:hover:text-emerald-300 disabled:opacity-50 transition-colors"><CornerUpLeft className="size-3.5" /></button>
         )}
         {NEXT_STAGE[primary.appStage] && (
           <button title={NEXT_STAGE[primary.appStage]!.label} disabled={acting}
             onClick={(e) => quickAct(e, primary.id, NEXT_STAGE[primary.appStage]!.action)}
-            className="w-7 h-7 rounded-lg bg-white/95 backdrop-blur border border-zinc-200 shadow-sm flex items-center justify-center text-zinc-500 hover:bg-primary/10 hover:border-primary/40 hover:text-primary disabled:opacity-50 transition-colors"><ArrowRight className="size-3.5" /></button>
+            className="w-7 h-7 rounded-lg bg-white/95 dark:bg-zinc-800/95 backdrop-blur border border-border shadow-sm flex items-center justify-center text-muted-foreground hover:bg-primary/10 hover:border-primary/40 hover:text-primary disabled:opacity-50 transition-colors"><ArrowRight className="size-3.5" /></button>
         )}
         <button title="Skip / remove from board" disabled={acting}
           onClick={(e) => quickAct(e, primary.id, "skip")}
-          className="w-7 h-7 rounded-lg bg-white/95 backdrop-blur border border-zinc-200 shadow-sm flex items-center justify-center text-zinc-500 hover:bg-zinc-100 hover:border-zinc-400 hover:text-zinc-700 disabled:opacity-50 transition-colors"><X className="size-3.5" /></button>
+          className="w-7 h-7 rounded-lg bg-white/95 dark:bg-zinc-800/95 backdrop-blur border border-border shadow-sm flex items-center justify-center text-muted-foreground hover:bg-muted hover:border-foreground/30 hover:text-foreground disabled:opacity-50 transition-colors"><X className="size-3.5" /></button>
         <button title={`Blacklist ${group.company}`} disabled={acting}
           onClick={(e) => blacklistCompany(e, group.company)}
-          className="w-7 h-7 rounded-lg bg-white/95 backdrop-blur border border-zinc-200 shadow-sm flex items-center justify-center text-zinc-500 hover:bg-red-50 hover:border-red-300 hover:text-red-600 disabled:opacity-50 transition-colors"><Ban className="size-3.5" /></button>
+          className="w-7 h-7 rounded-lg bg-white/95 dark:bg-zinc-800/95 backdrop-blur border border-border shadow-sm flex items-center justify-center text-muted-foreground hover:bg-red-50 hover:border-red-300 hover:text-red-600 dark:hover:bg-red-500/15 dark:hover:border-red-500/40 dark:hover:text-red-300 disabled:opacity-50 transition-colors"><Ban className="size-3.5" /></button>
       </div>
     </div>
   );
