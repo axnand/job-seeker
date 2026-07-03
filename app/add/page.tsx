@@ -6,6 +6,7 @@ import { scoreJob } from "@/scoring/ai-scorer";
 import { normalizeSalary } from "@/salary/normalize";
 import { dedupeKey } from "@/sources/normalize";
 import { extractPost } from "@/sources/linkedin-posts";
+import { ingestJobUrl } from "@/sources/url-ingest";
 import { resolveJobId } from "@/sources/job-id";
 import { enqueueOutreach } from "@/outreach/enqueue";
 import { getSettings } from "@/lib/settings";
@@ -32,25 +33,31 @@ async function addJob(formData: FormData) {
   let role = "Software Engineer";
 
   if (input.startsWith("http")) {
-    // A bare URL: fetch the page text so we have something to extract + score.
+    // A bare URL: LinkedIn jobs go through authenticated Unipile; everything
+    // else via reader proxy → direct fetch. Refuse to create a junk entry when
+    // nothing usable came back — tell the owner to paste the text instead.
     applyUrl = input;
-    try {
-      const r = await fetch(`https://r.jina.ai/${encodeURIComponent(input)}`, { signal: AbortSignal.timeout(15_000) });
-      if (r.ok) jdText = await r.text();
-    } catch { /* ignore */ }
-    if (!jdText) jdText = `[JD fetch failed — URL: ${input}]`;
+    const page = await ingestJobUrl(input).catch(() => null);
+    if (!page) redirect("/add?error=fetch");
+    jdText = page.text;
+    if (page.company) company = page.company;
+    if (page.role) role = page.role;
+    if (page.applyUrl) applyUrl = page.applyUrl;
   } else {
     jdText = input;
   }
 
-  // Pull structured fields out of the pasted text (company, role, apply link).
-  const ex = await extractPost(jdText).catch(() => null);
-  if (ex) {
-    if (ex.company) company = ex.company;
-    if (ex.role) role = ex.role;
-    if (!applyUrl) applyUrl = ex.applyUrl ?? jdText.match(URL_RE)?.[0] ?? "";
-    const tidied = [ex.extractedJd, ex.requirements].filter(Boolean).join("\n\n");
-    if (tidied && !input.startsWith("http")) jdText = tidied;
+  // Pull structured fields out of the text (company, role, apply link) unless
+  // the URL ingest already returned them structured (Unipile).
+  if (company === "Unknown" || !applyUrl) {
+    const ex = await extractPost(jdText).catch(() => null);
+    if (ex) {
+      if (company === "Unknown" && ex.company) company = ex.company;
+      if (role === "Software Engineer" && ex.role) role = ex.role;
+      if (!applyUrl) applyUrl = ex.applyUrl ?? jdText.match(URL_RE)?.[0] ?? "";
+      const tidied = [ex.extractedJd, ex.requirements].filter(Boolean).join("\n\n");
+      if (tidied && !input.startsWith("http")) jdText = tidied;
+    }
   }
 
   // Follow the apply link → requisition/job ID for the referral DM (+ canonical URL).
@@ -129,9 +136,9 @@ const FEATURES = [
 export default async function AddJobPage({
   searchParams,
 }: {
-  searchParams: Promise<{ already?: string }>;
+  searchParams: Promise<{ already?: string; error?: string }>;
 }) {
-  const { already } = await searchParams;
+  const { already, error } = await searchParams;
   const existing = already
     ? await prisma.job.findUnique({
         where: { id: already },
@@ -145,6 +152,20 @@ export default async function AddJobPage({
 
       <div className="flex-1 overflow-y-auto scrollbar-slim">
         <div className="mx-auto w-full max-w-2xl px-6 py-10 space-y-6">
+
+          {/* URL fetch failed — nothing was created */}
+          {error === "fetch" && (
+            <div className="flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+              <TriangleAlert className="size-4 shrink-0 text-red-600 mt-0.5" />
+              <div className="min-w-0 text-sm text-red-800">
+                <p className="font-semibold">Couldn&apos;t read that URL — nothing was added.</p>
+                <p className="text-red-700 mt-0.5">
+                  The page blocked automated readers (common for LinkedIn posts). Open it, copy the
+                  job text, and paste it here instead — everything else works the same.
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Already-tracked notice — dedupe hit, nothing was created */}
           {existing && (
