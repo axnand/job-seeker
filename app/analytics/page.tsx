@@ -40,15 +40,15 @@ export default async function AnalyticsPage() {
   const { totals, pipeline, bySource, llmSpend } = await computeAnalytics();
 
   const tiles: { label: string; value: string; color: string }[] = [
-    { label: "Total jobs",       value: totals.jobs.toLocaleString(),   color: "text-zinc-900" },
-    { label: "Approval rate",    value: pct(totals.approvalRate),        color: "text-blue-600" },
-    { label: "Invite → accept",  value: pct(totals.inviteAcceptRate),    color: "text-indigo-600" },
-    { label: "Accept → reply",   value: pct(totals.acceptReplyRate),     color: "text-emerald-600" },
-    { label: "In pipeline",      value: totals.inPipeline.toLocaleString(), color: "text-violet-600" },
+    { label: "Total jobs",       value: totals.jobs.toLocaleString(),   color: "text-foreground" },
+    { label: "Approval rate",    value: pct(totals.approvalRate),        color: "text-blue-600 dark:text-blue-300" },
+    { label: "Invite → accept",  value: pct(totals.inviteAcceptRate),    color: "text-indigo-600 dark:text-indigo-300" },
+    { label: "Accept → reply",   value: pct(totals.acceptReplyRate),     color: "text-emerald-600 dark:text-emerald-300" },
+    { label: "In pipeline",      value: totals.inPipeline.toLocaleString(), color: "text-violet-600 dark:text-violet-300" },
   ];
 
   return (
-    <div className="flex flex-1 flex-col min-h-0 overflow-hidden bg-zinc-50">
+    <div className="flex flex-1 flex-col min-h-0 overflow-hidden bg-background">
       <PageHeader
         title="Analytics"
         subtitle="Which sources and messages actually convert"
@@ -60,20 +60,20 @@ export default async function AnalyticsPage() {
         {/* ── Stat tiles ──────────────────────────────────────────────── */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           {tiles.map(({ label, value, color }) => (
-            <div key={label} className="bg-white rounded-xl border border-zinc-200 shadow-sm px-4 py-3">
-              <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest mb-1">{label}</p>
+            <div key={label} className="bg-card rounded-xl border border-border shadow-sm px-4 py-3">
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-1">{label}</p>
               <p className={`text-2xl font-semibold tabular-nums ${color}`}>{value}</p>
             </div>
           ))}
         </div>
 
         {/* ── Overall funnel ─────────────────────────────────────────── */}
-        <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
-          <div className="px-5 py-3.5 border-b border-zinc-100">
-            <h2 className="text-sm font-semibold text-zinc-700">Conversion funnel</h2>
-            <p className="text-xs text-zinc-400 mt-0.5">Discovered jobs down to a reply — the whole pipeline at a glance.</p>
+        <div className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-border">
+            <h2 className="text-sm font-semibold text-foreground">Conversion funnel</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">Discovered jobs down to a reply — the whole pipeline at a glance.</p>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-6 divide-y md:divide-y-0 md:divide-x divide-zinc-100">
+          <div className="grid grid-cols-2 md:grid-cols-6 divide-y md:divide-y-0 md:divide-x divide-border">
             {[
               { label: "Discovered",    value: totals.jobs,          sub: null },
               { label: "Passed scoring", value: totals.passedScoring, sub: ratio(totals.passedScoring, totals.jobs) },
@@ -83,23 +83,23 @@ export default async function AnalyticsPage() {
               { label: "Replied",       value: totals.replied,       sub: ratio(totals.replied, totals.accepted) },
             ].map(({ label, value, sub }) => (
               <div key={label} className="px-5 py-4">
-                <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest">{label}</p>
-                <p className="text-xl font-semibold tabular-nums text-zinc-900 mt-1">{value.toLocaleString()}</p>
-                {sub && <p className="text-[11px] text-zinc-400 tabular-nums mt-0.5">{sub} of prior</p>}
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">{label}</p>
+                <p className="text-xl font-semibold tabular-nums text-foreground mt-1">{value.toLocaleString()}</p>
+                {sub && <p className="text-[11px] text-muted-foreground tabular-nums mt-0.5">{sub} of prior</p>}
               </div>
             ))}
           </div>
         </div>
 
         {/* ── Per-source funnel table ─────────────────────────────────── */}
-        <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
-          <div className="px-5 py-3.5 border-b border-zinc-100">
-            <h2 className="text-sm font-semibold text-zinc-700">By source</h2>
-            <p className="text-xs text-zinc-400 mt-0.5">Where your best conversions come from.</p>
+        <div className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-border">
+            <h2 className="text-sm font-semibold text-foreground">By source</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">Where your best conversions come from.</p>
           </div>
 
           {bySource.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-2 py-16 text-zinc-400">
+            <div className="flex flex-col items-center justify-center gap-2 py-16 text-muted-foreground">
               <Inbox className="size-6" />
               <p className="text-sm font-medium">No jobs discovered yet.</p>
               <p className="text-xs">Conversion data appears once jobs start flowing in.</p>
@@ -108,7 +108,7 @@ export default async function AnalyticsPage() {
             <div className="overflow-x-auto scrollbar-slim">
               <table className="w-full text-sm tabular-nums">
                 <thead>
-                  <tr className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest border-b border-zinc-100">
+                  <tr className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest border-b border-border">
                     <th className="text-left font-semibold px-5 py-2.5">Source</th>
                     <th className="text-right font-semibold px-3 py-2.5">Jobs</th>
                     <th className="text-right font-semibold px-3 py-2.5">Passed</th>
@@ -119,19 +119,19 @@ export default async function AnalyticsPage() {
                     <th className="text-right font-semibold px-5 py-2.5">Reply rate</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-zinc-50">
+                <tbody className="divide-y divide-border">
                   {bySource.map((r) => (
-                    <tr key={r.source} className="hover:bg-zinc-50/60 transition-colors">
-                      <td className="px-5 py-2.5 text-left font-medium text-zinc-800 tracking-normal">
+                    <tr key={r.source} className="hover:bg-muted/50 transition-colors">
+                      <td className="px-5 py-2.5 text-left font-medium text-foreground tracking-normal">
                         {SOURCE_LABEL[r.source] ?? r.source}
                       </td>
-                      <td className="px-3 py-2.5 text-right text-zinc-700">{r.jobs.toLocaleString()}</td>
-                      <td className="px-3 py-2.5 text-right text-zinc-500">{r.passedScoring.toLocaleString()}</td>
-                      <td className="px-3 py-2.5 text-right text-blue-600 font-medium">{r.approvedPlus.toLocaleString()}</td>
-                      <td className="px-3 py-2.5 text-right text-zinc-500">{r.invitesSent.toLocaleString()}</td>
-                      <td className="px-3 py-2.5 text-right text-indigo-600 font-medium">{r.accepted.toLocaleString()}</td>
-                      <td className="px-3 py-2.5 text-right text-emerald-600 font-semibold">{r.replied.toLocaleString()}</td>
-                      <td className="px-5 py-2.5 text-right text-zinc-600">{ratio(r.replied, r.invitesSent)}</td>
+                      <td className="px-3 py-2.5 text-right text-foreground">{r.jobs.toLocaleString()}</td>
+                      <td className="px-3 py-2.5 text-right text-muted-foreground">{r.passedScoring.toLocaleString()}</td>
+                      <td className="px-3 py-2.5 text-right text-blue-600 dark:text-blue-300 font-medium">{r.approvedPlus.toLocaleString()}</td>
+                      <td className="px-3 py-2.5 text-right text-muted-foreground">{r.invitesSent.toLocaleString()}</td>
+                      <td className="px-3 py-2.5 text-right text-indigo-600 dark:text-indigo-300 font-medium">{r.accepted.toLocaleString()}</td>
+                      <td className="px-3 py-2.5 text-right text-emerald-600 dark:text-emerald-300 font-semibold">{r.replied.toLocaleString()}</td>
+                      <td className="px-5 py-2.5 text-right text-muted-foreground">{ratio(r.replied, r.invitesSent)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -141,18 +141,18 @@ export default async function AnalyticsPage() {
         </div>
 
         {/* ── LLM spend (30 days) ─────────────────────────────────────── */}
-        <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
-          <div className="px-5 py-3.5 border-b border-zinc-100">
-            <h2 className="text-sm font-semibold text-zinc-700">LLM spend — last 30 days</h2>
-            <p className="text-xs text-zinc-400 mt-0.5">Token usage per purpose; cost is an estimate from public pricing.</p>
+        <div className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-border">
+            <h2 className="text-sm font-semibold text-foreground">LLM spend — last 30 days</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">Token usage per purpose; cost is an estimate from public pricing.</p>
           </div>
           {llmSpend.length === 0 ? (
-            <p className="px-5 py-6 text-xs text-zinc-400">No usage recorded yet — the ledger fills as LLM calls run.</p>
+            <p className="px-5 py-6 text-xs text-muted-foreground">No usage recorded yet — the ledger fills as LLM calls run.</p>
           ) : (
             <div className="overflow-x-auto scrollbar-slim">
               <table className="w-full text-sm tabular-nums">
                 <thead>
-                  <tr className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest border-b border-zinc-100">
+                  <tr className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest border-b border-border">
                     <th className="text-left font-semibold px-5 py-2.5">Purpose</th>
                     <th className="text-right font-semibold px-3 py-2.5">Calls</th>
                     <th className="text-right font-semibold px-3 py-2.5">Input tokens</th>
@@ -160,14 +160,14 @@ export default async function AnalyticsPage() {
                     <th className="text-right font-semibold px-5 py-2.5">Est. cost</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-zinc-50">
+                <tbody className="divide-y divide-border">
                   {llmSpend.map((r) => (
-                    <tr key={r.purpose} className="hover:bg-zinc-50/60 transition-colors">
-                      <td className="px-5 py-2.5 text-left font-medium text-zinc-800">{PURPOSE_LABEL[r.purpose] ?? r.purpose}</td>
-                      <td className="px-3 py-2.5 text-right text-zinc-700">{r.calls.toLocaleString()}</td>
-                      <td className="px-3 py-2.5 text-right text-zinc-500">{tok(r.promptTokens)}</td>
-                      <td className="px-3 py-2.5 text-right text-zinc-500">{tok(r.completionTokens)}</td>
-                      <td className="px-5 py-2.5 text-right text-indigo-600 font-medium">{usd(r.estCostUsd)}</td>
+                    <tr key={r.purpose} className="hover:bg-muted/50 transition-colors">
+                      <td className="px-5 py-2.5 text-left font-medium text-foreground">{PURPOSE_LABEL[r.purpose] ?? r.purpose}</td>
+                      <td className="px-3 py-2.5 text-right text-foreground">{r.calls.toLocaleString()}</td>
+                      <td className="px-3 py-2.5 text-right text-muted-foreground">{tok(r.promptTokens)}</td>
+                      <td className="px-3 py-2.5 text-right text-muted-foreground">{tok(r.completionTokens)}</td>
+                      <td className="px-5 py-2.5 text-right text-indigo-600 dark:text-indigo-300 font-medium">{usd(r.estCostUsd)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -177,16 +177,16 @@ export default async function AnalyticsPage() {
         </div>
 
         {/* ── Pipeline by stage ───────────────────────────────────────── */}
-        <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
-          <div className="px-5 py-3.5 border-b border-zinc-100">
-            <h2 className="text-sm font-semibold text-zinc-700">Pipeline by stage</h2>
+        <div className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-border">
+            <h2 className="text-sm font-semibold text-foreground">Pipeline by stage</h2>
           </div>
           <div className="flex flex-wrap gap-x-8 gap-y-3 px-5 py-4">
             {ALL_STAGES.map((stage) => (
               <div key={stage} className="flex items-center gap-2">
                 <span className={`w-2 h-2 rounded-full shrink-0 ${STAGE_DOT[stage]}`} />
-                <span className="text-xs text-zinc-500">{STAGE_LABEL[stage]}</span>
-                <span className="text-sm font-semibold tabular-nums text-zinc-900">{pipeline[stage].toLocaleString()}</span>
+                <span className="text-xs text-muted-foreground">{STAGE_LABEL[stage]}</span>
+                <span className="text-sm font-semibold tabular-nums text-foreground">{pipeline[stage].toLocaleString()}</span>
               </div>
             ))}
           </div>

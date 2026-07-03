@@ -21,21 +21,21 @@ export function PageHeader({
   return (
     <header
       className={cn(
-        "flex h-14 shrink-0 items-center gap-3 border-b border-zinc-200 bg-white/80 px-6 backdrop-blur-sm",
+        "flex h-14 shrink-0 items-center gap-3 border-b border-border bg-white/80 px-6 backdrop-blur-sm dark:bg-zinc-900/70",
         className
       )}
     >
       {icon && (
-        <span className="flex size-7 items-center justify-center rounded-lg bg-zinc-100 text-zinc-500">
+        <span className="flex size-7 items-center justify-center rounded-lg bg-muted text-muted-foreground">
           {icon}
         </span>
       )}
       <div className="min-w-0">
-        <h1 className="truncate text-sm font-semibold tracking-tight text-zinc-900">
+        <h1 className="truncate text-sm font-semibold tracking-tight text-foreground">
           {title}
         </h1>
         {subtitle && (
-          <p className="truncate text-xs text-zinc-500">{subtitle}</p>
+          <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
         )}
       </div>
       {children && (

@@ -151,99 +151,104 @@ export default async function AddJobPage({
       <PageHeader title="Add job" subtitle="Paste a post or a job URL — we handle the rest" icon={<Plus className="size-4" />} />
 
       <div className="flex-1 overflow-y-auto scrollbar-slim">
-        <div className="mx-auto w-full max-w-2xl px-6 py-10 space-y-6">
+        <div className="mx-auto w-full max-w-6xl px-6 py-10 lg:px-10">
 
-          {/* URL fetch failed — nothing was created */}
-          {error === "fetch" && (
-            <div className="flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
-              <TriangleAlert className="size-4 shrink-0 text-red-600 mt-0.5" />
-              <div className="min-w-0 text-sm text-red-800">
-                <p className="font-semibold">Couldn&apos;t read that URL — nothing was added.</p>
-                <p className="text-red-700 mt-0.5">
-                  The page blocked automated readers (common for LinkedIn posts). Open it, copy the
-                  job text, and paste it here instead — everything else works the same.
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Already-tracked notice — dedupe hit, nothing was created */}
-          {existing && (
-            <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
-              <TriangleAlert className="size-4 shrink-0 text-amber-600 mt-0.5" />
-              <div className="min-w-0 text-sm text-amber-800">
-                <p className="font-semibold">Already tracked — nothing was added.</p>
-                <p className="text-amber-700 mt-0.5">
-                  {existing.company} · {existing.role} is on the board (stage: {existing.appStage.toLowerCase()}).{" "}
-                  <a href={`/jobs/${existing.id}`} className="inline-flex items-center gap-0.5 font-medium underline underline-offset-2 hover:text-amber-900">
-                    View job <ExternalLink className="size-3" />
-                  </a>
-                </p>
-              </div>
-            </div>
-          )}
-
-          <div className="space-y-1.5">
-            <h2 className="text-lg font-semibold tracking-tight text-zinc-900">Add a new job</h2>
-            <p className="text-sm text-zinc-500">
+          <div className="mb-6 space-y-1.5">
+            <h2 className="text-lg font-semibold tracking-tight text-foreground">Add a new job</h2>
+            <p className="text-sm text-muted-foreground">
               Paste a job post you saw anywhere — we extract the company &amp; role, grab the job ID from the apply link, and line up referrals.
             </p>
           </div>
 
-          {/* Input card */}
-          <form action={addJob}>
-            <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
-              <textarea
-                name="input"
-                rows={10}
-                placeholder="Paste the full job post text here…&#10;or a Greenhouse / Lever / Ashby URL"
-                className="w-full px-5 py-4 text-sm font-mono resize-none outline-none focus:ring-2 focus:ring-inset focus:ring-ring/40 placeholder:text-zinc-400 placeholder:font-sans bg-white"
-                required
-              />
+          <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
 
-              {/* Mode selector */}
-              <div className="border-t border-zinc-100 bg-white px-5 py-3 space-y-2">
-                <label className="flex items-start gap-2.5 cursor-pointer">
-                  <input type="radio" name="mode" value="referral" defaultChecked className="mt-0.5 accent-indigo-600" />
-                  <span>
-                    <span className="block text-sm font-medium text-zinc-900">Find referrals</span>
-                    <span className="block text-xs text-zinc-500">Search people at the company and draft referral DMs (with the job ID).</span>
-                  </span>
-                </label>
-                <label className="flex items-start gap-2.5 cursor-pointer">
-                  <input type="radio" name="mode" value="notify" className="mt-0.5 accent-indigo-600" />
-                  <span>
-                    <span className="block text-sm font-medium text-zinc-900">Just track it</span>
-                    <span className="block text-xs text-zinc-500">Score &amp; save only — email me the apply link so I can apply myself.</span>
-                  </span>
-                </label>
-              </div>
+            {/* Main column — input + mode */}
+            <form action={addJob} className="min-w-0">
+              <div className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
+                <textarea
+                  name="input"
+                  rows={16}
+                  placeholder="Paste the full job post text here…&#10;or a Greenhouse / Lever / Ashby URL"
+                  className="w-full px-5 py-4 text-sm font-mono resize-none outline-none focus:ring-2 focus:ring-inset focus:ring-ring/40 placeholder:text-muted-foreground placeholder:font-sans bg-card"
+                  required
+                />
 
-              <div className="border-t border-zinc-100 bg-zinc-50 px-5 py-3 flex items-center justify-between">
-                <p className="text-xs text-zinc-400">Greenhouse · Lever · Ashby · Jina reader fallback</p>
-                <button
-                  type="submit"
-                  className="inline-flex items-center gap-1.5 bg-primary hover:bg-primary/90 text-primary-foreground text-sm font-medium px-4 py-2 rounded-lg shadow-sm transition-colors"
-                >
-                  <Sparkles className="size-4" /> Score &amp; add
-                </button>
-              </div>
-            </div>
-          </form>
-
-          {/* Feature cards */}
-          <div className="grid grid-cols-3 gap-3">
-            {FEATURES.map(({ icon: Icon, title, desc }) => (
-              <div key={title} className="bg-white border border-zinc-200 rounded-xl p-4">
-                <div className="flex items-center gap-2 mb-1.5">
-                  <span className="flex size-6 items-center justify-center rounded-md bg-indigo-50 text-primary">
-                    <Icon className="size-3.5" />
-                  </span>
-                  <p className="text-sm font-semibold text-zinc-900">{title}</p>
+                {/* Mode selector */}
+                <div className="border-t border-border bg-card px-5 py-3 grid gap-2 sm:grid-cols-2">
+                  <label className="flex items-start gap-2.5 cursor-pointer">
+                    <input type="radio" name="mode" value="referral" defaultChecked className="mt-0.5 accent-indigo-600" />
+                    <span>
+                      <span className="block text-sm font-medium text-foreground">Find referrals</span>
+                      <span className="block text-xs text-muted-foreground">Search people at the company and draft referral DMs (with the job ID).</span>
+                    </span>
+                  </label>
+                  <label className="flex items-start gap-2.5 cursor-pointer">
+                    <input type="radio" name="mode" value="notify" className="mt-0.5 accent-indigo-600" />
+                    <span>
+                      <span className="block text-sm font-medium text-foreground">Just track it</span>
+                      <span className="block text-xs text-muted-foreground">Score &amp; save only — email me the apply link so I can apply myself.</span>
+                    </span>
+                  </label>
                 </div>
-                <p className="text-xs text-zinc-500 leading-relaxed">{desc}</p>
+
+                <div className="border-t border-border bg-muted/50 px-5 py-3 flex items-center justify-between">
+                  <p className="text-xs text-muted-foreground">Greenhouse · Lever · Ashby · Jina reader fallback</p>
+                  <button
+                    type="submit"
+                    className="inline-flex items-center gap-1.5 bg-primary hover:bg-primary/90 text-primary-foreground text-sm font-medium px-4 py-2 rounded-lg shadow-sm transition-colors"
+                  >
+                    <Sparkles className="size-4" /> Score &amp; add
+                  </button>
+                </div>
               </div>
-            ))}
+            </form>
+
+            {/* Right rail — status banners + what happens next */}
+            <aside className="space-y-4">
+
+              {/* URL fetch failed — nothing was created */}
+              {error === "fetch" && (
+                <div className="flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 dark:border-red-500/30 dark:bg-red-500/10 px-4 py-3">
+                  <TriangleAlert className="size-4 shrink-0 text-red-600 dark:text-red-300 mt-0.5" />
+                  <div className="min-w-0 text-sm text-red-800 dark:text-red-300">
+                    <p className="font-semibold">Couldn&apos;t read that URL — nothing was added.</p>
+                    <p className="text-red-700 dark:text-red-300 mt-0.5">
+                      The page blocked automated readers (common for LinkedIn posts). Open it, copy the
+                      job text, and paste it here instead — everything else works the same.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Already-tracked notice — dedupe hit, nothing was created */}
+              {existing && (
+                <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 dark:border-amber-500/30 dark:bg-amber-500/10 px-4 py-3">
+                  <TriangleAlert className="size-4 shrink-0 text-amber-600 dark:text-amber-300 mt-0.5" />
+                  <div className="min-w-0 text-sm text-amber-800 dark:text-amber-300">
+                    <p className="font-semibold">Already tracked — nothing was added.</p>
+                    <p className="text-amber-700 dark:text-amber-300 mt-0.5">
+                      {existing.company} · {existing.role} is on the board (stage: {existing.appStage.toLowerCase()}).{" "}
+                      <a href={`/jobs/${existing.id}`} className="inline-flex items-center gap-0.5 font-medium underline underline-offset-2 hover:text-amber-900 dark:hover:text-amber-300">
+                        View job <ExternalLink className="size-3" />
+                      </a>
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              <p className="px-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">What happens next</p>
+              {FEATURES.map(({ icon: Icon, title, desc }) => (
+                <div key={title} className="bg-card border border-border rounded-xl p-4">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span className="flex size-6 items-center justify-center rounded-md bg-indigo-50 dark:bg-indigo-500/10 text-primary">
+                      <Icon className="size-3.5" />
+                    </span>
+                    <p className="text-sm font-semibold text-foreground">{title}</p>
+                  </div>
+                  <p className="text-xs text-muted-foreground leading-relaxed">{desc}</p>
+                </div>
+              ))}
+            </aside>
           </div>
         </div>
       </div>

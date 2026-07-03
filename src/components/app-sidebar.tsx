@@ -11,6 +11,8 @@ import {
   PanelLeft,
   Target,
   BarChart3,
+  Sun,
+  Moon,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -28,19 +30,24 @@ const NAV: NavItem[] = [
 ];
 
 const STORAGE_KEY = "js.sidebar.collapsed";
+const THEME_KEY = "js.theme";
 
 export function AppSidebar() {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [ready, setReady] = useState(false);
+  const [theme, setTheme] = useState<"light" | "dark">("light");
 
-  // Persist the rail state so it survives navigation and reloads.
+  // Persist the rail state so it survives navigation and reloads. The theme is
+  // already applied to <html> by the no-flash script in the layout head; here we
+  // just mirror the current state into React so the toggle renders correctly.
   useEffect(() => {
     try {
       setCollapsed(localStorage.getItem(STORAGE_KEY) === "1");
     } catch {
       /* ignore */
     }
+    setTheme(document.documentElement.classList.contains("dark") ? "dark" : "light");
     setReady(true);
   }, []);
 
@@ -49,6 +56,19 @@ export function AppSidebar() {
       const next = !c;
       try {
         localStorage.setItem(STORAGE_KEY, next ? "1" : "0");
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  };
+
+  const toggleTheme = () => {
+    setTheme((t) => {
+      const next = t === "dark" ? "light" : "dark";
+      document.documentElement.classList.toggle("dark", next === "dark");
+      try {
+        localStorage.setItem(THEME_KEY, next);
       } catch {
         /* ignore */
       }
@@ -131,8 +151,36 @@ export function AppSidebar() {
         })}
       </nav>
 
-      {/* Collapse toggle */}
-      <div className="border-t border-sidebar-border p-2">
+      {/* Footer: theme toggle + collapse */}
+      <div className="flex flex-col gap-0.5 border-t border-sidebar-border p-2">
+        {(() => {
+          const isDark = theme === "dark";
+          const ThemeIcon = isDark ? Sun : Moon;
+          const themeLabel = isDark ? "Light mode" : "Dark mode";
+          const themeBtn = (
+            <button
+              type="button"
+              onClick={toggleTheme}
+              aria-label={`Switch to ${themeLabel.toLowerCase()}`}
+              className={cn(
+                "flex h-9 items-center rounded-lg text-sm font-medium text-muted-foreground outline-none transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring/50",
+                collapsed ? "w-9 justify-center self-center" : "w-full gap-2.5 px-2.5"
+              )}
+            >
+              <ThemeIcon className="size-4 shrink-0" />
+              {!collapsed && <span>{themeLabel}</span>}
+            </button>
+          );
+          return collapsed ? (
+            <Tooltip>
+              <TooltipTrigger render={themeBtn} />
+              <TooltipContent side="right">{themeLabel}</TooltipContent>
+            </Tooltip>
+          ) : (
+            themeBtn
+          );
+        })()}
+
         <button
           type="button"
           onClick={toggle}

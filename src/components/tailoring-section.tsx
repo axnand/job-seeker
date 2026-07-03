@@ -91,15 +91,15 @@ export function TailoringSection({
   };
 
   return (
-    <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm p-6">
+    <div className="bg-card rounded-2xl border border-border shadow-sm p-6">
       <div className="flex items-center justify-between gap-3 mb-3">
-        <h2 className="flex items-center gap-1.5 text-sm font-semibold text-zinc-700">
+        <h2 className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
           <Wand2 className="size-3.5 text-primary" /> Auto-tailoring
         </h2>
         <button
           onClick={() => setConfirming(true)}
           disabled={running}
-          className="inline-flex items-center gap-1.5 text-xs font-medium text-zinc-600 border border-zinc-200 rounded-lg px-3 py-1.5 hover:bg-zinc-50 hover:text-zinc-900 transition-colors disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground border border-border rounded-lg px-3 py-1.5 hover:bg-accent/50 hover:text-foreground transition-colors disabled:opacity-50"
         >
           <RefreshCw className={`size-3.5 ${running ? "animate-spin" : ""}`} />
           {running ? "Regenerating…" : status ? "Regenerate" : "Run tailoring"}
@@ -108,17 +108,17 @@ export function TailoringSection({
 
       {/* Status */}
       {!status && !running && (
-        <p className="text-sm text-zinc-400">
+        <p className="text-sm text-muted-foreground">
           Not run yet — the tailoring pipeline applies surgical, truthfulness-checked edits to your master LaTeX resume for this JD.
         </p>
       )}
       {running && (
-        <p className="text-sm text-zinc-500">Running — proposing edits, validating, and compiling…</p>
+        <p className="text-sm text-muted-foreground">Running — proposing edits, validating, and compiling…</p>
       )}
 
       {!running && status === "tailored" && (
         <div className="space-y-3">
-          <div className="flex items-center gap-2 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2.5">
+          <div className="flex items-center gap-2 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 dark:text-emerald-300 dark:bg-emerald-500/10 dark:border-emerald-500/30 rounded-xl px-3 py-2.5">
             <Check className="size-4 shrink-0" />
             Tailored — {edits.length} edit{edits.length !== 1 ? "s" : ""}
             {typeof log?.repairs === "number" && log.repairs > 0 ? `, ${log.repairs} compile repair${log.repairs !== 1 ? "s" : ""}` : ""}
@@ -128,7 +128,7 @@ export function TailoringSection({
           {edits.length > 0 && (
             <ul className="space-y-1.5">
               {edits.map((e, i) => (
-                <li key={i} className="flex items-start gap-2 text-xs text-zinc-600">
+                <li key={i} className="flex items-start gap-2 text-xs text-muted-foreground">
                   <span className="mt-1 size-1 rounded-full bg-primary shrink-0" />
                   <span className="leading-relaxed">{e.why || "(no rationale given)"}</span>
                 </li>
@@ -138,7 +138,7 @@ export function TailoringSection({
 
           {edits.length > 0 && (
             <Dialog>
-              <DialogTrigger className="text-xs font-medium text-primary hover:text-indigo-800 underline underline-offset-2 transition-colors">
+              <DialogTrigger className="text-xs font-medium text-primary hover:text-indigo-800 dark:hover:text-indigo-300 underline underline-offset-2 transition-colors">
                 View before → after
               </DialogTrigger>
               <DialogContent className="max-w-2xl">
@@ -150,12 +150,12 @@ export function TailoringSection({
                 </DialogHeader>
                 <div className="max-h-[60vh] overflow-y-auto scrollbar-slim space-y-3">
                   {edits.map((e, i) => (
-                    <div key={i} className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 space-y-2">
-                      <p className="text-xs font-medium text-zinc-700">{e.why || `Edit ${i + 1}`}</p>
+                    <div key={i} className="rounded-xl border border-border bg-muted/50 p-3 space-y-2">
+                      <p className="text-xs font-medium text-foreground">{e.why || `Edit ${i + 1}`}</p>
                       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
-                        <pre className="text-[11px] leading-relaxed text-red-800 bg-red-50 border border-red-200 rounded-lg p-2 whitespace-pre-wrap break-words overflow-x-auto">{e.find}</pre>
-                        <ArrowRight className="size-3.5 text-zinc-400 shrink-0" />
-                        <pre className="text-[11px] leading-relaxed text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg p-2 whitespace-pre-wrap break-words overflow-x-auto">{e.replace}</pre>
+                        <pre className="text-[11px] leading-relaxed text-red-800 bg-red-50 border border-red-200 dark:text-red-300 dark:bg-red-500/10 dark:border-red-500/30 rounded-lg p-2 whitespace-pre-wrap break-words overflow-x-auto">{e.find}</pre>
+                        <ArrowRight className="size-3.5 text-muted-foreground shrink-0" />
+                        <pre className="text-[11px] leading-relaxed text-emerald-800 bg-emerald-50 border border-emerald-200 dark:text-emerald-300 dark:bg-emerald-500/10 dark:border-emerald-500/30 rounded-lg p-2 whitespace-pre-wrap break-words overflow-x-auto">{e.replace}</pre>
                       </div>
                     </div>
                   ))}
@@ -170,8 +170,8 @@ export function TailoringSection({
         <div
           className={`flex items-start gap-2 text-sm rounded-xl px-3 py-2.5 border ${
             status === "failed"
-              ? "text-red-700 bg-red-50 border-red-200"
-              : "text-amber-800 bg-amber-50 border-amber-200"
+              ? "text-red-700 bg-red-50 border-red-200 dark:text-red-300 dark:bg-red-500/10 dark:border-red-500/30"
+              : "text-amber-800 bg-amber-50 border-amber-200 dark:text-amber-300 dark:bg-amber-500/10 dark:border-amber-500/30"
           }`}
         >
           {status === "failed"
@@ -185,7 +185,7 @@ export function TailoringSection({
       )}
 
       {error && (
-        <p className="mt-2 text-xs text-red-600">{error}</p>
+        <p className="mt-2 text-xs text-red-600 dark:text-red-300">{error}</p>
       )}
 
       {tailoredResumeKey && (
@@ -193,7 +193,7 @@ export function TailoringSection({
           href={`/api/resume/download?key=${encodeURIComponent(tailoredResumeKey)}`}
           target="_blank"
           rel="noopener noreferrer"
-          className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-indigo-800 transition-colors"
+          className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-indigo-800 dark:hover:text-indigo-300 transition-colors"
         >
           <Download className="size-3.5" /> Download tailored PDF
         </a>
@@ -212,7 +212,7 @@ export function TailoringSection({
           <AlertDialogFooter>
             <button
               onClick={() => setConfirming(false)}
-              className="inline-flex items-center justify-center text-sm font-medium text-zinc-600 border border-zinc-200 rounded-lg px-4 py-2 hover:bg-zinc-50 transition-colors"
+              className="inline-flex items-center justify-center text-sm font-medium text-muted-foreground border border-border rounded-lg px-4 py-2 hover:bg-accent/50 transition-colors"
             >
               Cancel
             </button>
