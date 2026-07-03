@@ -69,6 +69,41 @@ const GENERIC_ALLOW = new Set([
   "hands", "end-to-end", "cross-functional", "results", "growth", "ownership",
 ]);
 
+/** Closed-class English function words — never factual claims. Content words
+ *  can't be enumerated (that's what vocab + stem matching is for), but function
+ *  words can. */
+const STOPWORDS = new Set([
+  "the", "and", "that", "which", "with", "from", "into", "onto", "over", "under",
+  "while", "where", "when", "than", "then", "they", "them", "their", "there",
+  "this", "these", "those", "has", "have", "had", "was", "were", "are", "is",
+  "been", "being", "its", "also", "both", "each", "per", "via", "more", "most",
+  "less", "least", "very", "well", "who", "whom", "whose", "what", "how", "why",
+  "can", "could", "will", "would", "should", "may", "might", "must", "not",
+  "all", "any", "some", "such", "own", "same", "other", "another", "between",
+  "through", "during", "before", "after", "above", "below", "about", "against",
+  "because", "until", "unless", "within", "without", "across", "along", "toward",
+]);
+
+/** Crude inflection stem: "processed"/"processing"/"processes" → "process".
+ *  Only used for vocabulary membership, never for output. */
+function stem(t: string): string {
+  let s = t.replace(/'s$/, "");
+  for (const suf of ["ing", "ed", "es", "s", "e"]) {
+    if (s.length - suf.length >= 3 && s.endsWith(suf)) { s = s.slice(0, -suf.length); break; }
+  }
+  return s;
+}
+
+/** True when token t is a claim the master resume doesn't already make. */
+function isNewClaim(t: string, vocab: Set<string>, vocabStems: Set<string>): boolean {
+  if (vocab.has(t) || GENERIC_ALLOW.has(t) || STOPWORDS.has(t)) return false;
+  return !vocabStems.has(stem(t));
+}
+
+function stemsOf(vocabulary: string[]): Set<string> {
+  return new Set(vocabulary.map(stem));
+}
+
 /** Build the master vocabulary (store in ResumeProfile.whitelist). */
 export function buildVocabulary(masterTex: string): string[] {
   return [...claimTokens(visibleText(masterTex))].sort();
@@ -113,9 +148,11 @@ export function validateEdits(
       continue;
     }
     // Truthfulness: every claim-token in the replacement must already exist in
-    // the master vocabulary (or be generic resume English).
+    // the master vocabulary (directly or as an inflection), or be closed-class /
+    // generic resume English.
+    const vocabStems = stemsOf(vocabulary);
     const newTokens = [...claimTokens(visibleText(edit.replace))]
-      .filter(t => !vocab.has(t) && !GENERIC_ALLOW.has(t));
+      .filter(t => isNewClaim(t, vocab, vocabStems));
     if (newTokens.length > 0) {
       violations.push({ edit, reason: `introduces claims not in master resume: ${newTokens.slice(0, 5).join(", ")}` });
     }
@@ -139,5 +176,6 @@ export function applyEdits(masterTex: string, edits: TailorEdit[]): string {
  */
 export function documentIntroducesClaims(tex: string, vocabulary: string[]): string[] {
   const vocab = new Set(vocabulary);
-  return [...claimTokens(visibleText(tex))].filter(t => !vocab.has(t) && !GENERIC_ALLOW.has(t));
+  const vocabStems = stemsOf(vocabulary);
+  return [...claimTokens(visibleText(tex))].filter(t => isNewClaim(t, vocab, vocabStems));
 }
