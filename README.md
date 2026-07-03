@@ -49,7 +49,8 @@ Unipile webhook /api/webhooks/unipile
 | 5 — LinkedIn posts | ✅ Built | Feed search, keyword pre-filter, AI extraction, dm_author path |
 | Ops | ✅ Built | External cron (GitHub Actions), staleness auto-archive, cron lock |
 | 6 — Auto resume tailoring | ✅ Built | Paste master `.tex` once; per-job surgical LLM edits gated by a truthfulness whitelist (never invents skills), external LaTeX compile with self-repair, PDF to S3, DMs auto-attach it |
-| 7 — Pipeline + analytics | ✅ Built | APPLIED/INTERVIEWING/OFFER stages after REPLIED, `/analytics` conversion funnel per source, friend digests with per-recipient salary floors |
+| 7 — Pipeline + analytics | ✅ Built | APPLIED/INTERVIEWING/OFFER stages after REPLIED, `/analytics` conversion funnel per source, friend digests with per-recipient salary floors + optional keyword filters |
+| 8 — Ops intelligence | ✅ Built | LLM spend ledger (per-purpose 30-day cost on `/analytics`), Monday weekly report email, PDF output sanity guard on tailored resumes |
 
 ## Auto resume tailoring (phase 6)
 
@@ -60,7 +61,9 @@ Unipile webhook /api/webhooks/unipile
 3. Every change is auditable on the job page (find → replace + why), with a
    Regenerate button. Compile/validation failures fall back to the base PDF —
    outreach is never blocked.
-4. `npx tsx scripts/sanity-tests.ts` runs the truthfulness/salary-gate tests.
+4. `npx tsx scripts/sanity-tests.ts` runs the truthfulness/salary-gate tests;
+   `npx tsx scripts/test-tailoring-e2e.ts` exercises the real compile services
+   and (with a valid `OPENAI_API_KEY`) the live LLM edit + self-repair loop.
 
 ## Key files
 
