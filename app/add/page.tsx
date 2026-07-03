@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { Plus, Sparkles, Wand2, Gauge, Users } from "lucide-react";
+import { Plus, Sparkles, Wand2, Gauge, Users, TriangleAlert, ExternalLink } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { prisma } from "@/lib/prisma";
 import { scoreJob } from "@/scoring/ai-scorer";
@@ -9,7 +9,12 @@ import { extractPost } from "@/sources/linkedin-posts";
 import { resolveJobId } from "@/sources/job-id";
 import { enqueueOutreach } from "@/outreach/enqueue";
 import { getSettings } from "@/lib/settings";
-import type { ApplyType, SalaryBasis, SalaryConfidence, SalaryPeriod } from "@prisma/client";
+import type { AppStage, ApplyType, SalaryBasis, SalaryConfidence, SalaryPeriod } from "@prisma/client";
+
+// Mirrors src/sources/dedupe.ts: a same-key job blocks a re-add while it's
+// still being acted on, or was created recently enough to be the same posting.
+const ACTIVE_STAGES: AppStage[] = ["NEW", "APPROVED", "OUTREACH", "REPLIED"];
+const RE_ADMIT_AFTER_DAYS = 30;
 
 const URL_RE = /https?:\/\/[^\s)\]<>"']+/i;
 
@@ -58,6 +63,20 @@ async function addJob(formData: FormData) {
     }
   }
 
+  // Dedupe BEFORE scoring: an already-tracked job would otherwise be created
+  // again, re-scored (duplicate LLM spend), auto-approved, and re-outreached.
+  const key = dedupeKey(company, role, undefined);
+  const reAdmitCutoff = new Date(Date.now() - RE_ADMIT_AFTER_DAYS * 24 * 60 * 60 * 1000);
+  const existing = await prisma.job.findFirst({
+    where: {
+      dedupeKey: key,
+      OR: [{ appStage: { in: ACTIVE_STAGES } }, { createdAt: { gte: reAdmitCutoff } }],
+    },
+    orderBy: { createdAt: "desc" },
+    select: { id: true },
+  });
+  if (existing) redirect(`/add?already=${existing.id}`);
+
   const result = await scoreJob({
     jdText, company, role,
     relevanceThreshold: settings.search.relevanceThreshold,
@@ -74,7 +93,7 @@ async function addJob(formData: FormData) {
   const job = await prisma.job.create({
     data: {
       source: "MANUAL", company, role, jdText, applyUrl, externalJobId,
-      dedupeKey: dedupeKey(company, role, undefined),
+      dedupeKey: key,
       applyType,
       // Manually added = intentionally chosen, so we don't auto-skip on a low
       // score; we surface the score's reasoning as a note instead.
@@ -107,13 +126,41 @@ const FEATURES = [
   { icon: Users,    title: "Referral-ready", desc: "Finds people at the company and drafts DMs that hand over the exact job ID." },
 ];
 
-export default function AddJobPage() {
+export default async function AddJobPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ already?: string }>;
+}) {
+  const { already } = await searchParams;
+  const existing = already
+    ? await prisma.job.findUnique({
+        where: { id: already },
+        select: { id: true, company: true, role: true, appStage: true },
+      })
+    : null;
+
   return (
     <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
       <PageHeader title="Add job" subtitle="Paste a post or a job URL — we handle the rest" icon={<Plus className="size-4" />} />
 
       <div className="flex-1 overflow-y-auto scrollbar-slim">
         <div className="mx-auto w-full max-w-2xl px-6 py-10 space-y-6">
+
+          {/* Already-tracked notice — dedupe hit, nothing was created */}
+          {existing && (
+            <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+              <TriangleAlert className="size-4 shrink-0 text-amber-600 mt-0.5" />
+              <div className="min-w-0 text-sm text-amber-800">
+                <p className="font-semibold">Already tracked — nothing was added.</p>
+                <p className="text-amber-700 mt-0.5">
+                  {existing.company} · {existing.role} is on the board (stage: {existing.appStage.toLowerCase()}).{" "}
+                  <a href={`/jobs/${existing.id}`} className="inline-flex items-center gap-0.5 font-medium underline underline-offset-2 hover:text-amber-900">
+                    View job <ExternalLink className="size-3" />
+                  </a>
+                </p>
+              </div>
+            </div>
+          )}
 
           <div className="space-y-1.5">
             <h2 className="text-lg font-semibold tracking-tight text-zinc-900">Add a new job</h2>

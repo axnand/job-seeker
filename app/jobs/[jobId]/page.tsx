@@ -1,6 +1,10 @@
 import { prisma } from "@/lib/prisma";
 import { notFound } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { Prisma } from "@prisma/client";
+import type { AppStage } from "@prisma/client";
+import { enqueueOutreach } from "@/outreach/enqueue";
+import { recomputeOutreachState } from "@/status/outreach-state";
 import {
   ArrowLeft,
   CircleDollarSign,
@@ -27,20 +31,57 @@ const STAGE_STYLE: Record<string, { dot: string; pill: string }> = {
 const SCORE_COLOR = (s: number) =>
   s >= 80 ? "text-emerald-600" : s >= 60 ? "text-amber-600" : "text-slate-500";
 
+// Server Actions run the same logic as POST /api/jobs/action and
+// POST /api/outreach/confirm directly against the DB. (They used to self-fetch
+// those routes over HTTP, which middleware Basic-Auth 401'd in production —
+// the buttons silently no-op'd.)
+
+const STAGE_ACTIONS: Record<string, AppStage> = {
+  approve:  "APPROVED",
+  skip:     "SKIPPED",
+  skipped:  "SKIPPED",
+  replied:  "REPLIED",
+  outreach: "OUTREACH",
+  restore:  "NEW",
+};
+
 async function updateStage(formData: FormData) {
   "use server";
   const jobId  = formData.get("jobId")  as string;
   const action = formData.get("action") as string;
   const note   = (formData.get("note") as string) || null;
   if (!jobId || !action) return;
-  await fetch(
-    `${process.env.APP_BASE_URL}/api/jobs/action`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ jobId, action, note }),
+
+  const newStage = STAGE_ACTIONS[action.toLowerCase()];
+  if (!newStage) return;
+
+  const isRestore = action.toLowerCase() === "restore";
+  let job;
+  try {
+    job = await prisma.job.update({
+      where: { id: jobId },
+      data: {
+        appStage: newStage,
+        // Restore wipes the skip-reason; explicit note overrides both directions.
+        appStageNote: note ?? (isRestore ? null : undefined),
+        ...(newStage === "APPROVED" ? { approvedAt: new Date() } : {}),
+      },
+    });
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025") return; // job gone
+    throw err;
+  }
+
+  // On approve, kick off the outreach machine (drafts only — nothing sends
+  // until the owner confirms).
+  if (newStage === "APPROVED") {
+    try {
+      await enqueueOutreach(job);
+    } catch (err) {
+      console.error(`[jobs/${jobId}] enqueueOutreach failed:`, err);
     }
-  );
+  }
+
   revalidatePath(`/jobs/${jobId}`);
   revalidatePath("/");
 }
@@ -51,17 +92,49 @@ async function confirmOutreach(formData: FormData) {
   const action = formData.get("action") as string; // "send" | "cancel"
   const jobId = formData.get("jobId") as string;
   if (!threadId || !action) return;
-  await fetch(`${process.env.APP_BASE_URL}/api/outreach/confirm`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      threadId,
-      action,
-      connectionNote: formData.get("connectionNote") as string,
-      firstDm: formData.get("firstDm") as string,
-      followup: formData.get("followup") as string,
-    }),
+
+  const thread = await prisma.channelThread.findUnique({
+    where: { id: threadId },
+    select: { id: true, status: true, providerState: true, outreachId: true },
   });
+  if (!thread) return;
+
+  const ps = (thread.providerState as Record<string, unknown> | null) ?? {};
+  // Only DRAFT threads are confirmable — don't reset an in-flight sequence.
+  if (ps.phase !== "DRAFT") return;
+
+  const outreach = thread.outreachId
+    ? await prisma.outreach.findUnique({ where: { id: thread.outreachId }, select: { jobId: true } })
+    : null;
+
+  if (action === "cancel") {
+    await prisma.channelThread.update({
+      where: { id: thread.id },
+      data: { status: "ARCHIVED", archivedAt: new Date(), archivedReason: "Cancelled by owner", nextActionAt: null },
+    });
+  } else {
+    // Nullish fallbacks mirror the API route: a field the owner explicitly
+    // cleared stays cleared; only a missing field falls back to the draft.
+    const connectionNote = formData.get("connectionNote") as string | null;
+    const firstDm = formData.get("firstDm") as string | null;
+    const followup = formData.get("followup") as string | null;
+    await prisma.channelThread.update({
+      where: { id: thread.id },
+      data: {
+        status: "PENDING",
+        nextActionAt: new Date(),
+        providerState: {
+          ...ps,
+          phase: "QUEUED",
+          connectionNote: (connectionNote ?? (ps.connectionNote as string) ?? "").slice(0, 300),
+          firstDm: firstDm ?? (ps.firstDm as string) ?? "",
+          followup: followup ?? (ps.followup as string) ?? "",
+        },
+      },
+    });
+  }
+  if (outreach?.jobId) await recomputeOutreachState(outreach.jobId).catch(() => {});
+
   if (jobId) revalidatePath(`/jobs/${jobId}`);
   revalidatePath("/");
 }
