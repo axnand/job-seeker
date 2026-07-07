@@ -797,16 +797,20 @@ export default function BoardPage() {
             const cards = byStage[stage];
             const isLast = i === cols.length - 1;
             return (
-              <div key={stage} className={`w-[300px] shrink-0 flex flex-col ${!isLast ? "border-r border-border" : ""}`}>
+              <div key={stage} className={`w-[340px] shrink-0 flex flex-col ${!isLast ? "border-r border-border" : ""}`}>
 
                 {/* Column header */}
                 <div className={`flex-shrink-0 flex items-center gap-2.5 px-5 py-4 border-b border-border border-l-[3px] ${meta.headerBorder} bg-card`}>
                   <div className={`w-2 h-2 rounded-full shrink-0 ${meta.accent}`} />
                   <span className="text-sm font-semibold text-foreground">{meta.label}</span>
-                  <span className="ml-auto text-xs font-semibold text-muted-foreground tabular-nums bg-muted rounded-full px-2 py-0.5 min-w-[24px] text-center">
-                    {cards.length}
-                  </span>
-                  {cards.length > 0 && (
+                  {loading ? (
+                    <span className="ml-auto h-5 w-6 rounded-full bg-muted animate-pulse" />
+                  ) : (
+                    <span className="ml-auto text-xs font-semibold text-muted-foreground tabular-nums bg-muted rounded-full px-2 py-0.5 min-w-[24px] text-center">
+                      {cards.length}
+                    </span>
+                  )}
+                  {!loading && cards.length > 0 && (
                     <button
                       onClick={() => setSel(prev => {
                         const ids = cards.map(c => c.id);
@@ -824,14 +828,28 @@ export default function BoardPage() {
 
                 {/* Cards — min-h-0 so this pane, not the column, takes the scroll */}
                 <div className={`min-h-0 flex-1 overflow-y-auto p-4 space-y-3 scrollbar-slim ${meta.lane}`}>
-                  {loading && (
-                    <>
-                      <div className="bg-muted rounded-xl h-24 animate-pulse" />
-                      <div className="bg-muted rounded-xl h-20 animate-pulse opacity-60" />
-                    </>
-                  )}
+                  {loading && [0, 1, 2].map(n => (
+                    // Card-shaped placeholder mirroring CompanyCard's layout
+                    // (avatar + title lines + chips) so the swap to real cards
+                    // isn't an abrupt shape change.
+                    <div key={n} className="rounded-xl border border-border bg-card p-4 animate-pulse" style={{ opacity: 1 - n * 0.25 }}>
+                      <div className="flex items-center gap-3">
+                        <div className="size-9 rounded-full bg-muted shrink-0" />
+                        <div className="flex-1 space-y-1.5">
+                          <div className="h-3 w-2/3 rounded bg-muted" />
+                          <div className="h-2.5 w-2/5 rounded bg-muted" />
+                        </div>
+                      </div>
+                      <div className="mt-3 flex gap-2">
+                        <div className="h-4 w-16 rounded bg-muted" />
+                        <div className="h-4 w-14 rounded bg-muted" />
+                      </div>
+                    </div>
+                  ))}
                   {!loading && cards.length === 0 && (
-                    <p className="px-1 py-2 text-xs text-muted-foreground/60">No jobs</p>
+                    <div className="flex h-full items-center justify-center">
+                      <p className="text-xs text-muted-foreground/50">No jobs</p>
+                    </div>
                   )}
                   {buildCompanyGroups(cards).map(group => (
                     <CompanyCard
