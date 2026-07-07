@@ -120,7 +120,12 @@ Targeting: entry-level / SDE-1 / junior software engineering roles at strong pro
     connectTarget: 8,          // stop topping up once this many people accept
     maxInvitesPerJob: 20,      // hard ceiling on total invites ever sent per job
     replenishIntervalHours: 12, // min hours between people-search top-ups per job
-    inviteTimeoutDays: 7,      // cancel an unaccepted invite after this, free the slot
+    // Cancel an unaccepted invite after this, freeing the slot. 14 (not 7):
+    // busy recruiters often accept in week two, withdrawal wipes the invite
+    // from their inbox without a trace ("they never got it"), LinkedIn
+    // penalizes frequent withdrawals, and a withdrawn invite blocks
+    // re-inviting that person for ~3 weeks.
+    inviteTimeoutDays: 14,
     followupAfterDays: 4,
     maxFollowups: 1,
     recontactCooldownDays: 30,
