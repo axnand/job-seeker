@@ -784,7 +784,10 @@ export default function BoardPage() {
           the screen and everything clips — the "nothing scrolls" bug). */}
       <div className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden px-6 pb-6 scrollbar-slim">
         {/* Board container */}
-        <div className="flex h-full w-full rounded-2xl border border-border shadow-sm bg-card overflow-hidden">
+        {/* min-w-full w-max: fills the viewport when there are few columns, but
+            grows past it as columns are added — the parent scrolls horizontally
+            so each column keeps a fixed width instead of squeezing. */}
+        <div className="flex h-full min-w-full w-max rounded-2xl border border-border shadow-sm bg-card overflow-hidden">
           {/* Marker columns (Referred / Applied) only appear once something is
               in them — permanently-empty columns are dead board space. */}
           {BOARD_STAGES.filter(s =>
@@ -794,7 +797,7 @@ export default function BoardPage() {
             const cards = byStage[stage];
             const isLast = i === cols.length - 1;
             return (
-              <div key={stage} className={`flex-1 min-w-[220px] flex flex-col ${!isLast ? "border-r border-border" : ""}`}>
+              <div key={stage} className={`w-[300px] shrink-0 flex flex-col ${!isLast ? "border-r border-border" : ""}`}>
 
                 {/* Column header */}
                 <div className={`flex-shrink-0 flex items-center gap-2.5 px-5 py-4 border-b border-border border-l-[3px] ${meta.headerBorder} bg-card`}>
