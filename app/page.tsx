@@ -106,10 +106,11 @@ const THREAD_PHASE_LABEL: Record<string, string> = {
 // job folds into the Approved column via boardStageOf below.
 const STAGES: AppStage[] = ["NEW","APPROVED","OUTREACH","REPLIED","APPLIED","INTERVIEWING","OFFER"];
 
-// The columns actually rendered on the board. APPLIED is no longer a board
-// column — direct applications are tracked per-job (Job.directAppliedAt), not
-// as a referral-pipeline stage.
-const BOARD_STAGES: AppStage[] = ["APPROVED","OUTREACH","REPLIED","INTERVIEWING","OFFER"];
+// The columns actually rendered on the board. APPLIED is NOT a pipeline stage
+// here — it's a marker column populated by Job.directAppliedAt (the owner's
+// separate direct-application identity). A directly-applied job appears in the
+// Applied column AND stays in its live outreach column; outreach is unaffected.
+const BOARD_STAGES: AppStage[] = ["APPROVED","OUTREACH","REPLIED","INTERVIEWING","OFFER","APPLIED"];
 
 // Which board column a job lands in — NEW folds into Approved; any legacy
 // APPLIED-stage job folds into Replied so it never silently drops off the board.
@@ -565,7 +566,13 @@ export default function BoardPage() {
 
   // Buckets are keyed by board column; NEW folds into Approved (see boardStageOf).
   const byStage = BOARD_STAGES.reduce<Record<string, Job[]>>((a,s) => { a[s]=[]; return a; }, {});
-  for (const j of visible) if (j.appStage !== "SKIPPED") byStage[boardStageOf(j.appStage)]?.push(j);
+  for (const j of visible) {
+    if (j.appStage === "SKIPPED") continue;
+    byStage[boardStageOf(j.appStage)]?.push(j);
+    // Applied is a marker view, not a stage — a directly-applied job shows here
+    // in ADDITION to its outreach column, so outreach keeps running as normal.
+    if (j.directAppliedAt) byStage["APPLIED"].push(j);
+  }
 
   const tw      = Date.now() - 7*24*60*60*1000;
   const replied = jobs.filter(j => j.outreachState === "REPLIED").length;
@@ -742,7 +749,7 @@ export default function BoardPage() {
           {/* Post-referral pipeline columns only appear once something is in
               them — permanently-empty columns are dead board space. */}
           {BOARD_STAGES.filter(s =>
-            !["INTERVIEWING", "OFFER"].includes(s) || byStage[s].length > 0
+            !["INTERVIEWING", "OFFER", "APPLIED"].includes(s) || byStage[s].length > 0
           ).map((stage, i, cols) => {
             const meta  = STAGE_META[stage];
             const cards = byStage[stage];
