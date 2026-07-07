@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { CircleX, X, Upload, FileUp, FileText, FileCode2, Info, Check, Loader2 } from "lucide-react";
+import { CircleX, X, Upload, FileUp, FileText, FileCode2, Info, Check, Loader2, Contact, Download } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 
 type BaseResume = { baseResumeKey: string | null; name: string | null; url: string | null };
@@ -21,10 +21,50 @@ export default function ResumePage() {
   const [texError, setTexError] = useState<string | null>(null);
   const [compileLog, setCompileLog] = useState<string | null>(null);
 
+  // Alternate-identity resume (direct-application strategy)
+  const [altEmail, setAltEmail] = useState("");
+  const [altPhone, setAltPhone] = useState("");
+  const [altKey, setAltKey] = useState<string | null>(null);
+  const [altGenerating, setAltGenerating] = useState(false);
+  const [altError, setAltError] = useState<string | null>(null);
+  const [altSaved, setAltSaved] = useState(false);
+
   useEffect(() => {
     fetch("/api/resume/base").then(r => r.json()).then(setResume).catch(() => setResume({ baseResumeKey: null, name: null, url: null }));
     fetch("/api/resume/master").then(r => r.json()).then(setMaster).catch(() => setMaster({ hasMasterTex: false, vocabularySize: 0, updatedAt: null }));
+    fetch("/api/resume/alt").then(r => r.json()).then(d => {
+      setAltKey(d?.altResumeKey ?? null);
+      if (d?.altIdentity?.email) setAltEmail(d.altIdentity.email);
+      if (d?.altIdentity?.phone) setAltPhone(d.altIdentity.phone);
+    }).catch(() => {});
   }, []);
+
+  async function generateAlt() {
+    if (!altEmail.trim() || !altPhone.trim()) return;
+    setAltGenerating(true);
+    setAltError(null);
+    setAltSaved(false);
+    try {
+      const res = await fetch("/api/resume/alt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: altEmail, phone: altPhone }),
+      });
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.altResumeKey) {
+        setAltKey(data.altResumeKey);
+        setAltSaved(true);
+        setTimeout(() => setAltSaved(false), 8000);
+      } else {
+        // Surface the server's message verbatim (422 = compile/sanity failure).
+        setAltError(data?.error ?? `Generation failed (HTTP ${res.status}).`);
+      }
+    } catch {
+      setAltError("Generation failed — check your connection and try again.");
+    } finally {
+      setAltGenerating(false);
+    }
+  }
 
   async function saveMasterTex() {
     if (!masterTex.trim()) return;
@@ -137,6 +177,61 @@ export default function ResumePage() {
             <p className="text-xs text-muted-foreground mt-3">
               The PDF stays as the outreach fallback — it&apos;s what gets sent when a job needs no tailoring
               (or tailoring fails).
+            </p>
+          </div>
+
+          {/* Alternate identity card — for the direct-application strategy */}
+          <div className="bg-card rounded-2xl border border-border shadow-sm p-6">
+            <p className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-1.5">
+              <Contact className="size-3.5 text-primary" /> Alternate identity
+            </p>
+            <p className="text-xs text-muted-foreground leading-relaxed mb-4">
+              A second copy of your resume with a different email + phone — for applying to jobs directly, as a candidacy independent of your referral outreach.
+            </p>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Alternate email</label>
+                <input type="email" value={altEmail} onChange={e => setAltEmail(e.target.value)}
+                  placeholder="you.alt@example.com"
+                  className="mt-1 w-full rounded-lg border border-border bg-muted/50 px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/40 focus:border-ring transition" />
+              </div>
+              <div>
+                <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Alternate phone</label>
+                <input type="tel" value={altPhone} onChange={e => setAltPhone(e.target.value)}
+                  placeholder="+91 90000 00000"
+                  className="mt-1 w-full rounded-lg border border-border bg-muted/50 px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/40 focus:border-ring transition" />
+              </div>
+            </div>
+
+            <button onClick={generateAlt} disabled={altGenerating || !altEmail.trim() || !altPhone.trim()}
+              className="mt-4 inline-flex items-center gap-1.5 text-xs font-medium text-primary-foreground bg-primary hover:bg-primary/90 rounded-lg px-3 py-2 transition-colors disabled:opacity-60">
+              {altGenerating
+                ? <><Loader2 className="size-3.5 animate-spin" /> Generating…</>
+                : <><Upload className="size-3.5" /> Generate alt resume</>}
+            </button>
+
+            {altSaved && (
+              <p className="mt-3">
+                <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 dark:text-emerald-300 dark:bg-emerald-500/10 dark:border-emerald-500/30 rounded-md px-2 py-1">
+                  <Check className="size-3.5" /> Alternate resume generated
+                </span>
+              </p>
+            )}
+            {altError && (
+              <p className="mt-3 flex items-start gap-1.5 text-xs font-medium text-red-600 dark:text-red-300">
+                <CircleX className="size-3.5 shrink-0 mt-0.5" /> {altError}
+              </p>
+            )}
+            {altKey && (
+              <a href={`/api/resume/download?key=${encodeURIComponent(altKey)}`} target="_blank" rel="noopener noreferrer"
+                className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-indigo-800 dark:hover:text-indigo-300 transition-colors">
+                <Download className="size-3.5" /> Download alt resume
+              </a>
+            )}
+
+            <p className="mt-3 text-xs text-muted-foreground leading-relaxed">
+              Built from your master LaTeX resume — same content, only the contact block changes. Save the master .tex first.
             </p>
           </div>
             </div>{/* end left rail */}

@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { TailoringSection } from "@/components/tailoring-section";
+import { DirectApplication } from "@/components/direct-application";
 
 // The approve server action runs enqueueOutreach inline (people-search + LLM
 // drafting) — same budget the API route it replaced declared.
@@ -39,7 +40,6 @@ const STAGE_STYLE: Record<string, { dot: string; pill: string }> = {
 // Post-referral milestones the owner drives by hand (used by the pipeline control).
 const PIPELINE_STAGES: { stage: AppStage; action: string; label: string }[] = [
   { stage: "REPLIED",      action: "replied",      label: "Replied" },
-  { stage: "APPLIED",      action: "applied",      label: "Applied" },
   { stage: "INTERVIEWING", action: "interviewing", label: "Interviewing" },
   { stage: "OFFER",        action: "offer",        label: "Offer" },
 ];
@@ -182,6 +182,12 @@ export default async function JobDetailPage({
     include: { outreaches: { include: { contact: true } } },
   });
   if (!job) notFound();
+
+  // Alternate-identity resume for the direct-application block (download link).
+  const resumeProfile = await prisma.resumeProfile.findUnique({
+    where: { id: "default" },
+    select: { altResumeKey: true },
+  });
 
   // ChannelThread isn't a Prisma relation on Outreach (just FK columns), so
   // fetch the threads for this job's outreaches and key them by outreachId.
@@ -476,6 +482,13 @@ export default async function JobDetailPage({
                 </form>
               </div>
             )}
+
+            {/* Direct application — alternate-identity apply, independent of referrals */}
+            <DirectApplication
+              jobId={job.id}
+              directAppliedAt={job.directAppliedAt ? job.directAppliedAt.toISOString() : null}
+              altResumeKey={resumeProfile?.altResumeKey ?? null}
+            />
 
             {/* No-targets hint */}
             {job.appStage === "APPROVED" && job.applyType === "REFERRAL_FIRST" && job.outreaches.length === 0 && (

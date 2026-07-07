@@ -39,8 +39,20 @@ import {
   Star,
   Zap,
   ArrowRight,
+  Download,
+  Wand2,
 } from "lucide-react";
 import type { AppStage, OutreachState } from "@prisma/client";
+
+// Auto-tailoring log shape (Job.tailorLog) — written by the resume pipeline when
+// it produces a tailored PDF; null for manual uploads.
+type TailorLog = {
+  status?: "tailored" | "no_edits" | "failed" | "skipped";
+  detail?: string;
+  edits?: Array<{ find: string; replace: string; why: string }>;
+  repairs?: number;
+  compileProvider?: string;
+} | null;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -54,6 +66,11 @@ type Job = {
   jdText: string; createdAt: string; postedAt: string | null; appStageNote: string | null;
   closedAt: string | null; closedReason: string | null;
   pinned: boolean;
+  // Owner applied DIRECTLY with the alternate identity — independent of the
+  // referral pipeline. Set/cleared via POST /api/jobs/applied.
+  directAppliedAt: string | null;
+  // Auto-tailoring provenance for the resume block (null = manual upload).
+  tailorLog?: TailorLog;
   // Composite act-on-this-today score, computed by the list API (fit + pay +
   // trust + reach + freshness). priorityWhy is its one-line explanation.
   priority?: number; priorityWhy?: string;
@@ -89,16 +106,19 @@ const THREAD_PHASE_LABEL: Record<string, string> = {
 // job folds into the Approved column via boardStageOf below.
 const STAGES: AppStage[] = ["NEW","APPROVED","OUTREACH","REPLIED","APPLIED","INTERVIEWING","OFFER"];
 
-// The columns actually rendered on the board.
-const BOARD_STAGES: AppStage[] = ["APPROVED","OUTREACH","REPLIED","APPLIED","INTERVIEWING","OFFER"];
+// The columns actually rendered on the board. APPLIED is no longer a board
+// column — direct applications are tracked per-job (Job.directAppliedAt), not
+// as a referral-pipeline stage.
+const BOARD_STAGES: AppStage[] = ["APPROVED","OUTREACH","REPLIED","INTERVIEWING","OFFER"];
 
-// Which board column a job lands in — NEW is folded into Approved.
-const boardStageOf = (stage: AppStage): AppStage => (stage === "NEW" ? "APPROVED" : stage);
+// Which board column a job lands in — NEW folds into Approved; any legacy
+// APPLIED-stage job folds into Replied so it never silently drops off the board.
+const boardStageOf = (stage: AppStage): AppStage =>
+  stage === "NEW" ? "APPROVED" : stage === "APPLIED" ? "REPLIED" : stage;
 
 // Post-referral milestones the owner drives by hand once a target has replied.
 const PIPELINE_STAGES: { stage: AppStage; action: string; label: string }[] = [
   { stage:"REPLIED",      action:"replied",      label:"Replied"      },
-  { stage:"APPLIED",      action:"applied",      label:"Applied"      },
   { stage:"INTERVIEWING", action:"interviewing", label:"Interviewing" },
   { stage:"OFFER",        action:"offer",        label:"Offer"        },
 ];
@@ -116,8 +136,7 @@ const STAGE_META: Record<AppStage, { label: string; accent: string; headerBorder
 
 // Next post-referral milestone for the board's one-click "advance" affordance.
 const NEXT_STAGE: Partial<Record<AppStage, { action: string; label: string }>> = {
-  REPLIED:      { action:"applied",      label:"Mark applied"      },
-  APPLIED:      { action:"interviewing", label:"Mark interviewing" },
+  REPLIED:      { action:"interviewing", label:"Mark interviewing" },
   INTERVIEWING: { action:"offer",        label:"Mark offer"        },
 };
 
@@ -204,6 +223,10 @@ export default function BoardPage() {
   const [confirmDialog, setConfirmDialog] = useState<{
     title: string; description: React.ReactNode; confirmLabel: string; onConfirm: () => void;
   } | null>(null);
+  // "Applied directly?" flow — the job whose dialog is open, plus the alternate
+  // resume info (fetched once) for the download link inside the dialog.
+  const [appliedJob, setAppliedJob] = useState<Job | null>(null);
+  const [altInfo, setAltInfo] = useState<{ altResumeKey: string | null; altIdentity: { email: string | null; phone: string | null } } | null>(null);
   const showToast = useCallback((msg: string, tone: "info" | "warn" | "error" = "info", undo?: () => void) => {
     setToast({ msg, tone, undo });
     setTimeout(() => setToast(null), 6000);
@@ -259,6 +282,9 @@ export default function BoardPage() {
       .catch(() => setLoading(false));
     fetch("/api/settings").then(r => r.json())
       .then(d => setPaused(!!d?.outreach?.globalPause))
+      .catch(() => {});
+    fetch("/api/resume/alt").then(r => r.json())
+      .then(setAltInfo)
       .catch(() => {});
   }, []);
 
@@ -338,6 +364,22 @@ export default function BoardPage() {
       setDetail(d => (d && d.id === jobId) ? { ...d, pinned: !pinned } : d);
     }
   }, []);
+
+  // ✓ Direct application — records that the owner applied DIRECTLY with the
+  // alternate-identity resume, independent of the referral pipeline. Optimistic,
+  // same pattern as togglePinned: revert if the write failed.
+  const toggleDirectApplied = useCallback(async (jobId: string, applied: boolean) => {
+    const stamp = applied ? new Date().toISOString() : null;
+    setJobs(prev => prev.map(j => j.id === jobId ? { ...j, directAppliedAt: stamp } : j));
+    setDetail(d => (d && d.id === jobId) ? { ...d, directAppliedAt: stamp } : d);
+    const res = await fetch("/api/jobs/applied", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobId, applied }) }).catch(() => null);
+    if (!res?.ok) {
+      const revert = applied ? null : new Date().toISOString();
+      setJobs(prev => prev.map(j => j.id === jobId ? { ...j, directAppliedAt: revert } : j));
+      setDetail(d => (d && d.id === jobId) ? { ...d, directAppliedAt: revert } : d);
+      showToast("Couldn't update the direct-application status — try again.", "error");
+    }
+  }, [showToast]);
 
   // Blacklist the card's company: block future discovery + skip its open jobs now.
   const runBlacklistCompany = useCallback(async (company: string) => {
@@ -515,7 +557,8 @@ export default function BoardPage() {
   // has a move to make (NEW = approve, APPROVED/OUTREACH = push referrals).
   const applyToday = useMemo(() => {
     return jobs
-      .filter(j => !j.closedAt && ["NEW", "APPROVED", "OUTREACH"].includes(j.appStage))
+      // Direct-applied jobs are done — the point of this strip is what's left to do.
+      .filter(j => !j.closedAt && !j.directAppliedAt && ["NEW", "APPROVED", "OUTREACH"].includes(j.appStage))
       .sort((a, b) => (a.pinned !== b.pinned) ? (a.pinned ? -1 : 1) : (b.priority ?? -1) - (a.priority ?? -1))
       .slice(0, 5);
   }, [jobs]);
@@ -699,7 +742,7 @@ export default function BoardPage() {
           {/* Post-referral pipeline columns only appear once something is in
               them — permanently-empty columns are dead board space. */}
           {BOARD_STAGES.filter(s =>
-            !["APPLIED", "INTERVIEWING", "OFFER"].includes(s) || byStage[s].length > 0
+            !["INTERVIEWING", "OFFER"].includes(s) || byStage[s].length > 0
           ).map((stage, i, cols) => {
             const meta  = STAGE_META[stage];
             const cards = byStage[stage];
@@ -754,6 +797,7 @@ export default function BoardPage() {
                       blacklistCompany={blacklistCompany}
                       toggleRoleClosed={toggleRoleClosed}
                       togglePinned={togglePinned}
+                      openApplied={setAppliedJob}
                     />
                   ))}
                 </div>
@@ -904,6 +948,13 @@ export default function BoardPage() {
                         <Star className={`size-4 ${job.pinned ? "fill-primary" : ""}`} />
                       </button>
                     )}
+                    {job && (
+                      <button title={job.directAppliedAt ? "Applied directly — click to undo" : "Applied directly?"}
+                        onClick={() => setAppliedJob(job)}
+                        className={`w-8 h-8 rounded-xl border flex items-center justify-center transition-colors ${job.directAppliedAt ? "border-emerald-300 text-emerald-600 bg-emerald-50 dark:border-emerald-500/40 dark:text-emerald-300 dark:bg-emerald-500/15" : "border-border text-muted-foreground/60 hover:text-emerald-600 hover:border-emerald-300 hover:bg-emerald-50 dark:hover:text-emerald-300 dark:hover:border-emerald-500/40 dark:hover:bg-emerald-500/10"}`}>
+                        <CheckCheck className="size-4" />
+                      </button>
+                    )}
                     {job?.aiScore !== null && job?.aiScore !== undefined && (
                       <div className={`text-center px-3 py-1.5 rounded-xl ${scoreClr(job.aiScore)}`}>
                         <p className="text-xl font-bold leading-none">{job.aiScore}</p>
@@ -925,6 +976,9 @@ export default function BoardPage() {
                     )}
                     {job.closedAt && (
                       <span className="text-[10px] bg-muted text-muted-foreground rounded-md px-2 py-1 font-medium">Role closed</span>
+                    )}
+                    {job.directAppliedAt && (
+                      <span className="inline-flex items-center gap-1 text-[10px] bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300 rounded-md px-2 py-1 font-medium"><CheckCheck className="size-3" /> Applied</span>
                     )}
                     {job.outreachState !== "NONE" && OUTREACH_META[job.outreachState].text && (
                       <span className={`text-[10px] border rounded-md px-2 py-1 font-medium ${OUTREACH_META[job.outreachState].cls}`}>
@@ -1002,11 +1056,45 @@ export default function BoardPage() {
                     <Check className="size-4 shrink-0" /> Base resume is a good fit — no tailoring needed.
                   </div>
                 ) : job.tailoredResumeKey ? (
-                  <div className="flex items-center justify-between gap-2 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 dark:text-emerald-300 dark:bg-emerald-500/10 dark:border-emerald-500/30 rounded-xl px-3 py-2.5">
-                    <span className="flex items-center gap-2"><Check className="size-4 shrink-0" /> Tailored resume uploaded</span>
-                    <a href={`/api/resume/download?key=${encodeURIComponent(job.tailoredResumeKey)}`} target="_blank" rel="noopener noreferrer"
-                      className="text-xs font-medium underline">View</a>
-                  </div>
+                  job.tailorLog?.status === "tailored" ? (
+                    // Auto-tailored by the pipeline — surface WHAT changed, with a
+                    // link to the full before → after diff on the job page.
+                    (() => {
+                      const edits = job.tailorLog?.edits ?? [];
+                      return (
+                        <div className="bg-emerald-50 border border-emerald-200 dark:bg-emerald-500/10 dark:border-emerald-500/30 rounded-xl p-3.5 space-y-2.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="flex items-center gap-1.5 text-sm font-semibold text-emerald-700 dark:text-emerald-300">
+                              <Wand2 className="size-4 shrink-0" /> Auto-tailored · {edits.length} edit{edits.length !== 1 ? "s" : ""}
+                            </span>
+                            <a href={`/api/resume/download?key=${encodeURIComponent(job.tailoredResumeKey)}`} target="_blank" rel="noopener noreferrer"
+                              className="text-xs font-medium text-emerald-700 dark:text-emerald-300 underline underline-offset-2 shrink-0">View PDF</a>
+                          </div>
+                          {edits.length > 0 && (
+                            <ul className="space-y-1">
+                              {edits.map((e, i) => (
+                                <li key={i} className="flex items-start gap-1.5 text-xs text-emerald-800/90 dark:text-emerald-200/80">
+                                  <span className="mt-1 size-1 rounded-full bg-emerald-500 shrink-0" />
+                                  <span className="leading-relaxed truncate">{e.why || "(no rationale given)"}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                          <a href={`/jobs/${job.id}`}
+                            className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:text-indigo-800 dark:hover:text-indigo-300 underline underline-offset-2">
+                            See before → after <ArrowRight className="size-3" />
+                          </a>
+                        </div>
+                      );
+                    })()
+                  ) : (
+                    // No tailor log → the owner uploaded a tailored PDF by hand.
+                    <div className="flex items-center justify-between gap-2 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 dark:text-emerald-300 dark:bg-emerald-500/10 dark:border-emerald-500/30 rounded-xl px-3 py-2.5">
+                      <span className="flex items-center gap-2"><Check className="size-4 shrink-0" /> Uploaded manually</span>
+                      <a href={`/api/resume/download?key=${encodeURIComponent(job.tailoredResumeKey)}`} target="_blank" rel="noopener noreferrer"
+                        className="text-xs font-medium underline">View</a>
+                    </div>
+                  )
                 ) : (
                   <div className="bg-amber-50 border border-amber-200 dark:bg-amber-500/10 dark:border-amber-500/30 rounded-xl p-3.5 space-y-2.5">
                     <p className="flex items-center gap-1.5 text-sm font-semibold text-amber-800 dark:text-amber-300"><TriangleAlert className="size-4 shrink-0" /> Tailoring recommended before outreach</p>
@@ -1023,6 +1111,31 @@ export default function BoardPage() {
                       onChange={e => { const f = e.target.files?.[0]; if (f) uploadTailored(job.id, f); }} />
                   </div>
                 )}
+              </div>
+
+              <Separator className="bg-border" />
+
+              {/* Direct application — the alternate-identity apply, independent of
+                  the referral pipeline. */}
+              <div>
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2">Direct application</p>
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-muted/50 px-3 py-2.5">
+                  <div className="min-w-0">
+                    {job.directAppliedAt ? (
+                      <p className="flex items-center gap-1.5 text-sm font-medium text-emerald-700 dark:text-emerald-300">
+                        <CheckCheck className="size-4 shrink-0" /> Applied directly on {new Date(job.directAppliedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                      </p>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">Not applied directly yet.</p>
+                    )}
+                    <p className="text-[11px] text-muted-foreground/70 mt-0.5">Uses the alternate-identity resume — separate from referral outreach.</p>
+                  </div>
+                  <Button onClick={() => setAppliedJob(job)} disabled={acting}
+                    variant={job.directAppliedAt ? "outline" : "default"} size="sm"
+                    className={`text-xs h-9 shrink-0 ${job.directAppliedAt ? "" : "bg-emerald-600 hover:bg-emerald-700 text-white"}`}>
+                    {job.directAppliedAt ? "Undo" : <><CheckCheck className="size-3.5" /> Mark applied</>}
+                  </Button>
+                </div>
               </div>
 
               <Separator className="bg-border" />
@@ -1180,6 +1293,35 @@ export default function BoardPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* ── Applied-directly confirmation ─────────────────────────────── */}
+      <AlertDialog open={!!appliedJob} onOpenChange={(open: boolean) => { if (!open) setAppliedJob(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{appliedJob?.directAppliedAt ? "Undo direct application?" : "Applied directly?"}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {appliedJob?.directAppliedAt
+                ? "This clears the record that you applied directly to this job with your alternate-identity resume."
+                : "This records that you applied directly to this job using your alternate-identity resume (same content, alternate email + phone) — independent of the referral outreach."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {!appliedJob?.directAppliedAt && altInfo?.altResumeKey && (
+            <a href={`/api/resume/download?key=${encodeURIComponent(altInfo.altResumeKey)}`} target="_blank" rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:text-indigo-800 dark:hover:text-indigo-300 underline underline-offset-2">
+              <Download className="size-3.5" /> Download alt resume
+            </a>
+          )}
+          <AlertDialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setAppliedJob(null)}>Cancel</Button>
+            <Button size="sm"
+              className={appliedJob?.directAppliedAt ? "" : "bg-emerald-600 hover:bg-emerald-700 text-white"}
+              variant={appliedJob?.directAppliedAt ? "destructive" : "default"}
+              onClick={() => { if (appliedJob) toggleDirectApplied(appliedJob.id, !appliedJob.directAppliedAt); setAppliedJob(null); }}>
+              {appliedJob?.directAppliedAt ? "Undo" : <><CheckCheck className="size-3.5" /> Mark applied</>}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -1221,7 +1363,7 @@ function buildCompanyGroups(cards: Job[]): CompanyGroup[] {
 }
 
 function CompanyCard({
-  group, selected, acting, openJob, toggleSel, toggleSelMany, quickAct, blacklistCompany, toggleRoleClosed, togglePinned,
+  group, selected, acting, openJob, toggleSel, toggleSelMany, quickAct, blacklistCompany, toggleRoleClosed, togglePinned, openApplied,
 }: {
   group: CompanyGroup;
   selected: Set<string>;
@@ -1233,6 +1375,7 @@ function CompanyCard({
   blacklistCompany: (e: React.MouseEvent, company: string) => void;
   toggleRoleClosed: (e: React.MouseEvent, jobId: string, closed: boolean) => void;
   togglePinned: (e: React.MouseEvent, jobId: string, pinned: boolean) => void;
+  openApplied: (job: Job) => void;
 }) {
   const jobs = group.jobs;
   const multi = jobs.length > 1;
@@ -1325,6 +1468,9 @@ function CompanyCard({
                     {!closed && om.text && (
                       <span className={`shrink-0 text-[9px] border rounded px-1 py-0.5 font-medium ${om.cls}`}>{om.text}</span>
                     )}
+                    {j.directAppliedAt && (
+                      <span className="shrink-0 inline-flex items-center gap-0.5 text-[9px] text-emerald-700 bg-emerald-100 dark:text-emerald-300 dark:bg-emerald-500/15 rounded px-1 py-0.5 font-medium"><CheckCheck className="size-2.5" /> applied</span>
+                    )}
                     {closed && <span className="shrink-0 text-[9px] text-muted-foreground bg-muted rounded px-1 py-0.5">closed</span>}
                   </button>
                   <button title={closed ? "Reopen role" : "Close role — keeps contacts, stops new invites, redirects outreach to the open role"}
@@ -1346,6 +1492,9 @@ function CompanyCard({
           {anyReferral && (
             <span className="text-[10px] text-violet-700 bg-violet-100 dark:text-violet-300 dark:bg-violet-500/15 rounded-md px-2 py-1 font-medium">Referral</span>
           )}
+          {!multi && primary.directAppliedAt && (
+            <span className="inline-flex items-center gap-1 text-[10px] text-emerald-700 bg-emerald-100 dark:text-emerald-300 dark:bg-emerald-500/15 rounded-md px-2 py-1 font-medium"><CheckCheck className="size-3" /> Applied</span>
+          )}
           {!multi && OUTREACH_META[primary.outreachState].text && (
             <span className={`text-[10px] border rounded-md px-2 py-1 font-medium ${OUTREACH_META[primary.outreachState].cls}`}>
               {OUTREACH_META[primary.outreachState].text}
@@ -1366,6 +1515,11 @@ function CompanyCard({
           onClick={(e) => togglePinned(e, primary.id, !primary.pinned)}
           className={`w-7 h-7 rounded-lg bg-white/95 dark:bg-zinc-800/95 backdrop-blur border shadow-sm flex items-center justify-center disabled:opacity-50 transition-colors ${primary.pinned ? "border-primary/40 text-primary hover:bg-primary/10" : "border-border text-muted-foreground hover:bg-primary/10 hover:border-primary/40 hover:text-primary"}`}>
           <Star className={`size-3.5 ${primary.pinned ? "fill-primary" : ""}`} />
+        </button>
+        <button title={primary.directAppliedAt ? "Applied directly — click to undo" : "Applied directly?"} disabled={acting}
+          onClick={(e) => { e.stopPropagation(); openApplied(primary); }}
+          className={`w-7 h-7 rounded-lg bg-white/95 dark:bg-zinc-800/95 backdrop-blur border shadow-sm flex items-center justify-center disabled:opacity-50 transition-colors ${primary.directAppliedAt ? "border-emerald-300 text-emerald-600 dark:border-emerald-500/40 dark:text-emerald-300" : "border-border text-muted-foreground hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-600 dark:hover:bg-emerald-500/15 dark:hover:border-emerald-500/40 dark:hover:text-emerald-300"}`}>
+          <CheckCheck className="size-3.5" />
         </button>
         {primary.appStage === "NEW" && (
           <button title="Approve & queue outreach" disabled={acting}
