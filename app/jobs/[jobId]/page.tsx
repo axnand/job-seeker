@@ -17,6 +17,7 @@ import {
 import { PageHeader } from "@/components/page-header";
 import { TailoringSection } from "@/components/tailoring-section";
 import { DirectApplication } from "@/components/direct-application";
+import { ReferralMarker } from "@/components/referral-marker";
 
 // The approve server action runs enqueueOutreach inline (people-search + LLM
 // drafting) — same budget the API route it replaced declared.
@@ -488,6 +489,13 @@ export default async function JobDetailPage({
               jobId={job.id}
               directAppliedAt={job.directAppliedAt ? job.directAppliedAt.toISOString() : null}
               altResumeKey={resumeProfile?.altResumeKey ?? null}
+            />
+
+            {/* Referral — marks a landed referral, independent of the direct
+                application and the outreach pipeline. */}
+            <ReferralMarker
+              jobId={job.id}
+              referredAt={job.referredAt ? job.referredAt.toISOString() : null}
             />
 
             {/* No-targets hint */}

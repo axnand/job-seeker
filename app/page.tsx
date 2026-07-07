@@ -30,6 +30,7 @@ import {
   Sparkles,
   TriangleAlert,
   UserPlus,
+  UserCheck,
   Send,
   Pause,
   Copy,
@@ -69,6 +70,10 @@ type Job = {
   // Owner applied DIRECTLY with the alternate identity — independent of the
   // referral pipeline. Set/cleared via POST /api/jobs/applied.
   directAppliedAt: string | null;
+  // A referral actually landed (someone agreed to refer / submitted the owner).
+  // A standalone MARKER, independent of directAppliedAt and of outreach — a job
+  // can be Referred and/or Applied and/or mid-outreach at once. Via POST /api/jobs/referred.
+  referredAt: string | null;
   // Auto-tailoring provenance for the resume block (null = manual upload).
   tailorLog?: TailorLog;
   // Composite act-on-this-today score, computed by the list API (fit + pay +
@@ -106,14 +111,22 @@ const THREAD_PHASE_LABEL: Record<string, string> = {
 // job folds into the Approved column via boardStageOf below.
 const STAGES: AppStage[] = ["NEW","APPROVED","OUTREACH","REPLIED","APPLIED","INTERVIEWING","OFFER"];
 
-// The columns actually rendered on the board. APPLIED is NOT a pipeline stage
-// here — it's a marker column populated by Job.directAppliedAt (the owner's
-// separate direct-application identity). A directly-applied job appears in the
-// Applied column AND stays in its live outreach column; outreach is unaffected.
-const BOARD_STAGES: AppStage[] = ["APPROVED","OUTREACH","REPLIED","INTERVIEWING","OFFER","APPLIED"];
+// Board columns are mostly AppStage values, plus two marker-only columns that
+// are NOT stages: "APPLIED" (Job.directAppliedAt) and "REFERRED" (Job.referredAt).
+// (APPLIED collides with the AppStage of the same name — see boardStageOf — but
+// REFERRED has no enum equivalent, so the column typing must widen past AppStage.)
+type BoardCol = AppStage | "REFERRED";
+
+// The columns actually rendered on the board. APPLIED + REFERRED are NOT pipeline
+// stages — they're marker columns populated by Job.directAppliedAt / Job.referredAt.
+// A marked job appears in its marker column AND stays in its live outreach column;
+// outreach is unaffected either way.
+const BOARD_STAGES: BoardCol[] = ["APPROVED","OUTREACH","REPLIED","INTERVIEWING","OFFER","APPLIED","REFERRED"];
 
 // Which board column a job lands in — NEW folds into Approved; any legacy
 // APPLIED-stage job folds into Replied so it never silently drops off the board.
+// Only ever returns real AppStage values — marker placement (APPLIED/REFERRED) is
+// additive and handled separately in the bucketing loop, never via this fn.
 const boardStageOf = (stage: AppStage): AppStage =>
   stage === "NEW" ? "APPROVED" : stage === "APPLIED" ? "REPLIED" : stage;
 
@@ -124,12 +137,13 @@ const PIPELINE_STAGES: { stage: AppStage; action: string; label: string }[] = [
   { stage:"OFFER",        action:"offer",        label:"Offer"        },
 ];
 
-const STAGE_META: Record<AppStage, { label: string; accent: string; headerBorder: string; lane: string; badge: string }> = {
+const STAGE_META: Record<BoardCol, { label: string; accent: string; headerBorder: string; lane: string; badge: string }> = {
   NEW:          { label:"New",          accent:"bg-zinc-400",    headerBorder:"border-l-zinc-300",    lane:"bg-transparent",   badge:"bg-muted text-muted-foreground" },
   APPROVED:     { label:"Approved",     accent:"bg-blue-500",    headerBorder:"border-l-blue-400",    lane:"bg-blue-50/40 dark:bg-blue-500/[0.06]",    badge:"bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300"       },
   OUTREACH:     { label:"Outreach",     accent:"bg-indigo-500",  headerBorder:"border-l-indigo-400",  lane:"bg-indigo-50/40 dark:bg-indigo-500/[0.06]",  badge:"bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300"   },
   REPLIED:      { label:"Replied",      accent:"bg-emerald-500", headerBorder:"border-l-emerald-400", lane:"bg-emerald-50/40 dark:bg-emerald-500/[0.06]", badge:"bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" },
   APPLIED:      { label:"Applied",      accent:"bg-violet-500",  headerBorder:"border-l-violet-400",  lane:"bg-violet-50/40 dark:bg-violet-500/[0.06]",  badge:"bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300"   },
+  REFERRED:     { label:"Referred",     accent:"bg-indigo-500",  headerBorder:"border-l-indigo-400",  lane:"bg-indigo-50/40 dark:bg-indigo-500/[0.06]",  badge:"bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300"   },
   INTERVIEWING: { label:"Interviewing", accent:"bg-amber-500",   headerBorder:"border-l-amber-400",   lane:"bg-amber-50/40 dark:bg-amber-500/[0.06]",   badge:"bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300"     },
   OFFER:        { label:"Offer",        accent:"bg-green-500",   headerBorder:"border-l-green-400",   lane:"bg-green-50/50 dark:bg-green-500/[0.06]",   badge:"bg-green-100 text-green-800 dark:bg-green-500/15 dark:text-green-300"     },
   SKIPPED:      { label:"Skipped",      accent:"bg-zinc-300",    headerBorder:"border-l-zinc-200",    lane:"bg-transparent",   badge:"bg-muted text-muted-foreground" },
@@ -227,6 +241,8 @@ export default function BoardPage() {
   // "Applied directly?" flow — the job whose dialog is open, plus the alternate
   // resume info (fetched once) for the download link inside the dialog.
   const [appliedJob, setAppliedJob] = useState<Job | null>(null);
+  // "Referred?" flow — the job whose Referred confirm dialog is open.
+  const [referredJob, setReferredJob] = useState<Job | null>(null);
   const [altInfo, setAltInfo] = useState<{ altResumeKey: string | null; altIdentity: { email: string | null; phone: string | null } } | null>(null);
   const showToast = useCallback((msg: string, tone: "info" | "warn" | "error" = "info", undo?: () => void) => {
     setToast({ msg, tone, undo });
@@ -379,6 +395,22 @@ export default function BoardPage() {
       setJobs(prev => prev.map(j => j.id === jobId ? { ...j, directAppliedAt: revert } : j));
       setDetail(d => (d && d.id === jobId) ? { ...d, directAppliedAt: revert } : d);
       showToast("Couldn't update the direct-application status — try again.", "error");
+    }
+  }, [showToast]);
+
+  // ✓ Referral landed — records that someone agreed to refer / submitted the
+  // owner (Job.referredAt). A standalone marker, independent of directAppliedAt
+  // and of outreach. Optimistic, same pattern as toggleDirectApplied.
+  const toggleReferred = useCallback(async (jobId: string, referred: boolean) => {
+    const stamp = referred ? new Date().toISOString() : null;
+    setJobs(prev => prev.map(j => j.id === jobId ? { ...j, referredAt: stamp } : j));
+    setDetail(d => (d && d.id === jobId) ? { ...d, referredAt: stamp } : d);
+    const res = await fetch("/api/jobs/referred", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobId, referred }) }).catch(() => null);
+    if (!res?.ok) {
+      const revert = referred ? null : new Date().toISOString();
+      setJobs(prev => prev.map(j => j.id === jobId ? { ...j, referredAt: revert } : j));
+      setDetail(d => (d && d.id === jobId) ? { ...d, referredAt: revert } : d);
+      showToast("Couldn't update the referral status — try again.", "error");
     }
   }, [showToast]);
 
@@ -572,6 +604,9 @@ export default function BoardPage() {
     // Applied is a marker view, not a stage — a directly-applied job shows here
     // in ADDITION to its outreach column, so outreach keeps running as normal.
     if (j.directAppliedAt) byStage["APPLIED"].push(j);
+    // Referred is likewise a marker view — a referred job shows here in ADDITION
+    // to its outreach column (and possibly the Applied column too).
+    if (j.referredAt) byStage["REFERRED"].push(j);
   }
 
   const tw      = Date.now() - 7*24*60*60*1000;
@@ -749,7 +784,7 @@ export default function BoardPage() {
           {/* Post-referral pipeline columns only appear once something is in
               them — permanently-empty columns are dead board space. */}
           {BOARD_STAGES.filter(s =>
-            !["INTERVIEWING", "OFFER", "APPLIED"].includes(s) || byStage[s].length > 0
+            !["INTERVIEWING", "OFFER", "APPLIED", "REFERRED"].includes(s) || byStage[s].length > 0
           ).map((stage, i, cols) => {
             const meta  = STAGE_META[stage];
             const cards = byStage[stage];
@@ -805,6 +840,7 @@ export default function BoardPage() {
                       toggleRoleClosed={toggleRoleClosed}
                       togglePinned={togglePinned}
                       openApplied={setAppliedJob}
+                      openReferred={setReferredJob}
                     />
                   ))}
                 </div>
@@ -962,6 +998,13 @@ export default function BoardPage() {
                         <CheckCheck className="size-4" />
                       </button>
                     )}
+                    {job && (
+                      <button title={job.referredAt ? "Referred — click to undo" : "Referred?"}
+                        onClick={() => setReferredJob(job)}
+                        className={`w-8 h-8 rounded-xl border flex items-center justify-center transition-colors ${job.referredAt ? "border-indigo-300 text-indigo-600 bg-indigo-50 dark:border-indigo-500/40 dark:text-indigo-300 dark:bg-indigo-500/15" : "border-border text-muted-foreground/60 hover:text-indigo-600 hover:border-indigo-300 hover:bg-indigo-50 dark:hover:text-indigo-300 dark:hover:border-indigo-500/40 dark:hover:bg-indigo-500/10"}`}>
+                        <UserCheck className="size-4" />
+                      </button>
+                    )}
                     {job?.aiScore !== null && job?.aiScore !== undefined && (
                       <div className={`text-center px-3 py-1.5 rounded-xl ${scoreClr(job.aiScore)}`}>
                         <p className="text-xl font-bold leading-none">{job.aiScore}</p>
@@ -986,6 +1029,9 @@ export default function BoardPage() {
                     )}
                     {job.directAppliedAt && (
                       <span className="inline-flex items-center gap-1 text-[10px] bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300 rounded-md px-2 py-1 font-medium"><CheckCheck className="size-3" /> Applied</span>
+                    )}
+                    {job.referredAt && (
+                      <span className="inline-flex items-center gap-1 text-[10px] bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300 rounded-md px-2 py-1 font-medium"><UserCheck className="size-3" /> Referred</span>
                     )}
                     {job.outreachState !== "NONE" && OUTREACH_META[job.outreachState].text && (
                       <span className={`text-[10px] border rounded-md px-2 py-1 font-medium ${OUTREACH_META[job.outreachState].cls}`}>
@@ -1141,6 +1187,31 @@ export default function BoardPage() {
                     variant={job.directAppliedAt ? "outline" : "default"} size="sm"
                     className={`text-xs h-9 shrink-0 ${job.directAppliedAt ? "" : "bg-emerald-600 hover:bg-emerald-700 text-white"}`}>
                     {job.directAppliedAt ? "Undo" : <><CheckCheck className="size-3.5" /> Mark applied</>}
+                  </Button>
+                </div>
+              </div>
+
+              <Separator className="bg-border" />
+
+              {/* Referral — marks that a referral actually landed. Independent of
+                  the direct application and of the outreach pipeline. */}
+              <div>
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-2">Referral</p>
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-muted/50 px-3 py-2.5">
+                  <div className="min-w-0">
+                    {job.referredAt ? (
+                      <p className="flex items-center gap-1.5 text-sm font-medium text-indigo-700 dark:text-indigo-300">
+                        <UserCheck className="size-4 shrink-0" /> Referred on {new Date(job.referredAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                      </p>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">No referral yet.</p>
+                    )}
+                    <p className="text-[11px] text-muted-foreground/70 mt-0.5">Someone agreed to refer you — separate from outreach and direct apply.</p>
+                  </div>
+                  <Button onClick={() => setReferredJob(job)} disabled={acting}
+                    variant={job.referredAt ? "outline" : "default"} size="sm"
+                    className={`text-xs h-9 shrink-0 ${job.referredAt ? "" : "bg-indigo-600 hover:bg-indigo-700 text-white"}`}>
+                    {job.referredAt ? "Undo" : <><UserCheck className="size-3.5" /> Mark referred</>}
                   </Button>
                 </div>
               </div>
@@ -1329,6 +1400,29 @@ export default function BoardPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* ── Referred confirmation ─────────────────────────────────────── */}
+      <AlertDialog open={!!referredJob} onOpenChange={(open: boolean) => { if (!open) setReferredJob(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{referredJob?.referredAt ? "Undo referral?" : "Referred?"}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {referredJob?.referredAt
+                ? "This clears the record that a referral landed for this job."
+                : "This records that a referral landed for this job — someone agreed to refer you or submitted you. It's a standalone marker and does not stop or alter your outreach."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setReferredJob(null)}>Cancel</Button>
+            <Button size="sm"
+              className={referredJob?.referredAt ? "" : "bg-indigo-600 hover:bg-indigo-700 text-white"}
+              variant={referredJob?.referredAt ? "destructive" : "default"}
+              onClick={() => { if (referredJob) toggleReferred(referredJob.id, !referredJob.referredAt); setReferredJob(null); }}>
+              {referredJob?.referredAt ? "Undo" : <><UserCheck className="size-3.5" /> Mark referred</>}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -1370,7 +1464,7 @@ function buildCompanyGroups(cards: Job[]): CompanyGroup[] {
 }
 
 function CompanyCard({
-  group, selected, acting, openJob, toggleSel, toggleSelMany, quickAct, blacklistCompany, toggleRoleClosed, togglePinned, openApplied,
+  group, selected, acting, openJob, toggleSel, toggleSelMany, quickAct, blacklistCompany, toggleRoleClosed, togglePinned, openApplied, openReferred,
 }: {
   group: CompanyGroup;
   selected: Set<string>;
@@ -1383,6 +1477,7 @@ function CompanyCard({
   toggleRoleClosed: (e: React.MouseEvent, jobId: string, closed: boolean) => void;
   togglePinned: (e: React.MouseEvent, jobId: string, pinned: boolean) => void;
   openApplied: (job: Job) => void;
+  openReferred: (job: Job) => void;
 }) {
   const jobs = group.jobs;
   const multi = jobs.length > 1;
@@ -1478,6 +1573,9 @@ function CompanyCard({
                     {j.directAppliedAt && (
                       <span className="shrink-0 inline-flex items-center gap-0.5 text-[9px] text-emerald-700 bg-emerald-100 dark:text-emerald-300 dark:bg-emerald-500/15 rounded px-1 py-0.5 font-medium"><CheckCheck className="size-2.5" /> applied</span>
                     )}
+                    {j.referredAt && (
+                      <span className="shrink-0 inline-flex items-center gap-0.5 text-[9px] text-indigo-700 bg-indigo-100 dark:text-indigo-300 dark:bg-indigo-500/15 rounded px-1 py-0.5 font-medium"><UserCheck className="size-2.5" /> referred</span>
+                    )}
                     {closed && <span className="shrink-0 text-[9px] text-muted-foreground bg-muted rounded px-1 py-0.5">closed</span>}
                   </button>
                   <button title={closed ? "Reopen role" : "Close role — keeps contacts, stops new invites, redirects outreach to the open role"}
@@ -1501,6 +1599,9 @@ function CompanyCard({
           )}
           {!multi && primary.directAppliedAt && (
             <span className="inline-flex items-center gap-1 text-[10px] text-emerald-700 bg-emerald-100 dark:text-emerald-300 dark:bg-emerald-500/15 rounded-md px-2 py-1 font-medium"><CheckCheck className="size-3" /> Applied</span>
+          )}
+          {!multi && primary.referredAt && (
+            <span className="inline-flex items-center gap-1 text-[10px] text-indigo-700 bg-indigo-100 dark:text-indigo-300 dark:bg-indigo-500/15 rounded-md px-2 py-1 font-medium"><UserCheck className="size-3" /> Referred</span>
           )}
           {!multi && OUTREACH_META[primary.outreachState].text && (
             <span className={`text-[10px] border rounded-md px-2 py-1 font-medium ${OUTREACH_META[primary.outreachState].cls}`}>
@@ -1527,6 +1628,11 @@ function CompanyCard({
           onClick={(e) => { e.stopPropagation(); openApplied(primary); }}
           className={`w-7 h-7 rounded-lg bg-white/95 dark:bg-zinc-800/95 backdrop-blur border shadow-sm flex items-center justify-center disabled:opacity-50 transition-colors ${primary.directAppliedAt ? "border-emerald-300 text-emerald-600 dark:border-emerald-500/40 dark:text-emerald-300" : "border-border text-muted-foreground hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-600 dark:hover:bg-emerald-500/15 dark:hover:border-emerald-500/40 dark:hover:text-emerald-300"}`}>
           <CheckCheck className="size-3.5" />
+        </button>
+        <button title={primary.referredAt ? "Referred — click to undo" : "Referred?"} disabled={acting}
+          onClick={(e) => { e.stopPropagation(); openReferred(primary); }}
+          className={`w-7 h-7 rounded-lg bg-white/95 dark:bg-zinc-800/95 backdrop-blur border shadow-sm flex items-center justify-center disabled:opacity-50 transition-colors ${primary.referredAt ? "border-indigo-300 text-indigo-600 dark:border-indigo-500/40 dark:text-indigo-300" : "border-border text-muted-foreground hover:bg-indigo-50 hover:border-indigo-300 hover:text-indigo-600 dark:hover:bg-indigo-500/15 dark:hover:border-indigo-500/40 dark:hover:text-indigo-300"}`}>
+          <UserCheck className="size-3.5" />
         </button>
         {primary.appStage === "NEW" && (
           <button title="Approve & queue outreach" disabled={acting}
