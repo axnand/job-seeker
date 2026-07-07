@@ -140,7 +140,7 @@ export async function runOutreachTick(): Promise<TickResult> {
  */
 export async function sendForJobs(
   jobIds: string[],
-  opts: { withNote?: boolean; ignoreInviteLimit?: boolean; ignoreDmLimit?: boolean } = {},
+  opts: { withNote?: boolean; ignoreInviteLimit?: boolean; ignoreDmLimit?: boolean; only?: "invite" | "dm" } = {},
 ): Promise<{
   sent: number; failed: number; paused?: boolean; capped?: boolean; noThreads?: boolean;
 }> {
@@ -184,7 +184,7 @@ export async function sendForJobs(
   // waiting 7 days for acceptance, or CONNECTED/MESSAGED waiting for a window).
   // Claiming those early would mis-trigger the timeout logic.
   const now = new Date();
-  const claimable = await prisma.channelThread.findMany({
+  const claimableAll = await prisma.channelThread.findMany({
     where: {
       id: { in: threadIds },
       OR: [
@@ -194,6 +194,17 @@ export async function sendForJobs(
     },
     select: { id: true, providerState: true },
   });
+  // Optional split: "invite" fires only QUEUED (connection-invite) threads,
+  // "dm" fires only CONNECTED (direct-DM) threads. Without `only`, both go — and
+  // we never touch the phases we're not sending, so their nextActionAt is left
+  // intact for the tick rather than nulled-and-stranded.
+  const claimable = opts.only
+    ? claimableAll.filter((c) => {
+        const ph = (c.providerState as { phase?: string } | null)?.phase;
+        return opts.only === "invite" ? ph === "QUEUED" : ph === "CONNECTED";
+      })
+    : claimableAll;
+  if (claimable.length === 0) return { sent: 0, failed: 0, noThreads: true };
   await prisma.channelThread.updateMany({
     where: { id: { in: claimable.map((c) => c.id) } },
     data: { nextActionAt: null },

@@ -189,7 +189,10 @@ function brandToken(name: string): string {
 
 /** Does a person actually look like they work at the target company? */
 function matchesCompany(p: OutreachTarget, token: string): boolean {
-  if (!token || token.length < 3) return false;
+  // A too-short/empty brand token (e.g. "GE", "HP", "EY", "3M") is unreliable to
+  // substring-match on, so don't hard-reject everyone — trust the company-scoped
+  // search (results are already filtered by companyId) and accept.
+  if (!token || token.length < 3) return true;
   // Inverted logic: only REJECT when current_company is explicitly set to a company
   // that doesn't match our token — that's LinkedIn filter leakage.
   // If current_company is null (very common in search results), trust the
@@ -249,9 +252,20 @@ async function targetsFromSearch(job: Job, accountId: string): Promise<OutreachT
       searchPeople(accountId, { keywords: peerKeywords, companyId, networkDistance: [1], limit: 40 }).catch(() => []),
     ]);
 
-    const targets = [...connections, ...recruiters, ...peers]
-      .map(personToTarget)
-      .filter((t): t is OutreachTarget => t !== null);
+    // The connections pass is API-filtered to 1st-degree, so every result IS a
+    // connection — force the tag rather than re-deriving it from network_distance
+    // (which would silently mis-tag if the endpoint returns a value isAlreadyConnected
+    // doesn't recognize, sending invites to people we're already connected to).
+    const toTargets = (arr: LinkedinPersonItem[], forceConnection: boolean) =>
+      arr
+        .map(personToTarget)
+        .filter((t): t is OutreachTarget => t !== null)
+        .map((t) => (forceConnection ? { ...t, isConnection: true } : t));
+    const targets = [
+      ...toTargets(connections, true),
+      ...toTargets(recruiters, false),
+      ...toTargets(peers, false),
+    ];
 
     // Hard relevance gate: keep only people whose headline/company mentions the brand.
     const relevant = targets.filter((t) => matchesCompany(t, token));

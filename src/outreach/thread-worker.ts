@@ -327,23 +327,31 @@ async function doSendInvite(
     const code = String((err as { code?: string }).code ?? "").toLowerCase();
     const text = `${body} ${code}`;
 
-    // Already pending → wait for acceptance.
+    // Already pending → wait for acceptance. Clear the pending-send marker
+    // (markPendingSend set it before the call): otherwise reclaimStalePendingSends
+    // re-claims this thread in ~10min and doInvitePendingTimeout cancels the still-
+    // valid invite long before inviteTimeoutDays.
     if (/cannot_resend_yet|invitation_already|already_invited/.test(text)) {
       await guardedThreadUpdate(thread.id, {
         status: "ACTIVE",
         providerState: { ...ps, phase: "INVITE_PENDING", inviteSentAt: ps.inviteSentAt ?? new Date().toISOString() },
         inviteSentAt: thread.inviteSentAt ?? new Date(),
         nextActionAt: daysFromNow(s.outreach.inviteTimeoutDays),
+        pendingSendKey: null,
+        pendingSendStartedAt: null,
       });
       console.log(`${tag} invite already pending — waiting`);
       return;
     }
-    // Already connected → skip invite, queue first DM for next tick.
+    // Already connected → skip invite, queue first DM for next tick. Clear the
+    // pending-send marker so the next-tick claim isn't blocked by the CAS.
     if (/already_connected|already_in_relation|action_already_performed|is_already/.test(text) || (err as { status?: number }).status === 409) {
       await guardedThreadUpdate(thread.id, {
         status: "ACTIVE",
         providerState: { ...ps, phase: "CONNECTED" },
         nextActionAt: new Date(),
+        pendingSendKey: null,
+        pendingSendStartedAt: null,
       });
       console.log(`${tag} already connected — queued for first DM`);
       return;

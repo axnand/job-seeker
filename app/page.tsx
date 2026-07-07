@@ -250,24 +250,28 @@ export default function BoardPage() {
     setTimeout(() => setToast(null), 6000);
   }, []);
   const toggleSel = (id: string) => setSel(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-  const sendSelected = async (withNote: boolean) => {
+  const sendSelected = async (withNote: boolean, only?: "invite" | "dm") => {
     if (sel.size === 0) return;
     setSending(true);
     setAskNote(false);
     const jobIds = [...sel];
-    // clearQueue: this bar is the manual fast-track — once we've sent, drop any
-    // leftover queued invites for these jobs so the tick won't send more later.
-    const res = await fetch("/api/outreach/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobIds, withNote, clearQueue: true }) }).then(r => r.json()).catch(() => null);
+    // clearQueue only on a full send — a scoped invite/dm send leaves the other
+    // kind queued for later (the API also guards this).
+    const res = await fetch("/api/outreach/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobIds, withNote, only, clearQueue: !only }) }).then(r => r.json()).catch(() => null);
     setSending(false);
     setSel(new Set());
     const d = await fetch("/api/jobs?limit=200").then(r => r.json()).catch(() => null);
     if (d?.jobs) setJobs(d.jobs);
+    const noun = only === "dm" ? "DM" : only === "invite" ? "invite" : "request";
+    // Surface real failures instead of looking like a successful no-op: a null
+    // response (network/500/non-JSON) or an explicit {ok:false} (e.g. 409 tick lock).
+    if (!res || res.ok === false) { showToast(res?.error ?? "Couldn't send right now — try again.", "error"); return; }
     if (res?.paused) showToast("Outreach is paused — turn it back on in Settings → Outreach.", "error");
     else if (res?.capped) showToast("Daily/weekly send cap hit. The rest go out automatically in the next window.", "warn");
-    else if (res?.noThreads) showToast("Nothing to send for the selected jobs.", "info");
+    else if (res?.noThreads) showToast(`No ${noun}s ready to send for the selected jobs.`, "info");
     else if (typeof res?.sent === "number") {
       const cleared = res.cleared ? ` · ${res.cleared} queued cleared` : "";
-      showToast(`Sent ${res.sent} request${res.sent !== 1 ? "s" : ""}${cleared}.`, "info");
+      showToast(`Sent ${res.sent} ${noun}${res.sent !== 1 ? "s" : ""}${cleared}.`, "info");
     }
   };
   // Find up to 10 LinkedIn people for each selected job and queue draft outreach.
@@ -966,10 +970,16 @@ export default function BoardPage() {
             <Ban className="size-3.5" /> Blacklist
           </button>
           {selSendableCount > 0 && (
-            <button onClick={() => setAskNote(true)} disabled={sending || finding}
-              className="bg-primary text-primary-foreground text-sm font-semibold rounded-full px-4 py-1.5 hover:bg-primary/90 disabled:opacity-60 flex items-center gap-1.5">
-              <Send className="size-3.5" /> {sending ? "Sending…" : "Send now"}
-            </button>
+            <>
+              <button onClick={() => setAskNote(true)} disabled={sending || finding}
+                className="bg-zinc-700 text-white text-sm font-semibold rounded-full px-4 py-1.5 hover:bg-zinc-600 disabled:opacity-60 flex items-center gap-1.5">
+                <UserPlus className="size-3.5" /> {sending ? "Sending…" : "Send invites"}
+              </button>
+              <button onClick={() => sendSelected(false, "dm")} disabled={sending || finding}
+                className="bg-primary text-primary-foreground text-sm font-semibold rounded-full px-4 py-1.5 hover:bg-primary/90 disabled:opacity-60 flex items-center gap-1.5">
+                <Send className="size-3.5" /> {sending ? "Sending…" : "Send DMs"}
+              </button>
+            </>
           )}
         </div>
       )}
@@ -977,12 +987,12 @@ export default function BoardPage() {
       {/* Connection-note choice for the manual bulk send */}
       {sel.size > 0 && askNote && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-zinc-900 text-white rounded-2xl shadow-xl px-4 py-3 dark:bg-zinc-800 dark:ring-1 dark:ring-white/10">
-          <span className="text-sm font-medium mr-1">Add a connection note to {selSendableCount} invite{selSendableCount !== 1 ? "s" : ""}?</span>
-          <button onClick={() => sendSelected(true)} disabled={sending}
+          <span className="text-sm font-medium mr-1">Add a connection note to the invite{selSendableCount !== 1 ? "s" : ""}?</span>
+          <button onClick={() => sendSelected(true, "invite")} disabled={sending}
             className="bg-white text-zinc-900 text-sm font-semibold rounded-full px-4 py-1.5 hover:bg-zinc-100 disabled:opacity-60">
             With note
           </button>
-          <button onClick={() => sendSelected(false)} disabled={sending}
+          <button onClick={() => sendSelected(false, "invite")} disabled={sending}
             className="bg-zinc-700 text-white text-sm font-semibold rounded-full px-4 py-1.5 hover:bg-zinc-600 disabled:opacity-60">
             Without note
           </button>

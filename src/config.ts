@@ -1,3 +1,10 @@
+// Robust numeric env parse: an EMPTY or non-numeric value falls back to the
+// default (plain `Number(x ?? d)` yields 0/NaN for "", silently zeroing limits).
+function numEnv(raw: string | undefined, fallback: number): number {
+  const n = Number(raw);
+  return raw !== undefined && raw !== "" && Number.isFinite(n) ? n : fallback;
+}
+
 export const config = {
   owner: {
     name: process.env.OWNER_NAME ?? "Owner",
@@ -29,7 +36,7 @@ export const config = {
     relevanceThreshold: 65,
     minSalary: {
       // Hard floor: must beat the owner's current 14.5 LPA base.
-      amount: Number(process.env.MIN_SALARY_AMOUNT ?? 1450000),
+      amount: numEnv(process.env.MIN_SALARY_AMOUNT, 1450000),
       currency: process.env.MIN_SALARY_CURRENCY ?? "INR",
       period: "year" as const,
     },
@@ -41,7 +48,7 @@ export const config = {
     // Freshness — runs every 3h and only looks at jobs posted in the last day.
     // 1 = tightest the source APIs allow (they're day-granular); the overlap
     // across 3-hourly runs is a safety buffer and dedup prevents re-processing.
-    recencyDays: Number(process.env.RECENCY_DAYS ?? 1),
+    recencyDays: numEnv(process.env.RECENCY_DAYS, 1),
     // LinkedIn jobs search filters (Unipile native filters)
     linkedinSeniority: ["entry", "associate"] as const,  // new-grad band only
     linkedinPresence: ["remote", "hybrid", "on_site"] as const,
@@ -192,7 +199,7 @@ Targeting: entry-level / SDE-1 / junior software engineering roles at strong pro
     from: process.env.EMAIL_FROM ?? process.env.SMTP_USER ?? "",
     smtp: {
       host: process.env.SMTP_HOST ?? "",
-      port: Number(process.env.SMTP_PORT ?? 587),
+      port: numEnv(process.env.SMTP_PORT, 587),
       user: process.env.SMTP_USER ?? "",
       pass: process.env.SMTP_PASS ?? "",
     },
@@ -215,7 +222,9 @@ Targeting: entry-level / SDE-1 / junior software engineering roles at strong pro
 
   s3: {
     bucket: process.env.AWS_S3_BUCKET ?? "",
-    region: process.env.AWS_S3_REGION ?? "ap-south-1",
+    // `||` not `??`: an empty AWS_S3_REGION="" must still fall back (else the S3
+    // client throws "Region is missing" and DMs/uploads run without the resume).
+    region: process.env.AWS_S3_REGION || "ap-south-1",
   },
 };
 
