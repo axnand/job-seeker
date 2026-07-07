@@ -121,22 +121,23 @@ type BoardCol = AppStage | "REFERRED";
 // stages — they're marker columns populated by Job.directAppliedAt / Job.referredAt.
 // A marked job appears in its marker column AND stays in its live outreach column;
 // outreach is unaffected either way.
-// Referred sits in the outreach lane between Replied and Interviewing (it's the
-// pipeline's success state); Applied trails at the end as a parallel-track marker.
-const BOARD_STAGES: BoardCol[] = ["APPROVED","OUTREACH","REPLIED","REFERRED","INTERVIEWING","OFFER","APPLIED"];
+// The tracked funnel: Approved → Outreach → Replied → Referred, with Applied as
+// the parallel direct-application marker. Interviewing/Offer exist in the enum
+// but aren't tracked on this board.
+const BOARD_STAGES: BoardCol[] = ["APPROVED","OUTREACH","REPLIED","REFERRED","APPLIED"];
 
 // Which board column a job lands in — NEW folds into Approved; any legacy
 // APPLIED-stage job folds into Replied so it never silently drops off the board.
 // Only ever returns real AppStage values — marker placement (APPLIED/REFERRED) is
 // additive and handled separately in the bucketing loop, never via this fn.
 const boardStageOf = (stage: AppStage): AppStage =>
-  stage === "NEW" ? "APPROVED" : stage === "APPLIED" ? "REPLIED" : stage;
+  stage === "NEW" ? "APPROVED"
+  : (stage === "APPLIED" || stage === "INTERVIEWING" || stage === "OFFER") ? "REPLIED"
+  : stage;
 
 // Post-referral milestones the owner drives by hand once a target has replied.
 const PIPELINE_STAGES: { stage: AppStage; action: string; label: string }[] = [
   { stage:"REPLIED",      action:"replied",      label:"Replied"      },
-  { stage:"INTERVIEWING", action:"interviewing", label:"Interviewing" },
-  { stage:"OFFER",        action:"offer",        label:"Offer"        },
 ];
 
 const STAGE_META: Record<BoardCol, { label: string; accent: string; headerBorder: string; lane: string; badge: string }> = {
@@ -151,11 +152,9 @@ const STAGE_META: Record<BoardCol, { label: string; accent: string; headerBorder
   SKIPPED:      { label:"Skipped",      accent:"bg-zinc-300",    headerBorder:"border-l-zinc-200",    lane:"bg-transparent",   badge:"bg-muted text-muted-foreground" },
 };
 
-// Next post-referral milestone for the board's one-click "advance" affordance.
-const NEXT_STAGE: Partial<Record<AppStage, { action: string; label: string }>> = {
-  REPLIED:      { action:"interviewing", label:"Mark interviewing" },
-  INTERVIEWING: { action:"offer",        label:"Mark offer"        },
-};
+// No post-Replied pipeline milestones are tracked on this board — progress past
+// Replied is captured by the Referred / Applied markers instead.
+const NEXT_STAGE: Partial<Record<AppStage, { action: string; label: string }>> = {};
 
 const SOURCE_LABEL: Record<string, string> = {
   LINKEDIN_JOB:"LinkedIn", LINKEDIN_POST:"LI Post", ADZUNA:"Adzuna",
@@ -604,10 +603,8 @@ export default function BoardPage() {
     if (j.appStage === "SKIPPED") continue;
 
     // Outreach-lane placement. Referred is the pipeline's success state, so a
-    // referred job MOVES from Replied into Referred (it doesn't sit in both) —
-    // unless the appStage has advanced further (Interviewing/Offer), which wins.
-    const advanced = j.appStage === "INTERVIEWING" || j.appStage === "OFFER";
-    const laneCol: BoardCol = (j.referredAt && !advanced) ? "REFERRED" : boardStageOf(j.appStage);
+    // referred job MOVES from Replied into Referred (it doesn't sit in both).
+    const laneCol: BoardCol = j.referredAt ? "REFERRED" : boardStageOf(j.appStage);
     byStage[laneCol]?.push(j);
 
     // Applied is a PARALLEL track (direct application from the other identity),
@@ -788,10 +785,10 @@ export default function BoardPage() {
       <div className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden px-6 pb-6 scrollbar-slim">
         {/* Board container */}
         <div className="flex h-full w-full rounded-2xl border border-border shadow-sm bg-card overflow-hidden">
-          {/* Post-referral pipeline columns only appear once something is in
-              them — permanently-empty columns are dead board space. */}
+          {/* Marker columns (Referred / Applied) only appear once something is
+              in them — permanently-empty columns are dead board space. */}
           {BOARD_STAGES.filter(s =>
-            !["INTERVIEWING", "OFFER", "APPLIED", "REFERRED"].includes(s) || byStage[s].length > 0
+            !["APPLIED", "REFERRED"].includes(s) || byStage[s].length > 0
           ).map((stage, i, cols) => {
             const meta  = STAGE_META[stage];
             const cards = byStage[stage];
