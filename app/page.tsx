@@ -121,7 +121,9 @@ type BoardCol = AppStage | "REFERRED";
 // stages — they're marker columns populated by Job.directAppliedAt / Job.referredAt.
 // A marked job appears in its marker column AND stays in its live outreach column;
 // outreach is unaffected either way.
-const BOARD_STAGES: BoardCol[] = ["APPROVED","OUTREACH","REPLIED","INTERVIEWING","OFFER","APPLIED","REFERRED"];
+// Referred sits in the outreach lane between Replied and Interviewing (it's the
+// pipeline's success state); Applied trails at the end as a parallel-track marker.
+const BOARD_STAGES: BoardCol[] = ["APPROVED","OUTREACH","REPLIED","REFERRED","INTERVIEWING","OFFER","APPLIED"];
 
 // Which board column a job lands in — NEW folds into Approved; any legacy
 // APPLIED-stage job folds into Replied so it never silently drops off the board.
@@ -600,13 +602,18 @@ export default function BoardPage() {
   const byStage = BOARD_STAGES.reduce<Record<string, Job[]>>((a,s) => { a[s]=[]; return a; }, {});
   for (const j of visible) {
     if (j.appStage === "SKIPPED") continue;
-    byStage[boardStageOf(j.appStage)]?.push(j);
-    // Applied is a marker view, not a stage — a directly-applied job shows here
-    // in ADDITION to its outreach column, so outreach keeps running as normal.
+
+    // Outreach-lane placement. Referred is the pipeline's success state, so a
+    // referred job MOVES from Replied into Referred (it doesn't sit in both) —
+    // unless the appStage has advanced further (Interviewing/Offer), which wins.
+    const advanced = j.appStage === "INTERVIEWING" || j.appStage === "OFFER";
+    const laneCol: BoardCol = (j.referredAt && !advanced) ? "REFERRED" : boardStageOf(j.appStage);
+    byStage[laneCol]?.push(j);
+
+    // Applied is a PARALLEL track (direct application from the other identity),
+    // not a pipeline position — a directly-applied job shows in Applied IN
+    // ADDITION to its lane column, because that outreach keeps running as normal.
     if (j.directAppliedAt) byStage["APPLIED"].push(j);
-    // Referred is likewise a marker view — a referred job shows here in ADDITION
-    // to its outreach column (and possibly the Applied column too).
-    if (j.referredAt) byStage["REFERRED"].push(j);
   }
 
   const tw      = Date.now() - 7*24*60*60*1000;
