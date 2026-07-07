@@ -66,6 +66,12 @@ export interface AppSettingsData {
     defaultModel:          string;
     triageModel:           string; // cheap pre-scoring pass (see src/scoring/triage.ts)
   };
+  // Alternate identity for DIRECT applications (dual-application strategy):
+  // the alt resume swaps the master's contact block to these values.
+  altIdentity: {
+    email: string;
+    phone: string;
+  };
   // Machine-owned operational markers (not user-facing settings).
   ops: {
     lastWeeklyReportAt?: string | null; // ISO — gates the Monday analytics email
@@ -129,6 +135,10 @@ function defaults(): AppSettingsData {
       defaultModel:          c.ai.defaultModel,
       triageModel:           c.ai.triageModel,
     },
+    altIdentity: {
+      email: "",
+      phone: "",
+    },
     ops: {
       lastWeeklyReportAt: null,
     },
@@ -147,6 +157,7 @@ function merge(base: AppSettingsData, db: Partial<AppSettingsData>): AppSettings
     feedAuthors:     db.feedAuthors ?? base.feedAuthors,
     templates:       { ...base.templates,  ...(db.templates ?? {}) },
     ai:              { ...base.ai,        ...(db.ai        ?? {}) },
+    altIdentity:     { ...base.altIdentity, ...(db.altIdentity ?? {}) },
     ops:             { ...base.ops,       ...(db.ops       ?? {}) },
   };
 }

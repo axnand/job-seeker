@@ -20,6 +20,10 @@ model ResumeProfile {
   // Truthfulness vocabulary derived from masterTex (tech terms / proper nouns).
   // Cached so every tailor run validates against the same whitelist.
   whitelist      Json?
+  // Alternate-identity resume: masterTex with the contact block swapped to the
+  // alt email/phone (settings.altIdentity), compiled once. Used for DIRECT
+  // applications so the referral and direct candidacies stay independent.
+  altResumeKey   String?
   updatedAt      DateTime @updatedAt
 }
 
@@ -136,6 +140,12 @@ model Job {
   // Owner's manual ⭐ — pinned jobs sort first on the board and always make the
   // "Apply Today" shortlist regardless of computed priority.
   pinned         Boolean    @default(false)
+
+  // Dual-application strategy: set when the owner confirms they applied
+  // DIRECTLY (with the alternate-identity resume), independent of the referral
+  // flow. Not a pipeline stage — a referral and a direct application for the
+  // same job coexist.
+  directAppliedAt DateTime?
 
   // Outreach state cache — machine-owned, derived from threads
   outreachState  OutreachState @default(NONE)
