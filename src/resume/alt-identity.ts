@@ -25,6 +25,31 @@ const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 // Phones as they appear in resumes: +91-80765..., +91 80765..., 8076594383.
 const PHONE_RE = /(?:\+\d{1,3}[-\s]?)?\d{10}|\+\d{1,3}[-\s]?\d{4,5}[-\s]?\d{5,6}/g;
 
+export interface ContactSwapResult {
+  tex: string;
+  emails: number;
+  phones: number;
+}
+
+/**
+ * Swap every email/phone occurrence in a .tex to the alternate identity.
+ * Pure and deterministic — shared by the static alt resume and the per-job
+ * alt-tailored variant (pipeline.ts) so both produce identical contact swaps.
+ * Returns null when no email is present (nothing to swap → not an alt resume).
+ */
+export function swapContactBlock(tex: string, altEmail: string, altPhone: string): ContactSwapResult | null {
+  // LaTeX-escape only what these fields can realistically contain (& _ % #).
+  const esc = (s: string) => s.replace(/([&_%#])/g, "\\$1");
+  const emails = [...new Set(tex.match(EMAIL_RE) ?? [])];
+  const phones = [...new Set(tex.match(PHONE_RE) ?? [])];
+  if (emails.length === 0) return null;
+
+  let out = tex;
+  for (const e of emails) out = out.split(e).join(esc(altEmail));
+  for (const p of phones) out = out.split(p).join(esc(altPhone));
+  return { tex: out, emails: emails.length, phones: phones.length };
+}
+
 export async function generateAltResume(): Promise<AltResumeResult> {
   if (!isS3Configured()) return { ok: false, detail: "S3 not configured" };
 
@@ -39,16 +64,9 @@ export async function generateAltResume(): Promise<AltResumeResult> {
     return { ok: false, detail: "alternate email and phone not set — fill them in on the Resume page" };
   }
 
-  // Swap every email and phone occurrence. LaTeX-escape only what these fields
-  // can realistically contain (& _ % #).
-  const esc = (s: string) => s.replace(/([&_%#])/g, "\\$1");
-  let tex = profile.masterTex;
-  const emails = [...new Set(tex.match(EMAIL_RE) ?? [])];
-  const phones = [...new Set(tex.match(PHONE_RE) ?? [])];
-  if (emails.length === 0) return { ok: false, detail: "no email found in the master .tex to swap" };
-
-  for (const e of emails) tex = tex.split(e).join(esc(altEmail));
-  for (const p of phones) tex = tex.split(p).join(esc(altPhone));
+  const swapped = swapContactBlock(profile.masterTex, altEmail, altPhone);
+  if (!swapped) return { ok: false, detail: "no email found in the master .tex to swap" };
+  const { tex, emails, phones } = swapped;
 
   const compiled = await compileLatex(tex);
   if (!compiled.ok) {
@@ -65,7 +83,7 @@ export async function generateAltResume(): Promise<AltResumeResult> {
 
   return {
     ok: true,
-    detail: `swapped ${emails.length} email(s) and ${phones.length} phone(s); compiled via ${compiled.provider}`,
+    detail: `swapped ${emails} email(s) and ${phones} phone(s); compiled via ${compiled.provider}`,
     altResumeKey: key,
   };
 }

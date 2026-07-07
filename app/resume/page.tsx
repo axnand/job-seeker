@@ -1,11 +1,35 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { CircleX, X, Upload, FileUp, FileText, FileCode2, Info, Check, Loader2, Contact, Download } from "lucide-react";
+import { CircleX, X, Upload, FileUp, FileText, FileCode2, Info, Check, Loader2, Contact, Download, Eye } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 
 type BaseResume = { baseResumeKey: string | null; name: string | null; url: string | null };
-type MasterInfo = { hasMasterTex: boolean; vocabularySize: number; updatedAt: string | null };
+type MasterInfo = { hasMasterTex: boolean; masterTex: string; masterUrl: string | null; vocabularySize: number; updatedAt: string | null };
+
+/** Inline PDF preview. Presigned S3 (or blob) URLs render directly in an iframe. */
+function PdfPreview({ url, label, height = "h-[420px]" }: { url: string | null; label: string; height?: string }) {
+  return (
+    <div className="rounded-xl border border-border bg-muted/30 overflow-hidden">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-muted/50">
+        <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">{label}</span>
+        {url && (
+          <a href={url} target="_blank" rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:text-indigo-800 dark:hover:text-indigo-300 transition-colors">
+            <Eye className="size-3" /> Open
+          </a>
+        )}
+      </div>
+      {url ? (
+        <iframe src={url} title={label} className={`w-full ${height} bg-white`} />
+      ) : (
+        <div className={`flex items-center justify-center ${height} text-xs text-muted-foreground`}>
+          No preview yet
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function ResumePage() {
   const [resume, setResume] = useState<BaseResume | null>(null);
@@ -16,28 +40,44 @@ export default function ResumePage() {
   // Master LaTeX resume (source for automated tailoring)
   const [master, setMaster] = useState<MasterInfo | null>(null);
   const [masterTex, setMasterTex] = useState("");
+  const [masterUrl, setMasterUrl] = useState<string | null>(null);
   const [savingTex, setSavingTex] = useState(false);
   const [texSaved, setTexSaved] = useState(false);
   const [texError, setTexError] = useState<string | null>(null);
   const [compileLog, setCompileLog] = useState<string | null>(null);
 
+  // Live compile preview (unsaved .tex → PDF, rendered on our end)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [previewLog, setPreviewLog] = useState<string | null>(null);
+
   // Alternate-identity resume (direct-application strategy)
   const [altEmail, setAltEmail] = useState("");
   const [altPhone, setAltPhone] = useState("");
   const [altKey, setAltKey] = useState<string | null>(null);
+  const [altUrl, setAltUrl] = useState<string | null>(null);
   const [altGenerating, setAltGenerating] = useState(false);
   const [altError, setAltError] = useState<string | null>(null);
   const [altSaved, setAltSaved] = useState(false);
 
   useEffect(() => {
     fetch("/api/resume/base").then(r => r.json()).then(setResume).catch(() => setResume({ baseResumeKey: null, name: null, url: null }));
-    fetch("/api/resume/master").then(r => r.json()).then(setMaster).catch(() => setMaster({ hasMasterTex: false, vocabularySize: 0, updatedAt: null }));
+    fetch("/api/resume/master").then(r => r.json()).then((d: MasterInfo) => {
+      setMaster(d);
+      if (d?.masterTex) setMasterTex(d.masterTex); // show the latest saved source
+      setMasterUrl(d?.masterUrl ?? null);
+    }).catch(() => setMaster({ hasMasterTex: false, masterTex: "", masterUrl: null, vocabularySize: 0, updatedAt: null }));
     fetch("/api/resume/alt").then(r => r.json()).then(d => {
       setAltKey(d?.altResumeKey ?? null);
+      setAltUrl(d?.altUrl ?? null);
       if (d?.altIdentity?.email) setAltEmail(d.altIdentity.email);
       if (d?.altIdentity?.phone) setAltPhone(d.altIdentity.phone);
     }).catch(() => {});
   }, []);
+
+  // Revoke the previous blob URL whenever the live preview changes / unmounts.
+  useEffect(() => () => { if (previewUrl?.startsWith("blob:")) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
 
   async function generateAlt() {
     if (!altEmail.trim() || !altPhone.trim()) return;
@@ -53,6 +93,7 @@ export default function ResumePage() {
       const data = await res.json().catch(() => null);
       if (res.ok && data?.altResumeKey) {
         setAltKey(data.altResumeKey);
+        setAltUrl(data.altUrl ?? null);
         setAltSaved(true);
         setTimeout(() => setAltSaved(false), 8000);
       } else {
@@ -80,7 +121,8 @@ export default function ResumePage() {
       });
       const data = await res.json().catch(() => null);
       if (res.ok && data?.ok) {
-        setMaster({ hasMasterTex: true, vocabularySize: data.vocabularySize ?? 0, updatedAt: new Date().toISOString() });
+        setMaster({ hasMasterTex: true, masterTex, masterUrl: data.masterUrl ?? null, vocabularySize: data.vocabularySize ?? 0, updatedAt: new Date().toISOString() });
+        setMasterUrl(data.masterUrl ?? null);
         setTexSaved(true);
         setTimeout(() => setTexSaved(false), 6000);
       } else {
@@ -91,6 +133,33 @@ export default function ResumePage() {
       setTexError("Save failed — check your connection and try again.");
     } finally {
       setSavingTex(false);
+    }
+  }
+
+  // Compile the current (unsaved) .tex on our server and preview the PDF inline.
+  async function previewMasterTex() {
+    if (!masterTex.trim()) return;
+    setPreviewing(true);
+    setPreviewError(null);
+    setPreviewLog(null);
+    try {
+      const res = await fetch("/api/resume/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tex: masterTex }),
+      });
+      if (res.ok) {
+        const blob = await res.blob();
+        setPreviewUrl(URL.createObjectURL(blob)); // effect revokes the old one
+      } else {
+        const data = await res.json().catch(() => null);
+        setPreviewError(data?.error ?? `Preview failed (HTTP ${res.status}).`);
+        if (data?.log) setPreviewLog(data.log);
+      }
+    } catch {
+      setPreviewError("Preview failed — check your connection and try again.");
+    } finally {
+      setPreviewing(false);
     }
   }
 
@@ -129,7 +198,7 @@ export default function ResumePage() {
 
           <div className="grid items-start gap-6 md:grid-cols-[300px_minmax(0,1fr)] xl:grid-cols-[360px_minmax(0,1fr)]">
 
-            {/* Left rail — base PDF + how it works */}
+            {/* Left rail — base PDF + alt identity, each with an inline preview */}
             <div className="space-y-6">
 
           {/* Base resume card */}
@@ -137,28 +206,23 @@ export default function ResumePage() {
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-4">Base resume</p>
 
             {resume?.baseResumeKey ? (
-              <div className="flex items-center justify-between gap-4 p-4 rounded-xl border border-border bg-muted/50">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="flex size-11 items-center justify-center rounded-lg bg-card border border-border text-muted-foreground shrink-0">
-                    <FileText className="size-5" />
+              <div className="space-y-4">
+                <div className="flex items-center justify-between gap-4 p-4 rounded-xl border border-border bg-muted/50">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="flex size-11 items-center justify-center rounded-lg bg-card border border-border text-muted-foreground shrink-0">
+                      <FileText className="size-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-foreground truncate">{resume.name ?? "resume.pdf"}</p>
+                      <p className="text-xs text-muted-foreground">Used as the default for all jobs</p>
+                    </div>
                   </div>
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-foreground truncate">{resume.name ?? "resume.pdf"}</p>
-                    <p className="text-xs text-muted-foreground">Used as the default for all jobs</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  {resume.url && (
-                    <a href={resume.url} target="_blank" rel="noopener noreferrer"
-                      className="text-xs font-medium text-muted-foreground border border-border rounded-lg px-3 py-2 hover:bg-card transition-colors">
-                      View
-                    </a>
-                  )}
                   <button onClick={() => fileRef.current?.click()} disabled={uploading}
-                    className="inline-flex items-center gap-1.5 text-xs font-medium text-primary-foreground bg-primary hover:bg-primary/90 rounded-lg px-3 py-2 transition-colors disabled:opacity-60">
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-primary-foreground bg-primary hover:bg-primary/90 rounded-lg px-3 py-2 transition-colors disabled:opacity-60 shrink-0">
                     <Upload className="size-3.5" /> {uploading ? "Uploading…" : "Replace"}
                   </button>
                 </div>
+                <PdfPreview url={resume.url} label="Base resume (default identity)" height="h-72" />
               </div>
             ) : (
               <button onClick={() => fileRef.current?.click()} disabled={uploading}
@@ -208,7 +272,7 @@ export default function ResumePage() {
               className="mt-4 inline-flex items-center gap-1.5 text-xs font-medium text-primary-foreground bg-primary hover:bg-primary/90 rounded-lg px-3 py-2 transition-colors disabled:opacity-60">
               {altGenerating
                 ? <><Loader2 className="size-3.5 animate-spin" /> Generating…</>
-                : <><Upload className="size-3.5" /> Generate alt resume</>}
+                : <><Upload className="size-3.5" /> {altKey ? "Regenerate alt resume" : "Generate alt resume"}</>}
             </button>
 
             {altSaved && (
@@ -223,11 +287,15 @@ export default function ResumePage() {
                 <CircleX className="size-3.5 shrink-0 mt-0.5" /> {altError}
               </p>
             )}
+
             {altKey && (
-              <a href={`/api/resume/download?key=${encodeURIComponent(altKey)}`} target="_blank" rel="noopener noreferrer"
-                className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-indigo-800 dark:hover:text-indigo-300 transition-colors">
-                <Download className="size-3.5" /> Download alt resume
-              </a>
+              <div className="mt-4 space-y-3">
+                <PdfPreview url={altUrl} label="Alternate identity resume" height="h-72" />
+                <a href={`/api/resume/download?key=${encodeURIComponent(altKey)}`} target="_blank" rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-indigo-800 dark:hover:text-indigo-300 transition-colors">
+                  <Download className="size-3.5" /> Download alt resume
+                </a>
+              </div>
             )}
 
             <p className="mt-3 text-xs text-muted-foreground leading-relaxed">
@@ -236,7 +304,7 @@ export default function ResumePage() {
           </div>
             </div>{/* end left rail */}
 
-            {/* Main column — master LaTeX editor */}
+            {/* Main column — master LaTeX editor + preview */}
             <div className="min-w-0 space-y-6">
           {/* Master LaTeX resume card — source for automated tailoring */}
           <div className="bg-card rounded-2xl border border-border shadow-sm p-6">
@@ -253,20 +321,31 @@ export default function ResumePage() {
               )}
             </div>
             <p className="text-xs text-muted-foreground leading-relaxed mb-4">
-              Paste the complete .tex source. It&apos;s compile-checked before saving, and its wording becomes the
-              truthfulness vocabulary — auto-tailoring can only rephrase what&apos;s already here, never invent claims.
+              The latest saved source loads below — edit it directly. It&apos;s compile-checked before saving, and its
+              wording becomes the truthfulness vocabulary; auto-tailoring can only rephrase what&apos;s already here,
+              never invent claims. Compilation runs on external LaTeX services (xelatex when the source uses
+              <span className="font-mono"> fontspec</span>, otherwise pdflatex) — hit <span className="font-medium">Preview</span> to
+              render the PDF here without saving.
             </p>
 
-            <textarea
-              value={masterTex}
-              onChange={e => setMasterTex(e.target.value)}
-              rows={12}
-              spellCheck={false}
-              placeholder={"\\documentclass{article}\n…paste your full LaTeX resume source…\n\\begin{document}\n…\n\\end{document}"}
-              className="w-full rounded-xl border border-border bg-muted/50 px-4 py-3 text-xs font-mono leading-relaxed resize-y outline-none focus:ring-2 focus:ring-ring/40 focus:border-ring placeholder:text-muted-foreground transition"
-            />
+            <div className="grid gap-4 lg:grid-cols-2">
+              <textarea
+                value={masterTex}
+                onChange={e => setMasterTex(e.target.value)}
+                rows={22}
+                spellCheck={false}
+                placeholder={"\\documentclass{article}\n…paste your full LaTeX resume source…\n\\begin{document}\n…\n\\end{document}"}
+                className="w-full rounded-xl border border-border bg-muted/50 px-4 py-3 text-xs font-mono leading-relaxed resize-y outline-none focus:ring-2 focus:ring-ring/40 focus:border-ring placeholder:text-muted-foreground transition"
+              />
+              {/* Preview pane: live compile if present, else the saved master PDF */}
+              <PdfPreview
+                url={previewUrl ?? masterUrl}
+                label={previewUrl ? "Live preview (unsaved)" : "Saved master PDF"}
+                height="h-[520px]"
+              />
+            </div>
 
-            <div className="flex items-center gap-3 mt-3">
+            <div className="flex flex-wrap items-center gap-3 mt-3">
               <button
                 onClick={saveMasterTex}
                 disabled={savingTex || !masterTex.trim()}
@@ -275,6 +354,15 @@ export default function ResumePage() {
                 {savingTex
                   ? <><Loader2 className="size-3.5 animate-spin" /> Compiling…</>
                   : <><Upload className="size-3.5" /> {master?.hasMasterTex ? "Replace master .tex" : "Save master .tex"}</>}
+              </button>
+              <button
+                onClick={previewMasterTex}
+                disabled={previewing || !masterTex.trim()}
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground border border-border rounded-lg px-3 py-2 hover:bg-accent/50 hover:text-foreground transition-colors disabled:opacity-60"
+              >
+                {previewing
+                  ? <><Loader2 className="size-3.5 animate-spin" /> Compiling preview…</>
+                  : <><Eye className="size-3.5" /> Preview</>}
               </button>
               {texSaved && master && (
                 <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 dark:text-emerald-300">
@@ -286,15 +374,20 @@ export default function ResumePage() {
                   <CircleX className="size-3.5" /> {texError}
                 </span>
               )}
+              {previewError && !previewLog && (
+                <span className="inline-flex items-center gap-1 text-xs font-medium text-red-600 dark:text-red-300">
+                  <CircleX className="size-3.5" /> {previewError}
+                </span>
+              )}
             </div>
 
-            {compileLog && (
+            {(compileLog || previewLog) && (
               <div className="mt-3 rounded-xl border border-red-200 bg-red-50 dark:border-red-500/30 dark:bg-red-500/10 overflow-hidden">
                 <p className="flex items-center gap-1.5 text-xs font-semibold text-red-700 dark:text-red-300 px-4 pt-3">
-                  <CircleX className="size-3.5 shrink-0" /> {texError ?? "Master resume does not compile"}
+                  <CircleX className="size-3.5 shrink-0" /> {compileLog ? (texError ?? "Master resume does not compile") : (previewError ?? "Preview does not compile")}
                 </p>
                 <pre className="text-[11px] text-red-900/80 dark:text-red-200 font-mono leading-relaxed whitespace-pre-wrap px-4 py-3 max-h-64 overflow-y-auto scrollbar-slim">
-                  {compileLog}
+                  {compileLog ?? previewLog}
                 </pre>
               </div>
             )}
@@ -305,9 +398,10 @@ export default function ResumePage() {
             <div>
               <p className="text-sm text-indigo-950 dark:text-indigo-200 font-medium mb-1">How tailoring works</p>
               <p className="text-xs text-indigo-900/70 dark:text-indigo-300 leading-relaxed">
-                Each job is checked automatically. Most use your base resume as-is. For the few that need tailoring,
-                you&apos;ll see the exact suggested edits on the job and an upload slot for the tailored PDF. The system
-                never edits or fabricates anything — you stay in control of your resume.
+                Each job is checked automatically. For the few that need tailoring, the pipeline applies surgical,
+                truthfulness-checked edits to your master .tex — and produces both the referral resume and an
+                alternate-identity copy of the same edits for the direct application. You&apos;ll see the exact edits
+                on the job, and the system never fabricates anything.
               </p>
             </div>
           </div>{/* end how-tailoring-works */}

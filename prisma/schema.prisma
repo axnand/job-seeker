@@ -24,6 +24,10 @@ model ResumeProfile {
   // alt email/phone (settings.altIdentity), compiled once. Used for DIRECT
   // applications so the referral and direct candidacies stay independent.
   altResumeKey   String?
+  // S3 key of the master .tex compiled to PDF. Persisted on save purely so the
+  // Resume page can show an inline preview of the master (the compile that
+  // validates the source produces this PDF anyway).
+  masterResumeKey String?
   updatedAt      DateTime @updatedAt
 }
 
@@ -120,6 +124,11 @@ model Job {
   needsTailoring       Boolean  @default(false) // AI says base resume should be tailored for this role
   tailoringSuggestions String?  @db.Text        // exact changes the owner should make
   tailoredResumeKey    String?                  // S3 key once a tailored PDF exists (uploaded or auto-generated)
+  // Per-job alternate-identity resume: the SAME tailored edits as
+  // tailoredResumeKey but with the contact block swapped to the alt identity.
+  // Used for the DIRECT application so both candidacies are tailored to the JD.
+  // Falls back to ResumeProfile.altResumeKey (static) when absent.
+  altTailoredResumeKey String?
   // Auto-tailoring audit trail: the exact find/replace edits applied to the
   // master .tex for this job, or the failure reason. Owner-visible.
   tailorLog            Json?

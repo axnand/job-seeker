@@ -13,9 +13,11 @@
 
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
+import { getSettings } from "@/lib/settings";
 import { uploadResume, isS3Configured } from "@/lib/s3";
 import { compileLatex, isSourceError, pdfPageCount } from "./compile";
 import { proposeEdits, repairCompileError, MAX_EDITS } from "./tailor";
+import { swapContactBlock } from "./alt-identity";
 import { buildVocabulary, validateEdits, applyEdits, documentIntroducesClaims } from "./whitelist";
 
 const COMPILE_REPAIR_ROUNDS = 2;
@@ -34,6 +36,29 @@ async function tailoringProviderId(): Promise<string | undefined> {
 /** Persist the audit log regardless of outcome. */
 async function logOutcome(jobId: string, log: Record<string, unknown>): Promise<void> {
   await prisma.job.update({ where: { id: jobId }, data: { tailorLog: log as Prisma.InputJsonValue } }).catch(() => {});
+}
+
+/**
+ * Build the per-job ALTERNATE-identity resume: the same tailored .tex, only the
+ * contact block swapped to the alt email/phone. Best-effort — a failure here
+ * NEVER fails the main tailoring; the direct-application flow just falls back to
+ * the static profile.altResumeKey. Returns the uploaded S3 key, or null.
+ */
+async function buildAltTailored(jobId: string, tailoredTex: string): Promise<string | null> {
+  const { altIdentity } = await getSettings();
+  if (!altIdentity.email || !altIdentity.phone) return null; // alt identity not set up
+
+  const swapped = swapContactBlock(tailoredTex, altIdentity.email, altIdentity.phone);
+  if (!swapped) return null; // no contact block found to swap
+
+  const compiled = await compileLatex(swapped.tex);
+  if (!compiled.ok) return null;
+  const pages = pdfPageCount(compiled.pdf!);
+  if (compiled.pdf!.length < 10_000 || (pages !== null && (pages < 1 || pages > 4))) return null;
+
+  const key = `resume/jobs/${jobId}/alt-tailored-${Date.now()}.pdf`;
+  await uploadResume(key, compiled.pdf!);
+  return key;
 }
 
 export async function tailorResumeForJob(jobId: string): Promise<TailorOutcome> {
@@ -130,19 +155,23 @@ export async function tailorResumeForJob(jobId: string): Promise<TailorOutcome> 
       return { status: "failed", detail: "compiled PDF failed sanity check" };
     }
 
-    // 3. Upload + persist.
+    // 3. Upload + persist. Build the alt-identity variant from the SAME tailored
+    //    source so the direct application is tailored too (best-effort).
     const key = `resume/jobs/${jobId}/tailored-${Date.now()}.pdf`;
     await uploadResume(key, compiled.pdf!);
+    const altKey = await buildAltTailored(jobId, tex).catch(() => null);
     await prisma.job.update({
       where: { id: jobId },
       data: {
         tailoredResumeKey: key,
+        altTailoredResumeKey: altKey,
         tailorLog: {
           status: "tailored",
           edits: proposal.edits,
           rejected: proposal.rejected,
           repairs,
           compileProvider: compiled.provider,
+          altTailored: !!altKey, // alt-identity variant produced from the same edits
           startedAt,
           finishedAt: new Date().toISOString(),
         } as unknown as Prisma.InputJsonValue,

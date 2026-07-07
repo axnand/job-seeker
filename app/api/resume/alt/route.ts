@@ -6,6 +6,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { resumeDownloadUrl } from "@/lib/s3";
 import { getSettings, updateSettings } from "@/lib/settings";
 import { generateAltResume } from "@/resume/alt-identity";
 
@@ -16,8 +17,12 @@ export async function GET() {
     prisma.resumeProfile.findUnique({ where: { id: "default" } }),
     getSettings(),
   ]);
+  const altUrl = profile?.altResumeKey
+    ? await resumeDownloadUrl(profile.altResumeKey).catch(() => null)
+    : null;
   return NextResponse.json({
     altResumeKey: profile?.altResumeKey ?? null,
+    altUrl,
     altIdentity: settings.altIdentity,
   });
 }
@@ -33,5 +38,8 @@ export async function POST(req: NextRequest) {
   await updateSettings({ altIdentity: { email, phone } });
   const result = await generateAltResume();
   if (!result.ok) return NextResponse.json({ error: result.detail }, { status: 422 });
-  return NextResponse.json(result);
+  const altUrl = result.altResumeKey
+    ? await resumeDownloadUrl(result.altResumeKey).catch(() => null)
+    : null;
+  return NextResponse.json({ ...result, altUrl });
 }

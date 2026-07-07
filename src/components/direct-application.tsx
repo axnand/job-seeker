@@ -25,10 +25,13 @@ export function DirectApplication({
   jobId,
   directAppliedAt,
   altResumeKey,
+  altTailored = false,
 }: {
   jobId: string;
   directAppliedAt: string | null;
   altResumeKey: string | null;
+  // True when altResumeKey is the per-job tailored alt (vs. the static one).
+  altTailored?: boolean;
 }) {
   const router = useRouter();
   // Optimistic local state so the chip flips instantly; revert on write failure.
@@ -68,6 +71,7 @@ export function DirectApplication({
       </h2>
       <p className="text-xs text-muted-foreground leading-relaxed mb-3">
         Applied directly with your alternate-identity resume — a second, independent candidacy alongside the referral outreach.
+        {altTailored && <span className="text-emerald-700 dark:text-emerald-300 font-medium"> This copy is tailored to this job.</span>}
       </p>
 
       {applied ? (
@@ -98,7 +102,7 @@ export function DirectApplication({
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-indigo-800 dark:hover:text-indigo-300 transition-colors"
           >
-            <Download className="size-3.5" /> Download alt resume
+            <Download className="size-3.5" /> Download alt resume{altTailored ? " (tailored)" : ""}
           </a>
         )}
       </div>

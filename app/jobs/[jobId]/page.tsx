@@ -315,6 +315,7 @@ export default async function JobDetailPage({
             jobId={job.id}
             tailorLog={job.tailorLog}
             tailoredResumeKey={job.tailoredResumeKey}
+            altTailoredResumeKey={job.altTailoredResumeKey}
           />
         )}
 
@@ -484,11 +485,13 @@ export default async function JobDetailPage({
               </div>
             )}
 
-            {/* Direct application — alternate-identity apply, independent of referrals */}
+            {/* Direct application — alternate-identity apply, independent of referrals.
+                Prefer the per-job tailored alt resume; fall back to the static one. */}
             <DirectApplication
               jobId={job.id}
               directAppliedAt={job.directAppliedAt ? job.directAppliedAt.toISOString() : null}
-              altResumeKey={resumeProfile?.altResumeKey ?? null}
+              altResumeKey={job.altTailoredResumeKey ?? resumeProfile?.altResumeKey ?? null}
+              altTailored={!!job.altTailoredResumeKey}
             />
 
             {/* Referral — marks a landed referral, independent of the direct

@@ -9,6 +9,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { uploadResume, resumeDownloadUrl } from "@/lib/s3";
 import { compileLatex, pdfPageCount } from "@/resume/compile";
 import { buildVocabulary } from "@/resume/whitelist";
 
@@ -16,8 +17,15 @@ export const maxDuration = 120; // compile check can take a while
 
 export async function GET() {
   const profile = await prisma.resumeProfile.findUnique({ where: { id: "default" } });
+  // Presign the compiled-master PDF so the Resume page can preview it inline.
+  const masterUrl = profile?.masterResumeKey
+    ? await resumeDownloadUrl(profile.masterResumeKey).catch(() => null)
+    : null;
   return NextResponse.json({
     hasMasterTex: !!profile?.masterTex,
+    // The full source so the editor shows the latest saved .tex (not just a flag).
+    masterTex: profile?.masterTex ?? "",
+    masterUrl,
     vocabularySize: Array.isArray(profile?.whitelist) ? (profile!.whitelist as string[]).length : 0,
     updatedAt: profile?.updatedAt ?? null,
   });
@@ -47,12 +55,19 @@ export async function POST(req: NextRequest) {
     }, { status: 422 });
   }
 
+  // Persist the PDF from the validation compile so the page can preview it
+  // (the same bytes we just sanity-checked — no extra compile). Best-effort:
+  // a failed upload must not block saving the source.
+  const masterResumeKey = `resume/master/master-${Date.now()}.pdf`;
+  const uploaded = await uploadResume(masterResumeKey, compiled.pdf!).then(() => true).catch(() => false);
+
   const vocabulary = buildVocabulary(masterTex);
   await prisma.resumeProfile.upsert({
     where: { id: "default" },
-    create: { id: "default", masterTex, whitelist: vocabulary },
-    update: { masterTex, whitelist: vocabulary },
+    create: { id: "default", masterTex, whitelist: vocabulary, masterResumeKey: uploaded ? masterResumeKey : null },
+    update: { masterTex, whitelist: vocabulary, ...(uploaded ? { masterResumeKey } : {}) },
   });
 
-  return NextResponse.json({ ok: true, vocabularySize: vocabulary.length });
+  const masterUrl = uploaded ? await resumeDownloadUrl(masterResumeKey).catch(() => null) : null;
+  return NextResponse.json({ ok: true, vocabularySize: vocabulary.length, masterUrl });
 }

@@ -46,16 +46,19 @@ type TailorLog = {
   rejected?: unknown[];
   repairs?: number;
   compileProvider?: string;
+  altTailored?: boolean; // alt-identity variant produced from the same edits
 } | null;
 
 export function TailoringSection({
   jobId,
   tailorLog,
   tailoredResumeKey,
+  altTailoredResumeKey,
 }: {
   jobId: string;
   tailorLog: unknown;
   tailoredResumeKey: string | null;
+  altTailoredResumeKey: string | null;
 }) {
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
@@ -125,6 +128,12 @@ export function TailoringSection({
             {log?.compileProvider ? ` · ${log.compileProvider}` : ""}
           </div>
 
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            {altTailoredResumeKey
+              ? "These edits were applied to both your referral resume and your alternate-identity resume (same edits, alternate contact block) — so the direct application is tailored too."
+              : "Applied to your referral resume. The alternate-identity copy for the direct application will use the static alt resume (set the alternate email + phone on the Resume page to tailor it per job)."}
+          </p>
+
           {edits.length > 0 && (
             <ul className="space-y-1.5">
               {edits.map((e, i) => (
@@ -188,15 +197,29 @@ export function TailoringSection({
         <p className="mt-2 text-xs text-red-600 dark:text-red-300">{error}</p>
       )}
 
-      {tailoredResumeKey && (
-        <a
-          href={`/api/resume/download?key=${encodeURIComponent(tailoredResumeKey)}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-indigo-800 dark:hover:text-indigo-300 transition-colors"
-        >
-          <Download className="size-3.5" /> Download tailored PDF
-        </a>
+      {(tailoredResumeKey || altTailoredResumeKey) && (
+        <div className="mt-3 flex flex-wrap items-center gap-4">
+          {tailoredResumeKey && (
+            <a
+              href={`/api/resume/download?key=${encodeURIComponent(tailoredResumeKey)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-indigo-800 dark:hover:text-indigo-300 transition-colors"
+            >
+              <Download className="size-3.5" /> Referral resume (PDF)
+            </a>
+          )}
+          {altTailoredResumeKey && (
+            <a
+              href={`/api/resume/download?key=${encodeURIComponent(altTailoredResumeKey)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-indigo-800 dark:hover:text-indigo-300 transition-colors"
+            >
+              <Download className="size-3.5" /> Alt-identity resume (PDF)
+            </a>
+          )}
+        </div>
       )}
 
       {/* Regenerate confirmation */}
