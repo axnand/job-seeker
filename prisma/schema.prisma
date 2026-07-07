@@ -146,6 +146,10 @@ model Job {
   // flow. Not a pipeline stage — a referral and a direct application for the
   // same job coexist.
   directAppliedAt DateTime?
+  // Set when a referral actually LANDS (someone agreed to refer / submitted you)
+  // — the real success of the outreach track, distinct from REPLIED ("a
+  // conversation started"). A marker, independent of appStage and directAppliedAt.
+  referredAt      DateTime?
 
   // Outreach state cache — machine-owned, derived from threads
   outreachState  OutreachState @default(NONE)
