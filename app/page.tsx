@@ -93,7 +93,6 @@ type Job = {
   }>;
 };
 
-type DraftEdit = { connectionNote: string; firstDm: string; followup: string };
 type Toast = { msg: string; tone: "info" | "warn" | "error"; undo?: () => void } | null;
 
 const THREAD_PHASE_LABEL: Record<string, string> = {
@@ -295,9 +294,6 @@ export default function BoardPage() {
   const [fScore, setFScore]   = useState("All");
   const [sort, setSort]       = useState<"Priority" | "Score" | "Salary" | "Date">("Priority");
 
-  // Editable outreach drafts for the open job, keyed by threadId
-  const [drafts, setDrafts] = useState<Record<string, DraftEdit>>({});
-
   useEffect(() => {
     fetch("/api/jobs?limit=200").then(r => r.json())
       .then(d => { setJobs(d.jobs ?? []); setLoading(false); })
@@ -330,12 +326,21 @@ export default function BoardPage() {
 
   const act = useCallback(async (jobId: string, action: string) => {
     setActing(true);
-    await fetch("/api/jobs/action", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ jobId, action }) });
-    const updated = await fetch(`/api/jobs/${jobId}`).then(r => r.json()) as Job;
-    setDetail(updated);
-    setJobs(prev => prev.map(j => j.id === jobId ? { ...j, appStage: updated.appStage, outreachState: updated.outreachState } : j));
+    // Check the HTTP status before trusting the change: a network error or a
+    // 4xx/5xx must surface, not silently no-op with a stale drawer.
+    const res = await fetch("/api/jobs/action", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ jobId, action }) }).catch(() => null);
+    if (!res || !res.ok) {
+      setActing(false);
+      showToast("Couldn't update the job — try again.", "error");
+      return;
+    }
+    const updated = await fetch(`/api/jobs/${jobId}`).then(r => r.json()).catch(() => null) as Job | null;
+    if (updated) {
+      setDetail(updated);
+      setJobs(prev => prev.map(j => j.id === jobId ? { ...j, appStage: updated.appStage, outreachState: updated.outreachState } : j));
+    }
     setActing(false);
-  }, []);
+  }, [showToast]);
 
   // Same bidirectional-substring match the discover/blacklist API uses.
   const companyMatches = useCallback((co: string, term: string) => {
@@ -347,11 +352,18 @@ export default function BoardPage() {
   const quickAct = useCallback(async (e: React.MouseEvent, jobId: string, action: string) => {
     e.stopPropagation();
     setActing(true);
-    await fetch("/api/jobs/action", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ jobId, action }) }).catch(() => {});
+    // Fail loudly: a swallowed error used to leave the card unchanged with no
+    // feedback, so the owner couldn't tell the action never happened.
+    const res = await fetch("/api/jobs/action", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ jobId, action }) }).catch(() => null);
+    if (!res || !res.ok) {
+      setActing(false);
+      showToast("Couldn't update the job — try again.", "error");
+      return;
+    }
     const updated = await fetch(`/api/jobs/${jobId}`).then(r => r.json()).catch(() => null) as Job | null;
     if (updated) setJobs(prev => prev.map(j => j.id === jobId ? { ...j, appStage: updated.appStage, outreachState: updated.outreachState } : j));
     setActing(false);
-  }, []);
+  }, [showToast]);
 
   // Select/clear every job of a company group together (merged-card checkbox).
   const toggleSelMany = useCallback((ids: string[]) => setSel(prev => {
@@ -429,7 +441,16 @@ export default function BoardPage() {
       .filter(j => companyMatches(j.company, company) && j.appStage !== "SKIPPED")
       .map(j => ({ id: j.id, stage: j.appStage as string }));
     setActing(true);
-    const res = await fetch("/api/companies/blacklist", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ company }) }).then(r => r.json()).catch(() => null);
+    // Only touch the board once the server confirms (HTTP ok). Removing the cards
+    // + toasting "Blacklisted…" on a failed request lied: the company stayed
+    // discoverable and its outreach kept running.
+    const resp = await fetch("/api/companies/blacklist", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ company }) }).catch(() => null);
+    const res = resp?.ok ? await resp.json().catch(() => null) : null;
+    if (!res) {
+      setActing(false);
+      showToast(`Couldn't blacklist ${company} — try again.`, "error");
+      return;
+    }
     setJobs(prev => prev.filter(j => !companyMatches(j.company, company)));
     setSelected(s => (s && companyMatches(s.company, company)) ? null : s);
     setActing(false);
@@ -468,7 +489,15 @@ export default function BoardPage() {
       restores: jobs.filter(j => companyMatches(j.company, c) && j.appStage !== "SKIPPED").map(j => ({ id: j.id, stage: j.appStage as string })),
     }));
     setActing(true);
-    const res = await fetch("/api/companies/blacklist", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ companies }) }).then(r => r.json()).catch(() => null);
+    // Only mutate the board once the server confirms (HTTP ok) — otherwise the
+    // cards vanish + we toast success while nothing was actually blacklisted.
+    const resp = await fetch("/api/companies/blacklist", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ companies }) }).catch(() => null);
+    const res = resp?.ok ? await resp.json().catch(() => null) : null;
+    if (!res) {
+      setActing(false);
+      showToast("Couldn't blacklist right now — try again.", "error");
+      return;
+    }
     setJobs(prev => prev.filter(j => !companies.some(c => companyMatches(j.company, c))));
     setSel(new Set());
     setSelected(s => (s && companies.some(c => companyMatches(s.company, c))) ? null : s);
@@ -512,34 +541,6 @@ export default function BoardPage() {
     });
   }, [jobs, sel, runBulkBlacklist]);
 
-  // Initialise editable drafts whenever the open job's detail loads.
-  useEffect(() => {
-    if (!detail?.outreaches) { setDrafts({}); return; }
-    const init: Record<string, DraftEdit> = {};
-    for (const o of detail.outreaches) {
-      const t = o.thread;
-      const ps = t?.providerState;
-      if (t && t.status === "PENDING" && ps?.phase === "DRAFT") {
-        init[t.id] = { connectionNote: ps.connectionNote ?? "", firstDm: ps.firstDm ?? "", followup: ps.followup ?? "" };
-      }
-    }
-    setDrafts(init);
-  }, [detail]);
-
-  const confirmOutreach = useCallback(async (jobId: string, threadId: string, action: "send" | "cancel") => {
-    setActing(true);
-    const edits = drafts[threadId] ?? {};
-    await fetch("/api/outreach/confirm", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ threadId, action, ...edits }),
-    });
-    const updated = await fetch(`/api/jobs/${jobId}`).then(r => r.json()) as Job;
-    setDetail(updated);
-    setJobs(prev => prev.map(j => j.id === jobId ? { ...j, outreachState: updated.outreachState } : j));
-    setActing(false);
-  }, [drafts]);
-
   const uploadTailored = useCallback(async (jobId: string, file: File) => {
     setUploadingResume(true);
     const fd = new FormData();
@@ -554,7 +555,14 @@ export default function BoardPage() {
   const restoreJob = useCallback(async (e: React.MouseEvent, jobId: string) => {
     e.stopPropagation();
     setActing(true);
-    await fetch("/api/jobs/action", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ jobId, action: "restore" }) }).catch(() => {});
+    // Only claim success if the restore actually landed — the old code toasted
+    // "restored" even on a failed request, leaving the job stuck in Skipped.
+    const res = await fetch("/api/jobs/action", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ jobId, action: "restore" }) }).catch(() => null);
+    if (!res || !res.ok) {
+      setActing(false);
+      showToast("Couldn't restore the job — try again.", "error");
+      return;
+    }
     const updated = await fetch(`/api/jobs/${jobId}`).then(r => r.json()).catch(() => null) as Job | null;
     if (updated) {
       setSkippedJobs(prev => prev.filter(j => j.id !== jobId));
@@ -1319,9 +1327,9 @@ export default function BoardPage() {
                       {job.outreaches!.map(o => {
                         const t = o.thread;
                         const ps = t?.providerState ?? {};
-                        const phase = ps.phase ?? "DRAFT";
-                        const isDraft = !!t && t.status === "PENDING" && phase === "DRAFT";
-                        const edit = (t && drafts[t.id]) || { connectionNote: "", firstDm: "", followup: "" };
+                        // Threads always start QUEUED/CONNECTED (auto-send); QUEUED is
+                        // the safe fallback if providerState is missing a phase.
+                        const phase = ps.phase ?? "QUEUED";
                         const label = t?.status === "ARCHIVED"
                           ? (t.archivedReason ?? "Archived")
                           : (THREAD_PHASE_LABEL[phase] ?? "");
@@ -1344,29 +1352,6 @@ export default function BoardPage() {
                                 </p>
                               </div>
                             </div>
-
-                            {isDraft && t && (
-                              <div className="border-t border-border bg-card p-3 space-y-2.5">
-                                <p className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">Review &amp; edit — nothing sends until you confirm.</p>
-                                <DraftField label="Connection note (≤300)" rows={3} maxLength={300}
-                                  value={edit.connectionNote}
-                                  onChange={v => setDrafts(d => ({ ...d, [t.id]: { ...edit, connectionNote: v } }))} />
-                                <DraftField label="First DM (after they accept)" rows={5}
-                                  value={edit.firstDm}
-                                  onChange={v => setDrafts(d => ({ ...d, [t.id]: { ...edit, firstDm: v } }))} />
-                                <DraftField label="Follow-up (if no reply)" rows={3}
-                                  value={edit.followup}
-                                  onChange={v => setDrafts(d => ({ ...d, [t.id]: { ...edit, followup: v } }))} />
-                                <div className="flex gap-2 pt-0.5">
-                                  <Button onClick={() => confirmOutreach(job.id, t.id, "send")} disabled={acting} size="sm"
-                                    className="flex-1 text-xs h-9">
-                                    <Send className="size-3.5" /> Confirm &amp; send
-                                  </Button>
-                                  <Button onClick={() => confirmOutreach(job.id, t.id, "cancel")} disabled={acting}
-                                    variant="outline" size="sm" className="text-xs h-9">Cancel</Button>
-                                </div>
-                              </div>
-                            )}
                           </div>
                         );
                       })}
@@ -1461,23 +1446,6 @@ export default function BoardPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
-  );
-}
-
-function DraftField({ label, value, rows, maxLength, onChange }: {
-  label: string; value: string; rows: number; maxLength?: number; onChange: (v: string) => void;
-}) {
-  return (
-    <div>
-      <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">{label}</label>
-      <textarea
-        value={value}
-        rows={rows}
-        maxLength={maxLength}
-        onChange={e => onChange(e.target.value)}
-        className="mt-1 w-full border border-border rounded-lg px-3 py-2 text-xs bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 focus:border-ring leading-relaxed"
-      />
     </div>
   );
 }

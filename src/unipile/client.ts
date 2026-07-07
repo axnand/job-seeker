@@ -168,8 +168,24 @@ export async function searchPeople(
   // for further out. NOTE the type is strict — a string like ["1"] returns
   // 400 Invalid parameters (verified against the live API), so keep these numeric.
   if (opts.networkDistance?.length) params.network_distance = opts.networkDistance;
-  const res = await linkedinSearch<LinkedinPersonItem>(accountId, params);
-  return (res.items ?? []).slice(0, opts.limit ?? 10);
+
+  const limit = opts.limit ?? 10;
+  // Each /linkedin/search page returns only ~10 rows, so a single fetch can never
+  // satisfy limit:40 — page through with the cursor until we've collected `limit`
+  // rows or the results run out. MAX_PAGES bounds the worst case (6 requests per
+  // search pass) so a loose/deep query can't fan out into unbounded API calls.
+  const MAX_PAGES = 6;
+  const collected: LinkedinPersonItem[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < MAX_PAGES && collected.length < limit; page++) {
+    const res = await linkedinSearch<LinkedinPersonItem>(accountId, params, cursor);
+    const items = res.items ?? [];
+    collected.push(...items);
+    cursor = res.cursor;
+    // Stop early: an empty page or a missing cursor means there's nothing more.
+    if (items.length === 0 || !cursor) break;
+  }
+  return collected.slice(0, limit);
 }
 
 /** Fetch full job detail (description, apply_url, hiring_team) for a job id. */
@@ -179,7 +195,15 @@ export async function getJobDetail(
 ): Promise<{
   id: string; title: string; description?: string; apply_url?: string;
   location?: string; company?: string; company_id?: string; published_at?: number;
-  hiring_team?: Array<{ name?: string; profile_url?: string; provider_id?: string; headline?: string }>;
+  // network_distance/is_relationship mirror the person-search payload's connection
+  // fields and MAY be present on a hiring_team member — Unipile normalizes person
+  // shapes inconsistently across endpoints, so treat them as best-effort: when set
+  // they let us tell a 1st-degree contact from a stranger with no extra API call;
+  // when absent, callers fall back to a profile fetch.
+  hiring_team?: Array<{
+    name?: string; profile_url?: string; provider_id?: string; headline?: string;
+    network_distance?: string; is_relationship?: boolean;
+  }>;
 }> {
   return request("GET", `/linkedin/jobs/${jobId}`, undefined, { account_id: accountId });
 }

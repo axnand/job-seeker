@@ -6,7 +6,6 @@ import type { AppStage } from "@prisma/client";
 import { enqueueOutreach } from "@/outreach/enqueue";
 import { sendForJobs } from "@/outreach/outreach-tick";
 import { withCronLock } from "@/lib/cron-lock";
-import { recomputeOutreachState } from "@/status/outreach-state";
 import { SendNowButton } from "@/components/send-now-button";
 import {
   ArrowLeft,
@@ -51,10 +50,9 @@ const PIPELINE_STAGES: { stage: AppStage; action: string; label: string }[] = [
 const SCORE_COLOR = (s: number) =>
   s >= 80 ? "text-emerald-600 dark:text-emerald-300" : s >= 60 ? "text-amber-600 dark:text-amber-300" : "text-slate-500 dark:text-slate-300";
 
-// Server Actions run the same logic as POST /api/jobs/action and
-// POST /api/outreach/confirm directly against the DB. (They used to self-fetch
-// those routes over HTTP, which middleware Basic-Auth 401'd in production —
-// the buttons silently no-op'd.)
+// Server Actions run the same logic as POST /api/jobs/action directly against
+// the DB. (They used to self-fetch those routes over HTTP, which middleware
+// Basic-Auth 401'd in production — the buttons silently no-op'd.)
 
 const STAGE_ACTIONS: Record<string, AppStage> = {
   approve:      "APPROVED",
@@ -97,8 +95,8 @@ async function updateStage(formData: FormData) {
     throw err;
   }
 
-  // On approve, kick off the outreach machine (drafts only — nothing sends
-  // until the owner confirms).
+  // On approve, kick off the outreach machine. Threads are queued to auto-send
+  // (phase QUEUED/CONNECTED, nextActionAt=now) — the next tick fires them.
   if (newStage === "APPROVED") {
     try {
       await enqueueOutreach(job);
@@ -108,59 +106,6 @@ async function updateStage(formData: FormData) {
   }
 
   revalidatePath(`/jobs/${jobId}`);
-  revalidatePath("/");
-}
-
-async function confirmOutreach(formData: FormData) {
-  "use server";
-  const threadId = formData.get("threadId") as string;
-  const action = formData.get("action") as string; // "send" | "cancel"
-  const jobId = formData.get("jobId") as string;
-  if (!threadId || !action) return;
-
-  const thread = await prisma.channelThread.findUnique({
-    where: { id: threadId },
-    select: { id: true, status: true, providerState: true, outreachId: true },
-  });
-  if (!thread) return;
-
-  const ps = (thread.providerState as Record<string, unknown> | null) ?? {};
-  // Only DRAFT threads are confirmable — don't reset an in-flight sequence.
-  if (ps.phase !== "DRAFT") return;
-
-  const outreach = thread.outreachId
-    ? await prisma.outreach.findUnique({ where: { id: thread.outreachId }, select: { jobId: true } })
-    : null;
-
-  if (action === "cancel") {
-    await prisma.channelThread.update({
-      where: { id: thread.id },
-      data: { status: "ARCHIVED", archivedAt: new Date(), archivedReason: "Cancelled by owner", nextActionAt: null },
-    });
-  } else {
-    // Nullish fallbacks mirror the API route: a field the owner explicitly
-    // cleared stays cleared; only a missing field falls back to the draft.
-    const connectionNote = formData.get("connectionNote") as string | null;
-    const firstDm = formData.get("firstDm") as string | null;
-    const followup = formData.get("followup") as string | null;
-    await prisma.channelThread.update({
-      where: { id: thread.id },
-      data: {
-        status: "PENDING",
-        nextActionAt: new Date(),
-        providerState: {
-          ...ps,
-          phase: "QUEUED",
-          connectionNote: (connectionNote ?? (ps.connectionNote as string) ?? "").slice(0, 300),
-          firstDm: firstDm ?? (ps.firstDm as string) ?? "",
-          followup: followup ?? (ps.followup as string) ?? "",
-        },
-      },
-    });
-  }
-  if (outreach?.jobId) await recomputeOutreachState(outreach.jobId).catch(() => {});
-
-  if (jobId) revalidatePath(`/jobs/${jobId}`);
   revalidatePath("/");
 }
 
@@ -182,7 +127,6 @@ async function sendNow(formData: FormData) {
 }
 
 const THREAD_PHASE_LABEL: Record<string, string> = {
-  DRAFT: "Draft — awaiting your review",
   QUEUED: "Queued — invite sends next tick",
   INVITE_PENDING: "Invite sent — awaiting acceptance",
   CONNECTED: "Connected — DM sends next tick",
@@ -348,7 +292,7 @@ export default async function JobDetailPage({
           />
         )}
 
-        {/* Outreach — review drafts + track threads */}
+        {/* Outreach — track threads (auto-send; manual "send now" per kind) */}
         {job.outreaches.length > 0 && (
           <div className="bg-card rounded-2xl border border-border shadow-sm p-6">
             <div className="flex items-center justify-between gap-3 mb-3">
@@ -374,8 +318,9 @@ export default async function JobDetailPage({
               {job.outreaches.map(o => {
                 const thread = threadByOutreach.get(o.id);
                 const ps = (thread?.providerState as { phase?: string; connectionNote?: string; firstDm?: string; followup?: string } | null) ?? {};
-                const phase = ps.phase ?? "DRAFT";
-                const isDraft = phase === "DRAFT" && thread?.status === "PENDING";
+                // Threads always start QUEUED/CONNECTED (auto-send); QUEUED is the
+                // safe fallback if providerState is somehow missing a phase.
+                const phase = ps.phase ?? "QUEUED";
                 const phaseLabel = thread?.status === "ARCHIVED"
                   ? (thread.archivedReason ?? "Archived")
                   : (THREAD_PHASE_LABEL[phase] ?? phase);
@@ -401,42 +346,9 @@ export default async function JobDetailPage({
                       </a>
                     </div>
 
-                    <div className={`px-3 pb-3 ${isDraft ? "" : "pt-0"}`}>
+                    <div className="px-3 pb-3 pt-0">
                       <span className="text-[11px] font-medium text-muted-foreground">{phaseLabel}</span>
                     </div>
-
-                    {isDraft && thread && (
-                      <form action={confirmOutreach} className="border-t border-border bg-card p-4 space-y-3">
-                        <input type="hidden" name="threadId" value={thread.id} />
-                        <input type="hidden" name="jobId" value={job.id} />
-                        <p className="text-[11px] text-amber-600 dark:text-amber-300 font-medium">Review &amp; edit before anything sends. Nothing goes out until you confirm.</p>
-                        <div>
-                          <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Connection note (≤300)</label>
-                          <textarea name="connectionNote" rows={3} defaultValue={ps.connectionNote ?? ""} maxLength={300}
-                            className="mt-1 w-full border border-border rounded-lg px-3 py-2 text-sm bg-muted/50 focus:outline-none focus:ring-2 focus:ring-indigo-300 dark:focus:ring-indigo-500/40 focus:border-transparent" />
-                        </div>
-                        <div>
-                          <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">First DM (after they accept)</label>
-                          <textarea name="firstDm" rows={6} defaultValue={ps.firstDm ?? ""}
-                            className="mt-1 w-full border border-border rounded-lg px-3 py-2 text-sm bg-muted/50 focus:outline-none focus:ring-2 focus:ring-indigo-300 dark:focus:ring-indigo-500/40 focus:border-transparent" />
-                        </div>
-                        <div>
-                          <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Follow-up (if no reply)</label>
-                          <textarea name="followup" rows={3} defaultValue={ps.followup ?? ""}
-                            className="mt-1 w-full border border-border rounded-lg px-3 py-2 text-sm bg-muted/50 focus:outline-none focus:ring-2 focus:ring-indigo-300 dark:focus:ring-indigo-500/40 focus:border-transparent" />
-                        </div>
-                        <div className="flex gap-2">
-                          <button type="submit" name="action" value="send"
-                            className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold transition-colors shadow-sm">
-                            Confirm &amp; Send
-                          </button>
-                          <button type="submit" name="action" value="cancel"
-                            className="inline-flex items-center justify-center px-4 py-2 rounded-lg border border-border bg-card hover:bg-accent/50 text-muted-foreground text-sm font-medium transition-colors">
-                            Cancel
-                          </button>
-                        </div>
-                      </form>
-                    )}
                   </div>
                 );
               })}

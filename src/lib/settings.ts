@@ -7,6 +7,7 @@
  *   s.search.recencyDays   // from DB (or config default)
  */
 
+import { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
 import { config } from "@/config";
 
@@ -164,7 +165,14 @@ function merge(base: AppSettingsData, db: Partial<AppSettingsData>): AppSettings
 
 let _cache: AppSettingsData | null = null;
 let _cachedAt = 0;
-const CACHE_TTL = 60_000;
+// Lowered 60s → 10s so safety-critical reads (e.g. the tick checking
+// outreach.globalPause, which another instance may have just set) go stale in
+// ≤10s instead of ≤60s. Trade-off: ~6× more reads of one tiny single-row
+// table — negligible. A getSettingsFresh() cache-bypass for the few safety
+// call sites would be tighter, but that means editing other files.
+const CACHE_TTL = 10_000;
+// Retries for a Serializable write-conflict (two updaters racing the same row).
+const TX_MAX_RETRIES = 3;
 
 export async function getSettings(): Promise<AppSettingsData> {
   if (_cache && Date.now() - _cachedAt < CACHE_TTL) return _cache;
@@ -179,13 +187,34 @@ export async function getSettings(): Promise<AppSettingsData> {
 }
 
 export async function updateSettings(patch: Partial<AppSettingsData>): Promise<AppSettingsData> {
-  const merged = merge(await getSettings(), patch);
-  await prisma.appSettings.upsert({
-    where:  { id: "default" },
-    create: { id: "default", data: merged as object },
-    update: { data: merged as object },
-  });
-  _cache = merged;
-  _cachedAt = Date.now();
-  return merged;
+  // Read-merge-write in ONE Serializable transaction. Reading the row FRESH
+  // from the DB (never the 60s cache) means we merge the patch onto whatever is
+  // actually persisted, so we never clobber sibling sections another process
+  // wrote (e.g. the cron toggling outreach.globalPause vs a dashboard editing
+  // search.*). Serializable makes a concurrent racer fail with P2034 instead of
+  // silently winning a lost-update; we just retry the whole read-merge-write.
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const merged = await prisma.$transaction(
+        async (tx) => {
+          const row = await tx.appSettings.findUnique({ where: { id: "default" } });
+          const current = row?.data ? merge(defaults(), row.data as Partial<AppSettingsData>) : defaults();
+          const next = merge(current, patch);
+          await tx.appSettings.upsert({
+            where:  { id: "default" },
+            create: { id: "default", data: next as object },
+            update: { data: next as object },
+          });
+          return next;
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+      _cache = merged;
+      _cachedAt = Date.now();
+      return merged;
+    } catch (e) {
+      if (attempt < TX_MAX_RETRIES && e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2034") continue;
+      throw e;
+    }
+  }
 }

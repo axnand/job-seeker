@@ -3,10 +3,12 @@
  *
  *  • MANUAL_NOTIFY  → email the owner the apply link + pitch; no LinkedIn outreach.
  *  • REFERRAL_FIRST → find targets, draft messages, create Contact + Outreach +
- *    ChannelThread rows in the DRAFT phase. NOTHING SENDS YET — the threads sit
- *    with nextActionAt=null so the tick never claims them. The owner reviews and
- *    edits the messages in the drawer, then "Confirm & Send" queues them (sets
- *    phase=QUEUED, nextActionAt=now). This is the "never blind-send" promise.
+ *    ChannelThread rows that AUTO-SEND: each thread starts in the QUEUED phase
+ *    (or CONNECTED for an existing 1st-degree connection) with nextActionAt=now,
+ *    so the next tick claims and sends it. There is NO manual review gate — sends
+ *    are still gated by the send window, the daily/weekly rate budget, and the
+ *    globalPause kill switch, and the owner can fire them early with the
+ *    "Send invites now" / "Send DMs now" buttons.
  *
  * Idempotent: if the job already has outreach rows, it's a no-op.
  */

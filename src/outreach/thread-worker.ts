@@ -11,9 +11,10 @@
  *   • INVITE_PENDING timeout → re-fetch profile for a silent acceptance before
  *     cancelling the invite and archiving
  *
- * Phases (providerState.phase): DRAFT → QUEUED → INVITE_PENDING → CONNECTED →
- * MESSAGED → (REPLIED | archived). DRAFT threads have nextActionAt=null and are
- * never claimed until the owner confirms (sets QUEUED).
+ * Phases (providerState.phase): QUEUED → INVITE_PENDING → CONNECTED → MESSAGED
+ * → (REPLIED | archived); an existing 1st-degree connection starts at CONNECTED.
+ * Threads are created with nextActionAt=now and auto-send on the next tick (no
+ * manual review gate) — the owner can also fire them early via the Send buttons.
  */
 
 import { prisma } from "@/lib/prisma";
@@ -401,22 +402,50 @@ async function doInvitePendingTimeout(
   s: AppSettingsData,
   tag: string,
 ): Promise<void> {
+  const ps = (thread.providerState as ProviderState | null) ?? {};
+
+  // Re-fetch the profile to catch a silent acceptance (an accepted invite whose
+  // new_relation webhook we missed) before giving up on this invite.
+  let profile: Awaited<ReturnType<typeof fetchProfile>> | null = null;
   try {
-    const profile = await fetchProfile(accountId, providerUserId);
-    if (isAlreadyConnected(profile)) {
-      const ps = (thread.providerState as ProviderState | null) ?? {};
-      await guardedThreadUpdate(thread.id, {
-        status: "ACTIVE",
-        providerState: { ...ps, phase: "CONNECTED" },
-        nextActionAt: new Date(),
-      });
-      console.log(`${tag} silent acceptance detected → CONNECTED`);
+    profile = await fetchProfile(accountId, providerUserId);
+  } catch (err) {
+    // TRANSIENT fetch failure (network / rate-limit) is NOT a "not connected"
+    // answer. Falling through to cancel+archive here would discard an invite the
+    // contact may ALREADY have accepted — the acceptance would be lost forever.
+    // So bump the failure counter and reschedule a short retry; the next tick
+    // re-checks. Only give up once we hit the same cap the circuit breaker uses,
+    // so a durably-unreachable profile can't loop forever.
+    const updated = await prisma.channelThread
+      .update({
+        where: { id: thread.id },
+        data: { consecutiveFailures: { increment: 1 } },
+        select: { consecutiveFailures: true },
+      })
+      .catch(() => null);
+    if (!updated || updated.consecutiveFailures < MAX_CONSECUTIVE_FAILURES) {
+      // minutesFromNow(60): same modest backoff the distress path uses.
+      await guardedThreadUpdate(thread.id, { nextActionAt: minutesFromNow(60) });
+      console.warn(`${tag} profile re-fetch failed at timeout check (retry ${updated?.consecutiveFailures ?? "?"}/${MAX_CONSECUTIVE_FAILURES}):`, (err as Error).message);
       return;
     }
-  } catch (err) {
-    console.warn(`${tag} profile re-fetch failed during timeout check:`, (err as Error).message);
+    // Cap reached — treat the profile as durably unreachable and fall through to
+    // cancel+archive (profile stays null → isAlreadyConnected() is false).
+    console.warn(`${tag} profile re-fetch failed ${MAX_CONSECUTIVE_FAILURES}× — giving up:`, (err as Error).message);
   }
-  // Not connected — cancel the pending invite, then archive.
+
+  // Fetch SUCCEEDED (or exhausted retries): trust the real connection state.
+  if (isAlreadyConnected(profile)) {
+    await guardedThreadUpdate(thread.id, {
+      status: "ACTIVE",
+      providerState: { ...ps, phase: "CONNECTED" },
+      nextActionAt: new Date(),
+      consecutiveFailures: 0,
+    });
+    console.log(`${tag} silent acceptance detected → CONNECTED`);
+    return;
+  }
+  // Confirmed not connected — cancel the pending invite, then archive.
   try {
     const sent = await listSentInvitations(accountId);
     const match = sent?.find((i) => i.invitedUserId === providerUserId || i.invitedUserPublicId === providerUserId);

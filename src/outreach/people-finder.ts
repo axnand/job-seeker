@@ -147,11 +147,24 @@ async function targetsFromHiringTeam(job: Job, accountId: string): Promise<Outre
     const out: OutreachTarget[] = [];
     for (const member of team) {
       let providerId = member.provider_id;
-      let isConnection = false;
       const pubId = extractPublicId(member.profile_url);
-      if (!providerId && pubId) {
+
+      // Connection status decides invite-vs-DM downstream, so it must be resolved
+      // even when the hiring_team item already carries a provider_id (the old code
+      // only set it inside the profile-fetch branch, so every pre-resolved member
+      // was mis-tagged isConnection=false and got an invite instead of a direct DM).
+      //
+      // Trade-off: prefer the member's own network_distance/is_relationship when the
+      // payload includes it (zero extra API calls); otherwise fall back to a profile
+      // fetch keyed on the public id. That fetch is worth its cost — hiring teams are
+      // tiny (1–3 people) so it's a handful of calls at most, and it also fills a
+      // missing provider_id in the same request. On any failure we default to
+      // isConnection=false (send an invite), matching the module's safe-by-default
+      // stance — the worst case is a slower first touch, never a broken send.
+      let isConnection = isAlreadyConnected(member);
+      if (!isConnection && (!providerId || !member.network_distance) && pubId) {
         const profile = await fetchProfile(accountId, pubId).catch(() => null);
-        providerId = profile?.provider_id;
+        providerId = providerId ?? profile?.provider_id;
         isConnection = isAlreadyConnected(profile);
       }
       if (!providerId) continue;

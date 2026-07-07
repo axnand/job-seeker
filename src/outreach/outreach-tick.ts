@@ -4,7 +4,6 @@
  *   1. Poll fallbacks (recover missed webhooks): invite acceptances + replies.
  *   2. If within the send window and not globally paused, claim due threads via
  *      FOR UPDATE SKIP LOCKED and advance each one (respecting the send budget).
- *   3. Light staleness sweep — archive DRAFT threads the owner never confirmed.
  *
  * Claiming sets nextActionAt=NULL so an overlapping tick can't double-process.
  * A thread that throws is rescheduled to now+5min for an automatic retry.
@@ -50,7 +49,6 @@ export interface TickResult {
   claimed: number;
   pollAccepted: number;
   pollReplied: number;
-  staleArchived: number;
   replenished: number;
 }
 
@@ -61,7 +59,7 @@ export async function runOutreachTick(): Promise<TickResult> {
   resetActiveRoleCache(); // fresh open-job memo for this pass's closed-role re-pitches
   const settings = await getSettings();
   const base: TickResult = {
-    processed: 0, failed: 0, claimed: 0, pollAccepted: 0, pollReplied: 0, staleArchived: 0, replenished: 0,
+    processed: 0, failed: 0, claimed: 0, pollAccepted: 0, pollReplied: 0, replenished: 0,
   };
 
   // Recover threads stranded mid-send by a crash: pendingSendKey was written but
@@ -84,7 +82,6 @@ export async function runOutreachTick(): Promise<TickResult> {
     console.error("[tick] pollReplies failed:", e);
     return 0;
   });
-  base.staleArchived = await sweepStaleDrafts(config.staleness.archiveAfterDays).catch(() => 0);
 
   if (settings.outreach.globalPause) {
     return { ...base, paused: true };
@@ -549,30 +546,6 @@ export async function handleInboundReply(
       }).catch((e) => console.error("[tick] reply alert email failed:", e));
     }
   }
-}
-
-// ─── Staleness sweep ─────────────────────────────────────────────────────────
-
-/** Archive DRAFT threads the owner never confirmed after `days`. */
-async function sweepStaleDrafts(days: number): Promise<number> {
-  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
-  const stale = await prisma.channelThread.findMany({
-    where: {
-      status: "PENDING",
-      providerState: { path: ["phase"], equals: "DRAFT" },
-      createdAt: { lt: cutoff },
-    },
-    select: { id: true, outreachId: true },
-  });
-  for (const t of stale) {
-    await prisma.channelThread.updateMany({
-      where: { id: t.id, status: { not: "ARCHIVED" } },
-      data: { status: "ARCHIVED", archivedAt: new Date(), archivedReason: "Draft never confirmed", nextActionAt: null },
-    });
-    const jobId = await jobForOutreach(t.outreachId);
-    if (jobId) await recomputeOutreachState(jobId).catch(() => {});
-  }
-  return stale.length;
 }
 
 async function jobForOutreach(outreachId: string | null): Promise<string | null> {
