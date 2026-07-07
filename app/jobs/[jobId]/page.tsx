@@ -84,6 +84,8 @@ async function updateStage(formData: FormData) {
         appStage: newStage,
         // Restore wipes the skip-reason; explicit note overrides both directions.
         appStageNote: note ?? (isRestore ? null : undefined),
+        // A skip via the UI is owner-driven → MANUAL; leaving SKIPPED clears it.
+        skipSource: newStage === "SKIPPED" ? "MANUAL" : null,
         ...(newStage === "APPROVED" ? { approvedAt: new Date() } : {}),
       },
     });

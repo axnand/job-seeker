@@ -52,6 +52,9 @@ export async function POST(req: NextRequest) {
         appStage: newStage,
         // Restore wipes the skip-reason; explicit note overrides both directions.
         appStageNote: body.note ?? (isRestore ? null : undefined),
+        // A skip via the UI is always owner-driven → MANUAL. Any move OFF skipped
+        // clears provenance so the field only ever describes a currently-skipped job.
+        skipSource: newStage === "SKIPPED" ? "MANUAL" : null,
         ...(newStage === "APPROVED" ? { approvedAt: new Date() } : {}),
       },
     });

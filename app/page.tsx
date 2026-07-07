@@ -316,7 +316,10 @@ export default function BoardPage() {
     if (showSkipped) { setShowSkipped(false); return; }
     setShowSkipped(true);
     setLoadingSkipped(true);
-    const d = await fetch("/api/jobs?appStage=SKIPPED&limit=200").then(r => r.json()).catch(() => null);
+    // Only the owner's OWN skips (the skip button) — not the machine's AI /
+    // stale / blacklist auto-rejects, which also live in SKIPPED but would
+    // otherwise bury the handful of jobs the owner actually skipped.
+    const d = await fetch("/api/jobs?appStage=SKIPPED&skipSource=MANUAL&limit=200").then(r => r.json()).catch(() => null);
     setSkippedJobs(d?.jobs ?? []);
     setLoadingSkipped(false);
   }, [showSkipped]);
@@ -881,7 +884,7 @@ export default function BoardPage() {
           <div className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
             <div className="flex items-center gap-2.5 px-5 py-3.5 border-b border-border border-l-[3px] border-l-zinc-300 dark:border-l-zinc-600">
               <div className="w-2 h-2 rounded-full bg-zinc-300 dark:bg-zinc-600" />
-              <span className="text-sm font-semibold text-muted-foreground">Skipped</span>
+              <span className="text-sm font-semibold text-muted-foreground">Skipped by you</span>
               <span className="text-xs font-semibold text-muted-foreground bg-muted rounded-full px-2 py-0.5">{loadingSkipped ? "…" : skippedJobs.length}</span>
             </div>
             <div className="p-4">
@@ -892,7 +895,7 @@ export default function BoardPage() {
                 </div>
               )}
               {!loadingSkipped && skippedJobs.length === 0 && (
-                <p className="text-sm text-muted-foreground py-2">No skipped jobs.</p>
+                <p className="text-sm text-muted-foreground py-2">You haven&apos;t skipped any jobs yet. Jobs auto-rejected by AI, staleness, or a blacklist aren&apos;t shown here.</p>
               )}
               {!loadingSkipped && skippedJobs.length > 0 && (
                 <div className="grid grid-cols-4 gap-3 max-h-64 overflow-y-auto">

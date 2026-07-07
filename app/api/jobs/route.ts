@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { computePriority, priorityWhy } from "@/scoring/priority";
-import type { AppStage } from "@prisma/client";
+import type { AppStage, SkipSource } from "@prisma/client";
 
 type ProviderStateJson = { phase?: string } | null;
 
@@ -24,6 +24,7 @@ function computeOutreachCounts(
 export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
   const appStage = sp.get("appStage") as AppStage | null;
+  const skipSource = sp.get("skipSource") as SkipSource | null;
   const source = sp.get("source");
   const limit = Math.min(Number(sp.get("limit") ?? 50), 200);
   const cursor = sp.get("cursor");
@@ -31,6 +32,9 @@ export async function GET(req: NextRequest) {
   const jobs = await prisma.job.findMany({
     where: {
       ...(appStage ? { appStage } : { appStage: { not: "SKIPPED" } }),
+      // Narrow SKIPPED by provenance (e.g. skipSource=MANUAL → only the owner's
+      // own skips, hiding AI/stale/blacklist auto-rejects).
+      ...(skipSource ? { skipSource } : {}),
       ...(source ? { source: source as never } : {}),
     },
     orderBy: { createdAt: "desc" },

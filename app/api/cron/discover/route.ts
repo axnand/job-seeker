@@ -182,6 +182,7 @@ async function runDiscover() {
           postedAt: raw.postedAt,
           aiReason: `Triage (cheap-model pre-filter): ${reason}`,
           appStage: "SKIPPED",
+          skipSource: "AI_TRIAGE",
         },
       }).catch(e => console.error(`[discover] persisting triage reject failed:`, e));
     }
@@ -234,6 +235,7 @@ async function runDiscover() {
     const friendPool: Job[] = [];
     for (const { raw, result } of scored) {
       const appStage: AppStage = result.skipReason ? "SKIPPED" : "NEW";
+      const skipSource = result.skipReason ? "AI_SCORE" : null;
       const normalized = await normalizeSalary(result.salary, settings.search.baseCurrency).catch(() => null);
 
       const job = await prisma.job.create({
@@ -259,6 +261,7 @@ async function runDiscover() {
           needsTailoring: result.needsTailoring,
           tailoringSuggestions: result.tailoringSuggestions,
           appStage,
+          skipSource,
 
           salaryMin: result.salary.min ?? null,
           salaryMax: result.salary.max ?? null,

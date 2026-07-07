@@ -231,8 +231,9 @@ export async function processThread(
   const blacklist = s.search.blacklistedCompanies.map(c => c.toLowerCase());
   const coLower = job.company.toLowerCase();
   if (blacklist.some(b => coLower.includes(b) || b.includes(coLower))) {
-    await archiveThread(threadId, `Company blacklisted: ${job.company}`);
-    await prisma.job.updateMany({ where: { id: job.id, appStage: { not: "SKIPPED" } }, data: { appStage: "SKIPPED" } });
+    const reason = `Company blacklisted: ${job.company}`;
+    await archiveThread(threadId, reason);
+    await prisma.job.updateMany({ where: { id: job.id, appStage: { not: "SKIPPED" } }, data: { appStage: "SKIPPED", appStageNote: reason, skipSource: "BLACKLIST" } });
     return;
   }
 

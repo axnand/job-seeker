@@ -17,6 +17,7 @@ import {
   searchPeople,
   fetchProfile,
   resolveSearchParam,
+  isAlreadyConnected,
   type LinkedinPersonItem,
 } from "@/unipile/client";
 import { prisma } from "@/lib/prisma";
@@ -32,6 +33,10 @@ export interface OutreachTarget {
   company?: string;
   linkedinUrl: string;
   role: "REFERRAL" | "RECRUITER";
+  // True when this is an existing 1st-degree connection — a warm target we can DM
+  // directly (no invite step, no invite rate-limit spend). Prioritized in sourcing
+  // and started at the CONNECTED phase downstream.
+  isConnection: boolean;
 }
 
 const RECRUITER_HINT = /\b(recruit|talent|hr\b|people ops|sourcer|staffing|hiring)\b/i;
@@ -107,6 +112,7 @@ function personToTarget(p: LinkedinPersonItem): OutreachTarget | null {
     company: p.current_company,
     linkedinUrl,
     role: classifyRole(p.headline),
+    isConnection: isAlreadyConnected(p),
   };
 }
 
@@ -124,6 +130,7 @@ async function targetFromPostAuthor(job: Job, accountId: string): Promise<Outrea
       company: job.company,
       linkedinUrl: profile.profile_url ?? job.sourcePostAuthorUrl ?? "https://www.linkedin.com",
       role: "REFERRAL",
+      isConnection: isAlreadyConnected(profile),
     };
   } catch (err) {
     console.warn(`[people-finder] post-author profile fetch failed for job ${job.id}:`, err);
@@ -140,10 +147,12 @@ async function targetsFromHiringTeam(job: Job, accountId: string): Promise<Outre
     const out: OutreachTarget[] = [];
     for (const member of team) {
       let providerId = member.provider_id;
+      let isConnection = false;
       const pubId = extractPublicId(member.profile_url);
       if (!providerId && pubId) {
         const profile = await fetchProfile(accountId, pubId).catch(() => null);
         providerId = profile?.provider_id;
+        isConnection = isAlreadyConnected(profile);
       }
       if (!providerId) continue;
       out.push({
@@ -153,6 +162,7 @@ async function targetsFromHiringTeam(job: Job, accountId: string): Promise<Outre
         company: job.company,
         linkedinUrl: member.profile_url ?? `https://www.linkedin.com/in/${pubId ?? ""}`,
         role: classifyRole(member.headline),
+        isConnection,
       });
     }
     return out;
@@ -230,18 +240,23 @@ async function targetsFromSearch(job: Job, accountId: string): Promise<OutreachT
     }
 
     const peerKeywords = roleKeywords(job.role);
-    const [recruiters, peers] = await Promise.all([
+    // Third pass: people at the company we're ALREADY connected to (1st-degree).
+    // These rank low in the generic keyword passes but are the easiest to reach —
+    // a direct DM, no invite. network_distance [1] restricts to 1st-degree.
+    const [recruiters, peers, connections] = await Promise.all([
       searchPeople(accountId, { keywords: RECRUITER_KEYWORDS, companyId, limit: 40 }).catch(() => []),
       searchPeople(accountId, { keywords: peerKeywords, companyId, limit: 40 }).catch(() => []),
+      searchPeople(accountId, { keywords: peerKeywords, companyId, networkDistance: [1], limit: 40 }).catch(() => []),
     ]);
 
-    const targets = [...recruiters, ...peers]
+    const targets = [...connections, ...recruiters, ...peers]
       .map(personToTarget)
       .filter((t): t is OutreachTarget => t !== null);
 
     // Hard relevance gate: keep only people whose headline/company mentions the brand.
     const relevant = targets.filter((t) => matchesCompany(t, token));
-    console.log(`[people-finder] "${job.company}": ${recruiters.length} recruiters + ${peers.length} peers → ${targets.length} valid → ${relevant.length} matched token "${token}"`);
+    const connCount = relevant.filter((t) => t.isConnection).length;
+    console.log(`[people-finder] "${job.company}": ${recruiters.length} recruiters + ${peers.length} peers + ${connections.length} connections → ${targets.length} valid → ${relevant.length} matched token "${token}" (${connCount} connections)`);
     if (relevant.length === 0) {
       console.log(`[people-finder] no people matched company "${job.company}" (token "${token}", role "${peerKeywords}") — skipping`);
     }
@@ -301,8 +316,11 @@ export async function findTargets(job: Job, opts: FindTargetsOpts = {}): Promise
   ]);
 
   const pool = [...team, ...searched];
-  // Stable sort: recruiters first (they can move the req fastest), then referrals.
-  pool.sort((a, b) => (a.role === "RECRUITER" ? 0 : 1) - (b.role === "RECRUITER" ? 0 : 1));
+  // Priority score (higher first): a 1st-degree connection is the warmest, cheapest
+  // target (direct DM, no invite), so it outranks even a cold recruiter; role breaks
+  // ties. Yields: connected-recruiter > connected-peer > cold-recruiter > cold-peer.
+  const score = (t: OutreachTarget) => (t.isConnection ? 2 : 0) + (t.role === "RECRUITER" ? 1 : 0);
+  pool.sort((a, b) => score(b) - score(a));
 
   return dedupeAndFilter(pool, cooldownDays, max, exclude);
 }

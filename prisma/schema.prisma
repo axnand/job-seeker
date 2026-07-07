@@ -137,6 +137,11 @@ model Job {
   // Application stage — human-owned
   appStage       AppStage   @default(NEW)
   appStageNote   String?
+  // Why this job is SKIPPED — records provenance so the owner's own skips can be
+  // told apart from the machine's auto-rejects (AI triage/score, staleness sweep,
+  // blacklist). Set whenever appStage becomes SKIPPED; cleared (null) whenever the
+  // job leaves SKIPPED (restore/approve/etc.). Null for any non-skipped job.
+  skipSource     SkipSource?
 
   // Posting closed — human-owned, distinct from SKIPPED/blacklist. A closed role
   // stays on the board (inside its company card, toggled off) and keeps its
@@ -323,7 +328,17 @@ enum AppStage {
   APPLIED      // owner submitted the application
   INTERVIEWING // in the interview loop
   OFFER        // offer received
-  SKIPPED      // failed scoring, blacklisted, or stale
+  SKIPPED      // owner-skipped, failed scoring, blacklisted, or stale — see skipSource
+}
+
+// Provenance for a SKIPPED job. MANUAL is the only owner-driven origin (the skip
+// button); the rest are machine auto-skips. The skip board shows MANUAL only.
+enum SkipSource {
+  MANUAL       // owner clicked Skip / Skip-stop
+  AI_TRIAGE    // cheap-model pre-filter reject at discovery
+  AI_SCORE     // full AI-score reject at discovery
+  STALE        // staleness sweep auto-closed it
+  BLACKLIST    // company blacklist
 }
 
 enum OutreachState {

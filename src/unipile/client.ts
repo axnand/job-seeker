@@ -158,11 +158,16 @@ export interface LinkedinPersonItem {
  */
 export async function searchPeople(
   accountId: string,
-  opts: { keywords?: string; companyId?: string; limit?: number }
+  opts: { keywords?: string; companyId?: string; limit?: number; networkDistance?: number[] }
 ): Promise<LinkedinPersonItem[]> {
   const params: SearchParams = { api: "classic", category: "people" };
   if (opts.keywords) params.keywords = opts.keywords;
   if (opts.companyId) params.company = [opts.companyId];
+  // network_distance restricts by connection degree; values are NUMBERS: [1] =
+  // 1st-degree connections (warm targets we can DM directly, no invite), [2]/[3]
+  // for further out. NOTE the type is strict — a string like ["1"] returns
+  // 400 Invalid parameters (verified against the live API), so keep these numeric.
+  if (opts.networkDistance?.length) params.network_distance = opts.networkDistance;
   const res = await linkedinSearch<LinkedinPersonItem>(accountId, params);
   return (res.items ?? []).slice(0, opts.limit ?? 10);
 }

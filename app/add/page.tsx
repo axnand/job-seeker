@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
-import { Plus, Sparkles, Wand2, Gauge, Users, TriangleAlert, ExternalLink } from "lucide-react";
+import { Plus, Wand2, Gauge, Users, TriangleAlert, ExternalLink } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
+import { AddJobSubmit } from "@/components/add-job-submit";
 import { prisma } from "@/lib/prisma";
 import { scoreJob } from "@/scoring/ai-scorer";
 import { normalizeSalary } from "@/salary/normalize";
@@ -193,12 +194,7 @@ export default async function AddJobPage({
 
                 <div className="border-t border-border bg-muted/50 px-5 py-3 flex items-center justify-between">
                   <p className="text-xs text-muted-foreground">Greenhouse · Lever · Ashby · Jina reader fallback</p>
-                  <button
-                    type="submit"
-                    className="inline-flex items-center gap-1.5 bg-primary hover:bg-primary/90 text-primary-foreground text-sm font-medium px-4 py-2 rounded-lg shadow-sm transition-colors"
-                  >
-                    <Sparkles className="size-4" /> Score &amp; add
-                  </button>
+                  <AddJobSubmit />
                 </div>
               </div>
             </form>

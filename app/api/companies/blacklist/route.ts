@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
   if (matchIds.length > 0) {
     await prisma.job.updateMany({
       where: { id: { in: matchIds } },
-      data: { appStage: "SKIPPED", appStageNote: reason },
+      data: { appStage: "SKIPPED", appStageNote: reason, skipSource: "BLACKLIST" },
     });
 
     // Stop any outreach already in flight for those jobs now, rather than

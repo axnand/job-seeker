@@ -129,7 +129,11 @@ export async function draftAndQueueTargets(
             // (still gated by send window + rate limits + globalPause).
             nextActionAt: new Date(),
             providerState: {
-              phase: "QUEUED",
+              // A 1st-degree connection needs no invite — start at CONNECTED so the
+              // tick sends the first DM straight away (frees invite-rate budget for
+              // cold targets). doSendFirstDm falls back to INVITE_PENDING if the
+              // connection assumption turns out wrong ("not connected" on send).
+              phase: target.isConnection ? "CONNECTED" : "QUEUED",
               // Connection note is OPTIONAL and OFF by default: an empty
               // connectionNote means the invite is sent with NO note. The drafted
               // text is kept as connectionNoteDraft so the manual bulk-send can

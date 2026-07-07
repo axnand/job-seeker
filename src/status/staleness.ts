@@ -26,6 +26,7 @@ export async function sweepStaleJobs(): Promise<{ closedNew: number; closedAppro
     data: {
       appStage: "SKIPPED",
       appStageNote: `Auto-closed: not reviewed within ${settings.staleness.archiveAfterDays} days`,
+      skipSource: "STALE",
     },
   });
 
@@ -39,6 +40,7 @@ export async function sweepStaleJobs(): Promise<{ closedNew: number; closedAppro
     data: {
       appStage: "SKIPPED",
       appStageNote: `Auto-closed: no active outreach within ${settings.staleness.archiveAfterDays} days`,
+      skipSource: "STALE",
     },
   });
 
