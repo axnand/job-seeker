@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
   // Take the same "tick" lock the cron holds so a manual send and a cron tick
   // can't drive the same threads concurrently (double-claim / double-send).
   const locked = await withCronLock("tick", async () => {
-    const result = await sendForJobs(jobIds, { withNote: body.withNote === true, ignoreInviteLimit: true });
+    const result = await sendForJobs(jobIds, { withNote: body.withNote === true, ignoreInviteLimit: true, ignoreDmLimit: true });
 
     // Fast-track: once the owner has sent, drop anything still queued for these
     // jobs so the tick won't send more behind their back ("the task is done now").

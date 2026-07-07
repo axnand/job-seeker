@@ -140,7 +140,7 @@ export async function runOutreachTick(): Promise<TickResult> {
  */
 export async function sendForJobs(
   jobIds: string[],
-  opts: { withNote?: boolean; ignoreInviteLimit?: boolean } = {},
+  opts: { withNote?: boolean; ignoreInviteLimit?: boolean; ignoreDmLimit?: boolean } = {},
 ): Promise<{
   sent: number; failed: number; paused?: boolean; capped?: boolean; noThreads?: boolean;
 }> {
@@ -156,7 +156,14 @@ export async function sendForJobs(
   const effectiveInvitesLeft = opts.ignoreInviteLimit
     ? Number.MAX_SAFE_INTEGER
     : budget.invitesLeft;
-  const budgetMut: SendBudgetMut = { invitesLeft: effectiveInvitesLeft, dmsLeft: budget.dmsLeft };
+  // Manual sends bypass the DM cap too: the daily cap is a conservative pacing
+  // limit for the automatic tick, but when the owner explicitly clicks "Send
+  // DMs now" they mean it — otherwise a spent DM budget silently fires only
+  // invites and never the direct-DM (connection) threads they actually wanted.
+  const effectiveDmsLeft = opts.ignoreDmLimit
+    ? Number.MAX_SAFE_INTEGER
+    : budget.dmsLeft;
+  const budgetMut: SendBudgetMut = { invitesLeft: effectiveInvitesLeft, dmsLeft: effectiveDmsLeft };
   // For auto sends: bail early when both invite and DM budgets are zero.
   // For manual sends: always proceed — thread workers handle per-type budget checks.
   if (!opts.ignoreInviteLimit && budgetMut.invitesLeft <= 0 && budgetMut.dmsLeft <= 0) {

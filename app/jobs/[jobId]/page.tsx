@@ -4,7 +4,10 @@ import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import type { AppStage } from "@prisma/client";
 import { enqueueOutreach } from "@/outreach/enqueue";
+import { sendForJobs } from "@/outreach/outreach-tick";
+import { withCronLock } from "@/lib/cron-lock";
 import { recomputeOutreachState } from "@/status/outreach-state";
+import { SendNowButton } from "@/components/send-now-button";
 import {
   ArrowLeft,
   CircleDollarSign,
@@ -161,6 +164,21 @@ async function confirmOutreach(formData: FormData) {
   revalidatePath("/");
 }
 
+async function sendNow(formData: FormData) {
+  "use server";
+  const jobId = formData.get("jobId") as string;
+  if (!jobId) return;
+  // Fire this job's queued outreach immediately. Mirrors the board's "Send now":
+  // bypasses the send window AND both rate caps (owner explicitly clicked send),
+  // still respects globalPause. Takes the "tick" lock so a concurrent cron tick
+  // can't double-send. CONNECTED (connection) threads DM directly; QUEUED ones invite.
+  await withCronLock("tick", () =>
+    sendForJobs([jobId], { ignoreInviteLimit: true, ignoreDmLimit: true }),
+  ).catch((e) => console.error(`[jobs/${jobId}] sendNow failed:`, e));
+  revalidatePath(`/jobs/${jobId}`);
+  revalidatePath("/");
+}
+
 const THREAD_PHASE_LABEL: Record<string, string> = {
   DRAFT: "Draft — awaiting your review",
   QUEUED: "Queued — invite sends next tick",
@@ -200,6 +218,13 @@ export default async function JobDetailPage({
       })
     : [];
   const threadByOutreach = new Map(threads.map((t) => [t.outreachId, t]));
+
+  // Anything ready to fire on demand: a QUEUED invite or a CONNECTED direct-DM
+  // thread. Gates the "Send DMs now" button so it only shows when it'd do something.
+  const hasSendable = threads.some((t) => {
+    const ph = (t.providerState as { phase?: string } | null)?.phase;
+    return t.status !== "ARCHIVED" && (ph === "QUEUED" || ph === "CONNECTED");
+  });
 
   const salary = job.salaryAnnualBase
     ? new Intl.NumberFormat("en-IN", {
@@ -324,7 +349,15 @@ export default async function JobDetailPage({
         {/* Outreach — review drafts + track threads */}
         {job.outreaches.length > 0 && (
           <div className="bg-card rounded-2xl border border-border shadow-sm p-6">
-            <h2 className="text-sm font-semibold text-foreground mb-3">Outreach</h2>
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <h2 className="text-sm font-semibold text-foreground">Outreach</h2>
+              {hasSendable && (
+                <form action={sendNow}>
+                  <input type="hidden" name="jobId" value={job.id} />
+                  <SendNowButton />
+                </form>
+              )}
+            </div>
             <div className="space-y-4">
               {job.outreaches.map(o => {
                 const thread = threadByOutreach.get(o.id);

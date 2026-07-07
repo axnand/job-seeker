@@ -114,11 +114,12 @@ Targeting: entry-level / SDE-1 / junior software engineering roles at strong pro
     // pool as invites are accepted or time out — until connectTarget accepted
     // connections are reached, maxInvitesPerJob total is hit, or the company's
     // candidate pool is exhausted.
-    maxReferralTargetsPerJob: 5, // in-flight invites kept pending per job (small,
-                                 // so the round-robin claim spreads the daily cap
-                                 // across many jobs; replenish refills on accept/timeout)
-    connectTarget: 8,          // stop topping up once this many people accept
-    maxInvitesPerJob: 20,      // hard ceiling on total invites ever sent per job
+    maxReferralTargetsPerJob: 15, // in-flight batch per job: how many people we
+                                 // queue at once (connections DM directly, cold
+                                 // targets get invites). Replenish refills on
+                                 // accept/timeout up to connectTarget/maxInvitesPerJob.
+    connectTarget: 12,         // stop topping up once this many people accept/DM
+    maxInvitesPerJob: 30,      // hard ceiling on total outreach ever sent per job
     replenishIntervalHours: 12, // min hours between people-search top-ups per job
     // Cancel an unaccepted invite after this, freeing the slot. 14 (not 7):
     // busy recruiters often accept in week two, withdrawal wipes the invite
