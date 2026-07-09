@@ -504,6 +504,7 @@ async function pollReplies(): Promise<number> {
       id: true,
       providerChatId: true,
       lastMessageAt: true,
+      lastInboundAt: true,
       outreach: { include: { job: true, contact: true } },
     },
   });
@@ -525,8 +526,15 @@ async function pollReplies(): Promise<number> {
     const chunk = toPoll.slice(i, i + POLL_CONCURRENCY);
     const results = await Promise.allSettled(chunk.map(async (t) => {
       if (!t.providerChatId || !t.lastMessageAt) return false;
+      // Watermark = the later of our last outbound and the last reply we ALREADY
+      // processed. Comparing against lastMessageAt alone re-detects an
+      // already-handled reply every tick — which, for a negative reply (thread
+      // stays ARCHIVED, not REPLIED, so it keeps getting polled), fired a fresh
+      // reply-alert email every tick. Only a reply strictly newer than this
+      // watermark is genuinely new.
+      const since = t.lastInboundAt && t.lastInboundAt > t.lastMessageAt ? t.lastInboundAt : t.lastMessageAt;
       const messages = await listChatMessages(accountId, t.providerChatId, 5);
-      const inbound = messages.find((m) => !m.fromMe && m.date && new Date(m.date) > t.lastMessageAt!);
+      const inbound = messages.find((m) => !m.fromMe && m.date && new Date(m.date) > since);
       if (!inbound) return false;
       await handleInboundReply(t.id, inbound.text, t.outreach);
       return true;
