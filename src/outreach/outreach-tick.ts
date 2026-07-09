@@ -490,11 +490,16 @@ async function pollReplies(): Promise<number> {
   const accountId = config.owner.linkedinAccountId;
   if (!accountId) return 0;
 
-  // Include PAUSED — a sibling paused by the one-human rule can still receive a
-  // reply, and that reply should flip it to REPLIED (markThreadReplied handles
-  // PAUSED in its guard).
+  // Poll every messaged thread that isn't already terminal-REPLIED:
+  //   • PENDING — a direct-DM'd connection reaches MESSAGED while still PENDING;
+  //     excluding it (the old bug) meant its reply was never polled.
+  //   • PAUSED  — a sibling paused by the one-human rule can still get a reply.
+  //   • ARCHIVED — a contact who replies AFTER we archived (invite timeout /
+  //     no-reply sweep) should reactivate → REPLIED (markThreadReplied allows it).
+  // providerChatId + lastMessageAt filter to actually-sent threads; POLL_CAP +
+  // recency sort bound the archived tail so it can't balloon the poll.
   const active = await prisma.channelThread.findMany({
-    where: { status: { in: ["ACTIVE", "PAUSED"] }, providerChatId: { not: null }, lastMessageAt: { not: null } },
+    where: { status: { in: ["PENDING", "ACTIVE", "PAUSED", "ARCHIVED"] }, providerChatId: { not: null }, lastMessageAt: { not: null } },
     select: {
       id: true,
       providerChatId: true,

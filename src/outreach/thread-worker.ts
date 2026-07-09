@@ -174,10 +174,13 @@ export async function archiveThread(threadId: string, reason: string): Promise<v
 export async function markThreadReplied(threadId: string, opts?: { negative?: boolean }): Promise<boolean> {
   const transitioned = await prisma.$transaction(async (tx) => {
     const flip = await tx.channelThread.updateMany({
-      where: { id: threadId, status: { in: ["PENDING", "ACTIVE", "PAUSED"] } },
+      // Include ARCHIVED: a human replying after we archived (invite timeout /
+      // no-reply sweep) must still surface as REPLIED — a real reply outranks a
+      // prior give-up. Excludes only threads already REPLIED (idempotent guard).
+      where: { id: threadId, status: { in: ["PENDING", "ACTIVE", "PAUSED", "ARCHIVED"] } },
       data: { status: "REPLIED", nextActionAt: null, lastInboundAt: new Date() },
     });
-    if (flip.count === 0) return false; // already terminal — someone else won the race
+    if (flip.count === 0) return false; // already REPLIED — someone else won the race
 
     const outreach = await tx.outreach.findFirst({
       where: { threadId },
@@ -599,6 +602,11 @@ async function doSendFirstDm(
   const ok = await commitSend(
     thread.id,
     {
+      // MESSAGED means an in-flight conversation → status ACTIVE. Connection
+      // threads reach here from PENDING→CONNECTED without ever being set ACTIVE,
+      // and pollReplies only polls ACTIVE/PAUSED — so without this a direct-DM'd
+      // connection's reply was never polled (the "stuck awaiting reply" bug).
+      status: "ACTIVE",
       providerState: { ...ps, phase: "MESSAGED" },
       providerChatId: chatId,
       lastMessageAt: new Date(),

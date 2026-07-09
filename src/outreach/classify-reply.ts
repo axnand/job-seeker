@@ -29,6 +29,15 @@ const NEGATIVE = [
   "we're good",
   "not at this time",
   "unfortunately we",
+  // High-precision rejections seen in real replies the old list missed.
+  "does not hire",
+  "do not hire",
+  "don't hire",
+  "already found",
+  "found suitable candidate",
+  "found a suitable candidate",
+  "position has been closed",
+  "role is closed",
 ];
 
 // Positive/helpful signals that should NEVER be auto-archived as a "no" — even
