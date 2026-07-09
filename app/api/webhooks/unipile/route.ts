@@ -211,10 +211,13 @@ async function handleMessageReceived(data: Record<string, unknown>) {
     (data.message as string) ?? (data.text as string) ?? ((data.message_obj as Record<string, unknown>)?.text as string) ?? ""
   );
 
-  // Primary: match by chat id.
+  // Primary: match by chat id. Include ARCHIVED so a reply arriving AFTER we
+  // archived the thread (invite timeout / no-reply sweep) still reactivates it
+  // in real time — markThreadReplied flips ARCHIVED→REPLIED. (The poll fallback
+  // now covers this too; matching here keeps it instant instead of one tick late.)
   if (chatId) {
     const threads = await prisma.channelThread.findMany({
-      where: { providerChatId: chatId, status: { in: ["ACTIVE", "PENDING", "PAUSED"] } },
+      where: { providerChatId: chatId, status: { in: ["ACTIVE", "PENDING", "PAUSED", "ARCHIVED"] } },
       select: { id: true, outreach: { include: { job: true, contact: true } } },
     });
     if (threads.length > 0) {
