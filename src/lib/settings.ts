@@ -64,6 +64,10 @@ export interface AppSettingsData {
   templates: { connectionNote: string; firstDm: string; followup: string };
   ai: {
     enableResumeTailoring: boolean;
+    // Truthfulness gate for auto-tailoring. true = only rephrase/reorder existing
+    // facts (whitelist enforced). false = relaxed: may add adjacent JD-relevant
+    // skills. See config.ai.truthfulTailoring + src/resume/whitelist.ts.
+    truthfulTailoring:     boolean;
     defaultModel:          string;
     triageModel:           string; // cheap pre-scoring pass (see src/scoring/triage.ts)
   };
@@ -133,6 +137,7 @@ function defaults(): AppSettingsData {
     templates: { ...c.templates },
     ai: {
       enableResumeTailoring: c.ai.enableResumeTailoring,
+      truthfulTailoring:     c.ai.truthfulTailoring,
       defaultModel:          c.ai.defaultModel,
       triageModel:           c.ai.triageModel,
     },

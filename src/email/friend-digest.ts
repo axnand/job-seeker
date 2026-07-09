@@ -11,7 +11,12 @@ export interface FriendRecipient {
 function formatSalary(job: Job): string {
   if (!job.salaryAnnualBase) return "";
   const lpa = (job.salaryAnnualBase / 100_000).toFixed(1).replace(/\.0$/, "");
-  if (job.salaryMin && job.salaryMax && job.salaryMin !== job.salaryMax) {
+  // Only show a raw min–max range when those figures are ALREADY annual INR (same
+  // unit as the LPA label). For any other currency/period (e.g. a USD/year role
+  // stored as 120000), salaryMin/Max are in the source's own units and dividing by
+  // 100k yields nonsense like "1.2 LPA" — fall back to the normalized annual base.
+  const isAnnualInr = job.salaryCurrency === "INR" && job.salaryPeriod === "YEAR";
+  if (isAnnualInr && job.salaryMin && job.salaryMax && job.salaryMin !== job.salaryMax) {
     const minLpa = (job.salaryMin / 100_000).toFixed(1).replace(/\.0$/, "");
     const maxLpa = (job.salaryMax / 100_000).toFixed(1).replace(/\.0$/, "");
     return `${minLpa}–${maxLpa} LPA`;

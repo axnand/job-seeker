@@ -55,9 +55,17 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ ok: false, reason: "no eligible jobs found", minLPA, salaryBreakdown });
     }
 
+    // A TEST must never blast the real friends (the job set here over-includes —
+    // skipCategory isn't persisted, so seniority/location skips leak in). With no
+    // ?to, preview to the OWNER only; use ?to=<an allowed friend> to send for real.
     const recipients: FriendRecipient[] = overrideTo
       ? [{ email: overrideTo, minBaseLPA: minLPA }]
-      : config.friendDigest.recipients;
+      : config.owner.email
+        ? [{ email: config.owner.email, minBaseLPA: minLPA }]
+        : [];
+    if (recipients.length === 0) {
+      return NextResponse.json({ ok: false, error: "no recipient (set OWNER_EMAIL or pass ?to=)" }, { status: 400 });
+    }
 
     await Promise.all(recipients.map(r => sendFriendDigest(jobs, r)));
 

@@ -18,7 +18,13 @@ export interface TailorProposal {
   rejected: EditViolation[];
 }
 
-function systemPrompt(masterTex: string): string {
+function systemPrompt(masterTex: string, enforceTruthfulness: boolean): string {
+  // Rule 3 flips with the truthfulness setting. Strict = never invent anything.
+  // Relaxed = may add adjacent, JD-relevant skills/keywords, but employers,
+  // titles, degrees and dates must stay real (no fabricated experience/history).
+  const rule3 = enforceTruthfulness
+    ? `3. TRUTHFULNESS (hard rule): the replacement may only reorder, rephrase, or emphasize facts already present in the resume. NEVER introduce a technology, tool, framework, company, metric, credential, or claim that the master resume does not contain. If the JD wants a skill the candidate lacks, DO NOT add it.`
+    : `3. TRUTHFULNESS (relaxed): you MAY add adjacent, JD-relevant SKILLS or KEYWORDS the candidate could realistically pick up quickly, even if not in the master — but keep it plausible and close to their real background. HARD LIMITS even in this mode: never fabricate employers, job titles, degrees, dates, or specific quantified metrics/achievements. Only skills/tools/keywords may be added; work history stays real.`;
   return `You are a precise resume-tailoring engine. You receive a candidate's master LaTeX resume and one job description. You propose at most ${MAX_EDITS} surgical text edits that make the resume speak to THIS job.
 
 ## The candidate's master resume (LaTeX source — the ONLY source of truth)
@@ -27,7 +33,7 @@ ${masterTex}
 ## Edit rules (violations are rejected by a validator, so follow them exactly)
 1. Each edit = {"find": "<exact substring copied verbatim from the LaTeX above>", "replace": "<replacement>", "why": "<one line tying it to the JD>"}.
 2. "find" must be copied character-for-character (including LaTeX commands and spacing) and must be UNIQUE in the document — include enough surrounding context to disambiguate.
-3. TRUTHFULNESS (hard rule): the replacement may only reorder, rephrase, or emphasize facts already present in the resume. NEVER introduce a technology, tool, framework, company, metric, credential, or claim that the master resume does not contain. If the JD wants a skill the candidate lacks, DO NOT add it.
+${rule3}
 4. Stay surgical: prefer 2-4 high-impact edits over ${MAX_EDITS} cosmetic ones. Typical good edits: swap which bullet leads a section, rephrase a bullet to mirror the JD's vocabulary (using the candidate's real facts), reorder a skills list so the JD-relevant items come first, adjust the summary line's emphasis.
 5. Preserve LaTeX validity: keep every \\command, brace, and environment intact; replace only human-visible text. Escape special characters exactly as the master does (\\%, \\&, \\#).
 6. If the resume already fits the job well, return fewer edits or none.
@@ -66,9 +72,12 @@ export async function proposeEdits(input: {
   jdText: string;
   tailoringSuggestions: string | null;
   providerId?: string;
+  /** Whether the whitelist truthfulness gate is enforced (settings.ai.truthfulTailoring). Default true. */
+  enforceTruthfulness?: boolean;
 }): Promise<TailorProposal> {
+  const enforceTruthfulness = input.enforceTruthfulness !== false;
   const messages: { role: "system" | "user" | "assistant"; content: string }[] = [
-    { role: "system", content: systemPrompt(input.masterTex) },
+    { role: "system", content: systemPrompt(input.masterTex, enforceTruthfulness) },
     { role: "user", content: userPrompt(input.company, input.role, input.jdText, input.tailoringSuggestions) },
   ];
 
@@ -82,7 +91,7 @@ export async function proposeEdits(input: {
       input.providerId
     );
     edits = coerce(parseJsonResponse<RawProposal>(result.text));
-    violations = validateEdits(edits, input.masterTex, input.vocabulary, MAX_EDITS);
+    violations = validateEdits(edits, input.masterTex, input.vocabulary, MAX_EDITS, { enforceTruthfulness });
     if (violations.length === 0) return { edits, rejected: [] };
 
     // Repair round: tell the model exactly what was rejected and why.

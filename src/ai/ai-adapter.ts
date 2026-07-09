@@ -149,10 +149,19 @@ async function callAnthropic(
   const system = messages.find(m => m.role === "system")?.content;
   const filtered = messages.filter(m => m.role !== "system");
 
+  // Anthropic has no `response_format: json_object` param. To get the same
+  // reliability, prefill an opening brace as the assistant turn — the model then
+  // continues a bare JSON object (no prose/markdown fences) — and re-prepend the
+  // "{" to the returned text so it parses. Standard Anthropic JSON pattern.
+  const wantJson = opts.response_format?.type === "json_object";
+  const outgoing = wantJson
+    ? [...filtered, { role: "assistant", content: "{" }]
+    : filtered;
+
   const body: Record<string, unknown> = {
     model: provider.model,
     max_tokens: opts.max_tokens ?? 2048,
-    messages: filtered,
+    messages: outgoing,
   };
   if (system) body.system = system;
   if (opts.temperature !== undefined) body.temperature = opts.temperature;
@@ -178,7 +187,9 @@ async function callAnthropic(
     usage?: { input_tokens: number; output_tokens: number };
   };
 
-  const text = data.content.find(b => b.type === "text")?.text ?? "";
+  const raw = data.content.find(b => b.type === "text")?.text ?? "";
+  // Re-attach the prefilled "{" so the caller sees a complete JSON object.
+  const text = wantJson ? `{${raw}` : raw;
   return {
     text,
     usage: data.usage

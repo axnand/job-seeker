@@ -36,14 +36,31 @@ export async function uploadResume(
   return key;
 }
 
-/** Download a resume from S3 and return its raw bytes. */
-export async function downloadResume(key: string): Promise<Buffer> {
-  const res: GetObjectCommandOutput = await client().send(
-    new GetObjectCommand({ Bucket: config.s3.bucket, Key: key })
-  );
-  const chunks: Uint8Array[] = [];
-  for await (const chunk of res.Body as AsyncIterable<Uint8Array>) chunks.push(chunk);
-  return Buffer.concat(chunks);
+/**
+ * Download a resume from S3 and return its raw bytes.
+ *
+ * Retries transient failures: rapid-fire GetObject bursts (a tick sending many
+ * DMs) occasionally hit S3 throttling / network blips, and the caller
+ * (doSendFirstDm) treats a throw as "no resume" — which is how DMs went out
+ * PDF-less intermittently. A couple of quick retries make a transient blip a
+ * non-event; a persistent failure still throws so the caller can defer the send.
+ */
+export async function downloadResume(key: string, attempts = 3): Promise<Buffer> {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res: GetObjectCommandOutput = await client().send(
+        new GetObjectCommand({ Bucket: config.s3.bucket, Key: key })
+      );
+      const chunks: Uint8Array[] = [];
+      for await (const chunk of res.Body as AsyncIterable<Uint8Array>) chunks.push(chunk);
+      return Buffer.concat(chunks);
+    } catch (err) {
+      lastErr = err;
+      if (i < attempts - 1) await new Promise((r) => setTimeout(r, 400 * (i + 1)));
+    }
+  }
+  throw lastErr;
 }
 
 /** Presigned GET URL, valid for 1 hour. */

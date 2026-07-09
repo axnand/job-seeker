@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { computePriority, priorityWhy } from "@/scoring/priority";
+import { getSettings } from "@/lib/settings";
 import type { AppStage, SkipSource } from "@prisma/client";
 
 type ProviderStateJson = { phase?: string } | null;
@@ -53,12 +54,14 @@ export async function GET(req: NextRequest) {
 
   const nextCursor = jobs.length === limit ? jobs[jobs.length - 1].id : null;
 
+  // Use the live-tuned salary floor so board ranking matches the scoring gate.
+  const floor = (await getSettings()).search.minSalaryAmount;
   const result = jobs.map(({ outreaches, ...job }) => {
-    const { score, parts } = computePriority(job);
+    const { score, parts } = computePriority(job, floor);
     return {
       ...job,
       priority: score,
-      priorityWhy: priorityWhy(job, parts),
+      priorityWhy: priorityWhy(job, parts, floor),
       outreachCounts: computeOutreachCounts(
         outreaches.map((o) => o.thread).filter((t): t is NonNullable<typeof t> => !!t),
       ),

@@ -324,6 +324,20 @@ export async function scoreJob(
 
   let skipReason = parsed.skipReason;
   let skipCategory = parsed.skipCategory;
+
+  // Deterministic relevance-threshold gate. The rubric ASKS the LLM to set
+  // skipReason when score < threshold, but a low score with a null skipReason (a
+  // common LLM inconsistency) would otherwise sail through as NEW and — because
+  // discovery auto-approves + auto-outreaches — DM a stranger. Enforce the
+  // threshold in code so it's a real gate, not a prompt suggestion.
+  const threshold = input.relevanceThreshold ?? config.search.relevanceThreshold;
+  if (!skipReason && parsed.score < threshold) {
+    skipReason = `below relevance threshold (${parsed.score} < ${threshold})`;
+    // Keep the LLM's category if it gave one; else "other" (a low overall score
+    // is a fit problem, not a salary-only skip — don't leak it to friend digests).
+    skipCategory = skipCategory ?? "other";
+  }
+
   if (!skipReason && !gate.pass) {
     // LLM passed it but the salary gate (floor + confidence buffer) didn't —
     // by definition a salary-only skip.

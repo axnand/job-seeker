@@ -14,7 +14,7 @@ import { prisma } from "@/lib/prisma";
 import { config } from "@/config";
 import { getSettings } from "@/lib/settings";
 import { getSendBudget, isWithinSendWindow } from "./limits";
-import { processThread, markThreadReplied, type SendBudgetMut } from "./thread-worker";
+import { processThread, markThreadReplied, OutreachPausedError, type SendBudgetMut } from "./thread-worker";
 import { resetActiveRoleCache } from "./active-role";
 import { replenishOutreach } from "./replenish";
 import { maybeAutoResume } from "./safety";
@@ -115,6 +115,15 @@ export async function runOutreachTick(): Promise<TickResult> {
       await processThread(threadId, budgetMut, settings);
       base.processed++;
     } catch (err) {
+      // Account distress (429 / restricted): the pause is set — STOP the batch so
+      // we don't fire the remaining claimed threads at the throttled account.
+      // Their nextActionAt is still the claim's reclaim marker, so a later tick
+      // (after auto-resume) re-claims them.
+      if (err instanceof OutreachPausedError) {
+        base.paused = true;
+        console.warn(`[tick] account distress — aborting batch after ${base.processed} sent`);
+        break;
+      }
       base.failed++;
       console.error(`[tick] thread ${threadId} failed:`, (err as Error).message);
       await prisma.channelThread
@@ -222,7 +231,7 @@ export async function sendForJobs(
     }
   }
 
-  let sent = 0, failed = 0;
+  let sent = 0, failed = 0, paused = false;
   for (const { id } of claimable) {
     if (budgetMut.invitesLeft <= 0 && budgetMut.dmsLeft <= 0) {
       await prisma.channelThread.updateMany({ where: { id }, data: { nextActionAt: new Date() } }).catch(() => {});
@@ -232,6 +241,12 @@ export async function sendForJobs(
       await processThread(id, budgetMut, settings);
       sent++;
     } catch (err) {
+      // Account distress — stop the manual batch too; the pause is set.
+      if (err instanceof OutreachPausedError) {
+        paused = true;
+        console.warn(`[send] account distress — aborting batch after ${sent} sent`);
+        break;
+      }
       failed++;
       console.error(`[send] thread ${id} failed:`, (err as Error).message);
       await prisma.channelThread
@@ -242,7 +257,7 @@ export async function sendForJobs(
   // Don't report capped for manual sends — the user already knew they were at the
   // limit; they clicked Send intentionally. capped flag only matters for the cron.
   const wasCapped = !opts.ignoreInviteLimit && budgetMut.invitesLeft <= 0;
-  return { sent, failed, ...(wasCapped ? { capped: true } : {}) };
+  return { sent, failed, ...(paused ? { paused: true } : {}), ...(wasCapped ? { capped: true } : {}) };
 }
 
 /**
@@ -390,26 +405,32 @@ async function reconcileInviteAcceptances(): Promise<number> {
   const accountId = config.owner.linkedinAccountId;
   if (!accountId) return 0;
 
-  // Claim today's slot. If the marker already exists, another tick ran it today.
+  // Once-a-day guard. IMPORTANT: only MARK the day done AFTER a successful pass —
+  // the old code created the marker up-front, so one transient API failure
+  // disabled the missed-webhook safety net for the whole UTC day. Now a failed
+  // fetch leaves the day unmarked and a later tick retries.
   const dayKey = `reconcile:invite-accept:${new Date().toISOString().slice(0, 10)}`;
-  try {
-    await prisma.webhookEvent.create({
-      data: { id: dayKey, provider: "internal", eventType: "invite-reconcile" },
-    });
-  } catch {
-    return 0; // already reconciled today
-  }
+  const alreadyDone = await prisma.webhookEvent.findUnique({ where: { id: dayKey } }).catch(() => null);
+  if (alreadyDone) return 0;
+  const markDone = () =>
+    prisma.webhookEvent
+      .create({ data: { id: dayKey, provider: "internal", eventType: "invite-reconcile" } })
+      .catch(() => {}); // ignore a rare concurrent create
 
   const pending = await prisma.channelThread.findMany({
     where: { status: "ACTIVE", providerState: { path: ["phase"], equals: "INVITE_PENDING" } },
     select: { id: true, candidateProviderId: true, providerState: true, outreachId: true },
   });
-  if (pending.length === 0) return 0;
+  if (pending.length === 0) {
+    await markDone(); // nothing to do today — don't re-query every tick
+    return 0;
+  }
 
-  // limit=100 (Unipile rejects higher). null => fetch failed: do NOT infer.
+  // limit=100 (Unipile rejects higher). null => fetch failed: do NOT infer, and do
+  // NOT mark the day done — retry on a later tick.
   const sent = await listSentInvitations(accountId, 100);
   if (sent === null) {
-    console.warn("[tick] reconcileInviteAcceptances: sent-invitations fetch failed — skipping today");
+    console.warn("[tick] reconcileInviteAcceptances: sent-invitations fetch failed — will retry this tick's next run");
     return 0;
   }
   const stillPending = new Set(
@@ -455,6 +476,10 @@ async function reconcileInviteAcceptances(): Promise<number> {
       if (jobId) await recomputeOutreachState(jobId).catch(() => {});
     }
   }
+  // Pass completed (the sent-invitations fetch succeeded) — mark the day done so
+  // later ticks skip. Individual profile-check failures re-check tomorrow / via
+  // the invite timeout; the MAX_PROFILE_CHECKS cap also defers the rest to tomorrow.
+  await markDone();
   if (accepted > 0) console.log(`[tick] reconcileInviteAcceptances: ${accepted} missed acceptance(s) → CONNECTED`);
   return accepted;
 }

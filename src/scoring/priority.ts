@@ -68,8 +68,12 @@ function freshScore(postedAt: Date | string | null, createdAt: Date | string): n
   return Math.max(0, 100 - ((days - 2) / 19) * 100);
 }
 
-export function computePriority(job: PriorityInput): { score: number; parts: PriorityParts } {
-  const floor = config.search.minSalary.amount;
+export function computePriority(
+  job: PriorityInput,
+  // Live-tuned floor from settings.search.minSalaryAmount when the caller has it;
+  // falls back to the config default so board/digest ranking matches scoring.
+  floor: number = config.search.minSalary.amount,
+): { score: number; parts: PriorityParts } {
   const parts: PriorityParts = {
     fit:   job.aiScore ?? 40, // unscored — neutral, shouldn't top the list
     pay:   payScore(job.salaryAnnualBase, floor),
@@ -87,8 +91,11 @@ export function computePriority(job: PriorityInput): { score: number; parts: Pri
 }
 
 /** One-line human explanation for tooltips/digest ("fit 82 · 1.3× floor · stated · connected · 2d"). */
-export function priorityWhy(job: PriorityInput, parts: PriorityParts): string {
-  const floor = config.search.minSalary.amount;
+export function priorityWhy(
+  job: PriorityInput,
+  parts: PriorityParts,
+  floor: number = config.search.minSalary.amount,
+): string {
   const bits: string[] = [`fit ${job.aiScore ?? "—"}`];
   if (job.salaryAnnualBase) {
     bits.push(`${(job.salaryAnnualBase / floor).toFixed(1)}× floor`);

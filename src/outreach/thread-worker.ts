@@ -36,8 +36,22 @@ import { resolveActiveRole } from "@/outreach/active-role";
 import { recomputeOutreachState } from "@/status/outreach-state";
 import { handleSendError } from "./safety";
 import { nextSendWindowOpen } from "./limits";
+import { isCompanyBlacklisted } from "@/sources/normalize";
 
 const MAX_CONSECUTIVE_FAILURES = 5;
+
+/**
+ * Thrown by processThread when a distress signal (429 / account_restricted) trips
+ * the global pause. The batch loop (runOutreachTick / sendForJobs) MUST catch this
+ * and STOP — otherwise every remaining claimed thread makes one more live call to
+ * the account that just signalled distress, the exact thing the pause prevents.
+ */
+export class OutreachPausedError extends Error {
+  constructor() {
+    super("outreach paused (account distress signal)");
+    this.name = "OutreachPausedError";
+  }
+}
 
 export interface SendBudgetMut {
   invitesLeft: number;
@@ -61,6 +75,15 @@ async function guardedThreadUpdate(threadId: string, data: Record<string, unknow
     data,
   });
   return res.count > 0;
+}
+
+/** Clear the pending-send marker after a provider call that definitively did NOT
+ *  send (threw before commit), so the next tick can re-claim immediately instead
+ *  of waiting for the ~10-min stale-pending reclaim sweep. */
+async function clearPendingSend(threadId: string): Promise<void> {
+  await prisma.channelThread
+    .updateMany({ where: { id: threadId }, data: { pendingSendKey: null, pendingSendStartedAt: null } })
+    .catch(() => {});
 }
 
 async function markPendingSend(threadId: string): Promise<string | null> {
@@ -186,10 +209,18 @@ export async function markThreadReplied(threadId: string, opts?: { negative?: bo
   });
 
   if (transitioned && opts?.negative) {
-    // Negative reply: also archive so the sequence is fully stopped, not just paused.
+    // Negative reply: fully ARCHIVE so it's a real terminal record, not a
+    // success-looking REPLIED with only a hidden archivedReason. status/archivedAt
+    // were previously left unset — set them so it stops the sequence AND doesn't
+    // inflate the reply/pipeline stats.
     await prisma.channelThread.updateMany({
       where: { id: threadId },
-      data: { archivedReason: "Negative reply — sequence stopped" },
+      data: {
+        status: "ARCHIVED",
+        archivedAt: new Date(),
+        archivedReason: "Negative reply — sequence stopped",
+        nextActionAt: null,
+      },
     });
   }
   return transitioned;
@@ -229,9 +260,7 @@ export async function processThread(
     return;
   }
 
-  const blacklist = s.search.blacklistedCompanies.map(c => c.toLowerCase());
-  const coLower = job.company.toLowerCase();
-  if (blacklist.some(b => coLower.includes(b) || b.includes(coLower))) {
+  if (isCompanyBlacklisted(job.company, s.search.blacklistedCompanies)) {
     const reason = `Company blacklisted: ${job.company}`;
     await archiveThread(threadId, reason);
     await prisma.job.updateMany({ where: { id: job.id, appStage: { not: "SKIPPED" } }, data: { appStage: "SKIPPED", appStageNote: reason, skipSource: "BLACKLIST" } });
@@ -274,10 +303,12 @@ export async function processThread(
     }
     await recomputeOutreachState(job.id).catch(() => {});
   } catch (err) {
-    // Distress signal? Trip the global pause and stop.
+    // Distress signal? Trip the global pause AND signal the batch loop to abort —
+    // returning here would let the loop keep sending to the just-restricted account.
     if (await handleSendError(err)) {
+      await clearPendingSend(threadId); // this send failed; don't strand the marker
       await guardedThreadUpdate(threadId, { nextActionAt: minutesFromNow(60) });
-      return;
+      throw new OutreachPausedError();
     }
     // Circuit breaker
     const updated = await prisma.channelThread
@@ -370,6 +401,9 @@ async function doSendInvite(
       console.log(`${tag} invite permanently rejected — archived (${(err as Error).message})`);
       return;
     }
+    // Unhandled provider error — the invite did NOT send. Clear the marker so the
+    // retry doesn't wait on the stale-pending reclaim sweep.
+    await clearPendingSend(thread.id);
     throw err;
   }
 
@@ -508,7 +542,19 @@ async function doSendFirstDm(
       const data = await downloadResume(resumeKey);
       attachment = { data, filename: resumeKey.split("/").pop() ?? "resume.pdf" };
     } catch (err) {
-      console.warn(`${tag} could not load resume — sending without:`, err);
+      // A referral first-DM MUST carry the resume — do NOT fall through and send
+      // it PDF-less (that's the bug where contacts got a pitch with no attachment
+      // whenever an S3 read blipped). Defer and retry the whole send later; the
+      // download already retried internally, so this is a durable-ish failure.
+      // Clear the pending-send marker (set by markPendingSend) so the retry isn't
+      // blocked by the CAS. Not a per-contact fault → don't burn the circuit breaker.
+      console.error(`${tag} resume download failed — deferring send (won't pitch without the resume):`, err);
+      await guardedThreadUpdate(thread.id, {
+        nextActionAt: minutesFromNow(30),
+        pendingSendKey: null,
+        pendingSendStartedAt: null,
+      });
+      return;
     }
   }
 
@@ -542,6 +588,9 @@ async function doSendFirstDm(
       console.log(`${tag} DM blocked (not connected: "${body.slice(0, 60)}") — back to INVITE_PENDING, awaiting acceptance`);
       return;
     }
+    // Unhandled provider error — the DM did NOT send. Clear the marker so the
+    // retry doesn't wait on the stale-pending reclaim sweep.
+    await clearPendingSend(thread.id);
     throw err;
   }
 
@@ -591,7 +640,14 @@ async function doFollowup(
   // A redirected (closed→open) thread's stored follow-up names the closed role —
   // re-render so the nudge mentions the now-active open role.
   const text = (!ctx.redirected && ps.followup?.trim()) || rendered.followup;
-  const { messageId } = await sendChatMessage(accountId, thread.providerChatId, text);
+  let messageId = "";
+  try {
+    ({ messageId } = await sendChatMessage(accountId, thread.providerChatId, text));
+  } catch (err) {
+    // Follow-up did NOT send — clear the marker so the retry isn't stalled ~10min.
+    await clearPendingSend(thread.id);
+    throw err;
+  }
 
   budget.dmsLeft -= 1;
   const newSent = thread.followupsSent + 1;

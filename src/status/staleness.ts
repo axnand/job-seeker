@@ -30,12 +30,17 @@ export async function sweepStaleJobs(): Promise<{ closedNew: number; closedAppro
     },
   });
 
-  // APPROVED jobs where outreach never got traction.
+  // APPROVED jobs where outreach never got traction. Exclude jobs the owner has
+  // already progressed OUT-OF-BAND: a direct application (directAppliedAt) or a
+  // landed referral (referredAt) is a live, successful outcome even when the
+  // LinkedIn outreach state is NONE/NO_REPLY_ARCHIVED — don't auto-close those.
   const closedApproved = await prisma.job.updateMany({
     where: {
       appStage: "APPROVED",
       approvedAt: { lt: cutoff },
       outreachState: { in: ["NONE", "NO_REPLY_ARCHIVED"] },
+      directAppliedAt: null,
+      referredAt: null,
     },
     data: {
       appStage: "SKIPPED",

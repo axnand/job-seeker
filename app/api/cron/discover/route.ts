@@ -17,7 +17,7 @@ import { scoreJob } from "@/scoring/ai-scorer";
 import { triageJob } from "@/scoring/triage";
 import { computePriority } from "@/scoring/priority";
 import { normalizeSalary } from "@/salary/normalize";
-import { dedupeKey } from "@/sources/normalize";
+import { dedupeKey, isCompanyBlacklisted } from "@/sources/normalize";
 import { sendDailyDigest } from "@/email/digest";
 import { sendFriendDigest } from "@/email/friend-digest";
 import { sendScoringFailureAlert } from "@/email/alerts";
@@ -124,10 +124,9 @@ async function runDiscover() {
     }
 
     // Blacklist — companies explicitly excluded (low pay, bad fit, etc.)
-    const blacklist = settings.search.blacklistedCompanies.map(c => c.toLowerCase());
+    const blacklist = settings.search.blacklistedCompanies;
     const afterBlacklist = blacklist.length === 0 ? afterTitleFilter : afterTitleFilter.filter(job => {
-      const co = job.company.toLowerCase();
-      const blocked = blacklist.some(b => co.includes(b) || b.includes(co));
+      const blocked = isCompanyBlacklisted(job.company, blacklist);
       if (blocked) console.log(`[discover] blacklisted company: ${job.company}`);
       return !blocked;
     });
@@ -301,7 +300,7 @@ async function runDiscover() {
         where: { appStage: { in: ["NEW", "APPROVED", "OUTREACH"] }, closedAt: null },
       });
       const topPicks = openBoard
-        .map(j => ({ job: j, score: computePriority(j).score }))
+        .map(j => ({ job: j, score: computePriority(j, settings.search.minSalaryAmount).score }))
         .sort((a, b) => (a.job.pinned !== b.job.pinned) ? (a.job.pinned ? -1 : 1) : b.score - a.score)
         .slice(0, 5)
         .map(x => x.job);

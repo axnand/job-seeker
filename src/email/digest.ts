@@ -7,6 +7,7 @@ import type { Job } from "@prisma/client";
 import { sendMail } from "./mailer";
 import { config } from "@/config";
 import { computePriority, priorityWhy } from "@/scoring/priority";
+import { getSettings } from "@/lib/settings";
 
 function formatSalary(job: Job): string {
   if (!job.salaryAnnualBase) return "Salary not stated";
@@ -103,10 +104,10 @@ function jobCard(job: Job): string {
  * today's finds), so the top of the email always answers "what do I act on
  * first?". Pinned jobs lead, then composite priority.
  */
-function topPicksSection(picks: Job[]): string {
+function topPicksSection(picks: Job[], floor: number): string {
   if (picks.length === 0) return "";
   const rows = picks.map((job, i) => {
-    const { score, parts } = computePriority(job);
+    const { score, parts } = computePriority(job, floor);
     return `
   <tr>
     <td style="padding:8px 10px 8px 0;font-size:15px;font-weight:700;color:#d1d5db;vertical-align:top">${i + 1}</td>
@@ -114,7 +115,7 @@ function topPicksSection(picks: Job[]): string {
       <a href="${config.app.baseUrl}/jobs/${job.id}" style="font-size:14px;font-weight:600;color:#111827;text-decoration:none">
         ${job.pinned ? "⭐ " : ""}${job.company} — ${job.role}
       </a>
-      <div style="font-size:12px;color:#6b7280;margin-top:2px">${priorityWhy(job, parts)}</div>
+      <div style="font-size:12px;color:#6b7280;margin-top:2px">${priorityWhy(job, parts, floor)}</div>
     </td>
     <td style="padding:8px 0 8px 10px;text-align:right;vertical-align:top;white-space:nowrap">
       <span style="background:#eef2ff;color:#4338ca;padding:3px 9px;border-radius:9999px;font-size:12px;font-weight:700">${score}</span>
@@ -132,6 +133,7 @@ function topPicksSection(picks: Job[]): string {
 export async function sendDailyDigest(jobs: Job[], topPicks: Job[] = []): Promise<void> {
   if (jobs.length === 0) return;
 
+  const floor = (await getSettings()).search.minSalaryAmount;
   const html = `
 <!DOCTYPE html>
 <html>
@@ -140,7 +142,7 @@ export async function sendDailyDigest(jobs: Job[], topPicks: Job[] = []): Promis
   <h2 style="margin-bottom:4px">Job Automation — Daily Digest</h2>
   <p style="color:#6b7280;margin-top:0">${jobs.length} job${jobs.length !== 1 ? "s" : ""} matched your profile today</p>
   <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0">
-  ${topPicksSection(topPicks)}
+  ${topPicksSection(topPicks, floor)}
   ${jobs.map(jobCard).join("")}
   <p style="color:#9ca3af;font-size:12px;margin-top:24px">
     Outreach is queuing automatically. Open the dashboard to track replies and manage templates.

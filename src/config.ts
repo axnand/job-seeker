@@ -193,6 +193,13 @@ Targeting: entry-level / SDE-1 / junior software engineering roles at strong pro
     triageModel: process.env.TRIAGE_MODEL ?? "gpt-4.1-mini",
     fallbackApiKey: process.env.OPENAI_API_KEY ?? "",
     enableResumeTailoring: false,
+    // Resume truthfulness gate. true (default) = tailoring may only reorder /
+    // rephrase / emphasize facts already in the master resume; the whitelist
+    // validator rejects any invented skill/metric/claim. false = relaxed mode:
+    // the model may add adjacent, JD-relevant skills the master lacks (the owner
+    // opts in, accepting they'll need to back-fill on the job). Employers,
+    // titles, degrees and dates should stay truthful even in relaxed mode.
+    truthfulTailoring: true,
   },
 
   email: {

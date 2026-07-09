@@ -117,8 +117,14 @@ export function validateEdits(
   edits: TailorEdit[],
   masterTex: string,
   vocabulary: string[],
-  maxEdits: number
+  maxEdits: number,
+  // enforceTruthfulness=false (settings.ai.truthfulTailoring off) keeps every
+  // STRUCTURAL check (find exists + unique, brace balance) but SKIPS the
+  // "no new claim" vocabulary check — the owner has opted into adding
+  // adjacent JD-relevant skills the master doesn't contain.
+  opts: { enforceTruthfulness?: boolean } = {},
 ): EditViolation[] {
+  const enforceTruthfulness = opts.enforceTruthfulness !== false;
   const vocab = new Set(vocabulary);
   const violations: EditViolation[] = [];
 
@@ -149,12 +155,14 @@ export function validateEdits(
     }
     // Truthfulness: every claim-token in the replacement must already exist in
     // the master vocabulary (directly or as an inflection), or be closed-class /
-    // generic resume English.
-    const vocabStems = stemsOf(vocabulary);
-    const newTokens = [...claimTokens(visibleText(edit.replace))]
-      .filter(t => isNewClaim(t, vocab, vocabStems));
-    if (newTokens.length > 0) {
-      violations.push({ edit, reason: `introduces claims not in master resume: ${newTokens.slice(0, 5).join(", ")}` });
+    // generic resume English. Skipped entirely in relaxed mode.
+    if (enforceTruthfulness) {
+      const vocabStems = stemsOf(vocabulary);
+      const newTokens = [...claimTokens(visibleText(edit.replace))]
+        .filter(t => isNewClaim(t, vocab, vocabStems));
+      if (newTokens.length > 0) {
+        violations.push({ edit, reason: `introduces claims not in master resume: ${newTokens.slice(0, 5).join(", ")}` });
+      }
     }
   }
   return violations;

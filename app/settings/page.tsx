@@ -491,6 +491,18 @@ export default function SettingsPage() {
                   <Field label="Triage model" hint="Cheap pre-filter that rejects obvious mismatches (seniority/role/location — never pay) before the expensive scoring call. Most jobs are rejects, so this is where the cost savings live.">
                     <ModelPicker value={s.ai.triageModel} onChange={v => ai({ triageModel: v })} />
                   </Field>
+                  <div className="border-t pt-5">
+                    <ToggleField
+                      label="Truthful resume tailoring"
+                      desc={
+                        s.ai.truthfulTailoring
+                          ? "ON (recommended): auto-tailoring may only reorder / rephrase / emphasize skills already in your master resume. The validator rejects any invented skill, tool, or metric."
+                          : "OFF (relaxed): tailoring MAY add adjacent, JD-relevant skills your master lacks — to widen matches on roles you could grow into. Employers, titles, degrees and dates always stay real. Use with care: you should be ready to back-fill any added skill on the job."
+                      }
+                      checked={s.ai.truthfulTailoring}
+                      onChange={v => ai({ truthfulTailoring: v })}
+                    />
+                  </div>
                 </div>
               </Section>
             )}

@@ -33,6 +33,7 @@ const NUMERIC_FIELDS: Partial<Record<keyof AppSettingsData, string[]>> = {
 const BOOLEAN_FIELDS: Partial<Record<keyof AppSettingsData, string[]>> = {
   outreach: ["globalPause"],
   search:   ["strictSalary"],
+  ai:       ["enableResumeTailoring", "truthfulTailoring"],
 };
 
 export async function PATCH(req: NextRequest) {

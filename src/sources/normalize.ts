@@ -67,3 +67,19 @@ const COMPANY_SUFFIXES =
 export function companyKey(company: string): string {
   return normalizeText(company.replace(COMPANY_SUFFIXES, " "));
 }
+
+/**
+ * Blacklist match on WHOLE-WORD boundaries, not raw substrings. The old
+ * `co.includes(b) || b.includes(co)` over-blocked: blacklisting "HCL" also killed
+ * "veHCLe Corp" ("vehcle" contains "hcl"). A word-boundary regex matches
+ * "ACI Worldwide" inside "ACI Worldwide Inc" but never a mid-word coincidence.
+ */
+export function isCompanyBlacklisted(company: string, blacklist: string[]): boolean {
+  const co = company.toLowerCase();
+  return blacklist.some(raw => {
+    const term = raw.toLowerCase().trim();
+    if (!term) return false;
+    const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`\\b${escaped}\\b`, "i").test(co);
+  });
+}

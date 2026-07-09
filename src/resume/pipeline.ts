@@ -21,6 +21,10 @@ import { swapContactBlock } from "./alt-identity";
 import { buildVocabulary, validateEdits, applyEdits, documentIntroducesClaims } from "./whitelist";
 
 const COMPILE_REPAIR_ROUNDS = 2;
+// Max tailor attempts before a TRANSIENT failure (compile service down, LLM /
+// network blip) is marked permanently "failed". Deterministic failures (source
+// errors that survive repair, bad PDF) are never retried. See C4 in the audit.
+const MAX_TAILOR_ATTEMPTS = 4;
 
 export interface TailorOutcome {
   status: "tailored" | "no_edits" | "skipped" | "failed";
@@ -79,6 +83,15 @@ export async function tailorResumeForJob(jobId: string): Promise<TailorOutcome> 
     ? (profile.whitelist as string[])
     : buildVocabulary(masterTex);
 
+  // Truthfulness gate is a settings toggle (default on). Off = relaxed mode: the
+  // model may add adjacent JD-relevant skills the master lacks (owner opted in).
+  const { ai } = await getSettings();
+  const enforceTruthfulness = ai.truthfulTailoring !== false;
+
+  // Prior transient-failure count (C4): infra/LLM blips are logged as
+  // "failed_retryable" with an attempt counter and re-swept up to MAX_TAILOR_ATTEMPTS.
+  const prevAttempts = (job.tailorLog as { attempts?: number } | null)?.attempts ?? 0;
+
   const startedAt = new Date().toISOString();
   const providerId = await tailoringProviderId();
 
@@ -92,6 +105,7 @@ export async function tailorResumeForJob(jobId: string): Promise<TailorOutcome> 
       jdText: job.jdText,
       tailoringSuggestions: job.tailoringSuggestions,
       providerId,
+      enforceTruthfulness,
     });
 
     if (proposal.edits.length === 0) {
@@ -103,7 +117,7 @@ export async function tailorResumeForJob(jobId: string): Promise<TailorOutcome> 
     }
 
     // Defense in depth: re-validate right before applying.
-    const lastCheck = validateEdits(proposal.edits, masterTex, vocabulary, MAX_EDITS);
+    const lastCheck = validateEdits(proposal.edits, masterTex, vocabulary, MAX_EDITS, { enforceTruthfulness });
     if (lastCheck.length > 0) {
       await logOutcome(jobId, { status: "failed", detail: "post-repair validation failed", violations: lastCheck, startedAt });
       return { status: "failed", detail: "post-repair validation failed" };
@@ -118,27 +132,40 @@ export async function tailorResumeForJob(jobId: string): Promise<TailorOutcome> 
       repairs++;
       const fixed = await repairCompileError(tex, compiled.log, providerId);
       if (!fixed) break;
-      // The repair rewrites the whole document — make sure it didn't invent facts.
-      const smuggled = documentIntroducesClaims(fixed, vocabulary);
-      if (smuggled.length > 0) {
-        compiled = { ...compiled, log: `repair rejected — introduced new claims: ${smuggled.slice(0, 5).join(", ")}` };
-        break;
+      // The repair rewrites the whole document — in strict mode make sure it
+      // didn't invent facts (skipped in relaxed mode, where new claims are allowed).
+      if (enforceTruthfulness) {
+        const smuggled = documentIntroducesClaims(fixed, vocabulary);
+        if (smuggled.length > 0) {
+          compiled = { ...compiled, log: `repair rejected — introduced new claims: ${smuggled.slice(0, 5).join(", ")}` };
+          break;
+        }
       }
       tex = fixed;
       compiled = await compileLatex(tex);
     }
 
     if (!compiled.ok) {
+      // Distinguish a TRANSIENT infra failure (compile service unreachable) from a
+      // deterministic SOURCE error the repair loop couldn't fix. Only infra
+      // failures are retryable — otherwise a 10-min outage would strand the job on
+      // the base resume forever (the sweep re-selects "failed_retryable").
+      const infra = !isSourceError(compiled);
+      const attempts = prevAttempts + 1;
+      const retryable = infra && attempts < MAX_TAILOR_ATTEMPTS;
       await logOutcome(jobId, {
-        status: "failed",
-        detail: "compilation failed — outreach will use the base resume",
+        status: retryable ? "failed_retryable" : "failed",
+        attempts,
+        detail: infra
+          ? "compile service unreachable — will retry"
+          : "compilation failed — outreach will use the base resume",
         compileLog: compiled.log.slice(-1500),
         compileProvider: compiled.provider,
         repairs,
         edits: proposal.edits,
         startedAt,
       });
-      return { status: "failed", detail: `compile failed after ${repairs} repair(s)` };
+      return { status: "failed", detail: `compile failed after ${repairs} repair(s)${retryable ? " (retryable)" : ""}` };
     }
 
     // Output sanity: pdflatex recovers from many errors and still emits a PDF,
@@ -180,7 +207,11 @@ export async function tailorResumeForJob(jobId: string): Promise<TailorOutcome> 
     return { status: "tailored", detail: `${proposal.edits.length} edit(s), ${repairs} repair round(s)`, editsApplied: proposal.edits.length };
   } catch (err) {
     const detail = (err as Error).message;
-    await logOutcome(jobId, { status: "failed", detail, startedAt });
+    // Errors here (LLM/network/S3) are usually transient — mark retryable up to
+    // MAX so a blip doesn't permanently strand the job on the base resume.
+    const attempts = prevAttempts + 1;
+    const retryable = attempts < MAX_TAILOR_ATTEMPTS;
+    await logOutcome(jobId, { status: retryable ? "failed_retryable" : "failed", attempts, detail, startedAt });
     return { status: "failed", detail };
   }
 }
@@ -203,8 +234,14 @@ export async function sweepPendingTailoring(batchSize = 2): Promise<number> {
       needsTailoring: true,
       tailoredResumeKey: null,
       closedAt: null,
-      // Don't retry hard-failed jobs every tick: tailorLog null = never attempted.
-      tailorLog: { equals: Prisma.AnyNull },
+      // Never attempted (null) OR a TRANSIENT failure flagged for retry. A
+      // permanent "failed" (source error / bad PDF / retries exhausted) is NOT
+      // re-selected. The attempt cap is enforced at write time, so a retryable
+      // job flips to "failed" once it hits MAX_TAILOR_ATTEMPTS and drops out here.
+      OR: [
+        { tailorLog: { equals: Prisma.AnyNull } },
+        { tailorLog: { path: ["status"], equals: "failed_retryable" } },
+      ],
     },
     orderBy: { discoveredAt: "desc" },
     take: batchSize,

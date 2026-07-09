@@ -14,6 +14,7 @@ interface GreenhouseJob {
   content: string;
   absolute_url: string;
   location: { name: string };
+  first_published?: string; // when the posting went live (preferred over updated_at)
   updated_at: string;
 }
 
@@ -31,7 +32,11 @@ async function fetchGreenhouse(company: string, boardToken: string): Promise<Raw
     location: job.location?.name,
     jobProviderId: String(job.id),
     applyType: "REFERRAL_FIRST" as const,
-    postedAt: job.updated_at ? new Date(job.updated_at) : undefined,
+    // Prefer first_published (true post date) over updated_at, which changes on
+    // any edit and would make a months-old, edited-today posting look fresh.
+    postedAt: job.first_published
+      ? new Date(job.first_published)
+      : job.updated_at ? new Date(job.updated_at) : undefined,
   }));
 }
 
@@ -69,7 +74,9 @@ async function fetchLever(company: string, boardToken: string): Promise<RawJob[]
 interface AshbyJob {
   id: string;
   title: string;
-  descriptionSocial?: string;
+  descriptionPlain?: string;  // full plain-text JD (preferred)
+  descriptionHtml?: string;   // full HTML JD (fallback → stripped)
+  descriptionSocial?: string; // short social blurb (last resort)
   jobUrl: string;
   location?: string;
   publishedDate?: string;
@@ -84,7 +91,9 @@ async function fetchAshby(company: string, boardToken: string): Promise<RawJob[]
     source: "ATS_WATCHLIST" as const,
     company,
     role: job.title,
-    jdText: job.descriptionSocial ?? "",
+    // descriptionSocial is a short blurb — the scorer needs the full JD. Prefer
+    // the plain/HTML description and only fall back to the social blurb.
+    jdText: job.descriptionPlain ?? (job.descriptionHtml ? stripHtml(job.descriptionHtml) : job.descriptionSocial ?? ""),
     applyUrl: job.jobUrl,
     location: job.location,
     jobProviderId: job.id,
