@@ -11,6 +11,7 @@ import {
   PanelLeft,
   Target,
   BarChart3,
+  Archive,
   Sun,
   Moon,
   type LucideIcon,
@@ -20,11 +21,12 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip
 
 type NavItem = { href: string; label: string; icon: LucideIcon };
 
-// The pipeline runs itself; these four screens are the whole operator surface.
+// The pipeline runs itself; these screens are the whole operator surface.
 const NAV: NavItem[] = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/add", label: "Add job", icon: Plus },
   { href: "/analytics", label: "Analytics", icon: BarChart3 },
+  { href: "/history", label: "History", icon: Archive },
   { href: "/resume", label: "Resume", icon: FileText },
   { href: "/settings", label: "Settings", icon: Settings },
 ];

@@ -190,6 +190,7 @@ model Job {
   @@index([company])
   @@index([source])
   @@index([createdAt])
+  @@index([discoveredAt])
 }
 
 // ─── Outreach (join: Job ↔ Contact ↔ ChannelThread) ──────────────────────────
